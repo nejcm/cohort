@@ -70,9 +70,13 @@ At each clean capture every element's box is recorded and the mutation log is re
 - Persona, suite, storage-state, and setup paths must stay inside their `.lab/` folders with no symlinked segment.
 - Not implemented yet, rejected at preflight: `mode: text`, non-empty `routes`, and custom tools returned by setup (`setup_error`).
 - When setup runs, its `startUrl` replaces the configured URL, and its storage state replaces a named one. The time cap includes setup.
+- Setup is raced against the run's time cap and cancellation: a hung setup ends as `limit_reached(time)` or `interrupted`. Cleanups share a budget of min(10 s, time cap); overruns are recorded as `cleanup_timeout`.
+- Setup and cleanup error text is redacted for setup secrets, for every value setup read through `ctx.env()`, and for provider key variables (shown as `[env]`). Values read through `ctx.env()` are not masked in screenshots, because many are not secrets.
+- `resolved-config.json` keeps only origin and path of the run URL, like the start URL.
+- Named storage states are checked against Playwright's `cookies`/`origins` shape at preflight.
 - Untested catalog entries need explicit confirmation: `--allow-untested`, or `allowUntested` in the engine API.
-- Cancellation: `SIGINT` ends as `interrupted` by `user`, `SIGTERM` as `process`. The pending provider call or browser wait is abandoned right away. A pending provider call keeps its reservation as possibly billed. Repeats that never started are counted as `skipped`.
-- Loop detection: three consecutive identical actions (name and arguments, ignoring the observation ID) end as `agent_error(loop)` when none changed the masked screenshot or URL, or each was rejected. Report tools that are accepted reset the count, as does any action that changes the screen. Playwright hides the caret in screenshots, so a blinking caret does not count as a change. Animated pages may hide a real loop until the step cap.
+- Cancellation: `SIGINT` ends as `interrupted` by `user`, `SIGTERM` as `process`. The pending provider call, browser action (click, fill, scroll hover, goto, wait), or post-action load wait is abandoned right away. A pending provider call keeps its reservation as possibly billed. Repeats that never started are counted as `skipped`.
+- Loop detection: three consecutive identical actions (name and key-order-independent arguments, ignoring the observation ID) end as `agent_error(loop)` when none changed the masked screenshot or URL, or each was rejected. Report tools that are accepted reset the count, as does any action that changes the screen. Playwright hides the caret in screenshots, so a blinking caret does not count as a change. Animated pages may hide a real loop until the step cap.
 - `lab run` prints a cost range before running. It assumes 6k input and 300 output tokens per call, from 2 calls up to the step cap, capped at the dollar limit. Without prices it prints "cost unknown; dollar cap unenforceable".
 
 ## Not verified (needs live keys or external targets)

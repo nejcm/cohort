@@ -557,3 +557,38 @@ test('an agent give_up is abandonment; an uncertain give_up is an agent error', 
   assert.equal((await run('/', () => giveUp('journey_abandoned'))).result.outcome.state, 'abandoned');
   assert.equal((await run('/', () => giveUp('agent_uncertain'))).result.outcome.state, 'agent_error');
 });
+
+for (const link of ['#slow-headers', '#slow-body'])
+  test(`cancellation while a click (${link}) or its follow-up capture is pending ends as interrupted`, async () => {
+    const controller = new AbortController();
+    let clickedAt = 0;
+    const { result } = await run(
+      '/lab/loop',
+      (page) => async (request) => {
+        const call = await clickOn(page, link)(request, 0);
+        clickedAt = Date.now();
+        setTimeout(() => controller.abort('user'), 100);
+        return call;
+      },
+      { signal: controller.signal },
+    );
+    assert.deepEqual(
+      [result.outcome.state, (result.outcome as { code?: string }).code],
+      ['agent_error', 'interrupted'],
+      JSON.stringify(result.outcome),
+    );
+    assert.ok(Date.now() - clickedAt < 1200);
+  });
+
+test('loop detection ignores argument key order', async () => {
+  const { result } = await run('/', () => [
+    act('scroll', { target: null, deltaX: 0, deltaY: 0 }),
+    (request) => ({
+      name: 'scroll',
+      args: { deltaY: 0, deltaX: 0, target: null, observationId: request.observation.id },
+    }),
+    act('scroll', { target: null, deltaX: 0, deltaY: 0 }),
+    done,
+  ]);
+  assert.equal((result.outcome as { code?: string }).code, 'loop');
+});

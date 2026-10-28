@@ -4,7 +4,7 @@ import type { Page } from 'playwright';
 import { captureMasked, MaskError, type Capture } from '../browser/observations.ts';
 import { resolvePoint, screenshotToCss } from '../browser/targets.ts';
 import type { StepRecord } from '../evidence/steps.ts';
-import type { Prices } from '../providers/catalog.ts';
+import { canonical, type Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { redactValue, safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
 import { CostMeter, type CapEnforcement } from './cost.ts';
@@ -99,7 +99,7 @@ class InterruptError extends Error {
 // Arguments minus the observation ID, so the same click on successive unchanged screenshots matches.
 function fingerprint(call: ToolCall): string {
   const { observationId: _, ...rest } = call.args;
-  return `${call.name} ${JSON.stringify(rest)}`;
+  return `${call.name} ${canonical(rest)}`;
 }
 
 function allowedDestination(url: URL, allowed: readonly string[]): string | null {
@@ -512,20 +512,21 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         pending.target = target;
         try {
           if (call.name === 'click') {
-            if (options.hasTouch) await resolved.locator.tap({ position: resolved.position, timeout: actionTimeout() });
-            else await resolved.locator.click({ position: resolved.position, timeout: actionTimeout() });
+            const clickOptions = { position: resolved.position, timeout: actionTimeout() };
+            await bounded(options.hasTouch ? resolved.locator.tap(clickOptions) : resolved.locator.click(clickOptions));
           } else if (call.name === 'fill') {
             const value = secrets.substitute(String(args.value));
             if (resolved.tag === 'select')
-              await resolved.locator.selectOption({ label: value }, { timeout: actionTimeout() });
-            else await resolved.locator.fill(value, { timeout: actionTimeout() });
+              await bounded(resolved.locator.selectOption({ label: value }, { timeout: actionTimeout() }));
+            else await bounded(resolved.locator.fill(value, { timeout: actionTimeout() }));
             if (secrets.hasPlaceholder(String(args.value)))
               await resolved.locator.evaluate((element) => element.setAttribute('data-lab-masked', ''));
           } else {
-            await resolved.locator.hover({ position: resolved.position, timeout: actionTimeout() });
+            await bounded(resolved.locator.hover({ position: resolved.position, timeout: actionTimeout() }));
             await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
           }
         } catch (error) {
+          if (error instanceof InterruptError || error instanceof DeadlineError) throw error;
           if (error instanceof SecretError) {
             reject('unknown_placeholder', error.message);
             continue;
@@ -566,8 +567,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           continue;
         }
         try {
-          await page.goto(url.href, { timeout: actionTimeout(2) });
+          await bounded(page.goto(url.href, { timeout: actionTimeout(2) }));
         } catch (error) {
+          if (error instanceof InterruptError || error instanceof DeadlineError) throw error;
           const failure = await observeAfter(call, started, {
             status: 'error',
             code: 'tool_error',
@@ -588,14 +590,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     result: StepRecord['result'],
     target?: StepRecord['target'],
   ): Promise<AgentResult | null> {
-    await page.waitForLoadState('domcontentloaded', { timeout: actionTimeout() }).catch(() => {});
+    await bounded(page.waitForLoadState('domcontentloaded', { timeout: actionTimeout() })).catch((error: unknown) => {
+      if (error instanceof InterruptError) throw error;
+    });
     const before = current;
     try {
       await observe();
     } catch (error) {
       current = before;
       record(call, started, result, target ? { target } : {});
-      if (error instanceof DeadlineError) throw error;
+      if (error instanceof DeadlineError || error instanceof InterruptError) throw error;
       return agentError('browser_error', `observation failed; provider calls suppressed: ${firstLine(error)}`);
     }
     record(call, started, result, { ...(target ? { target } : {}), afterScreenshotId: current!.screenshotId, before });

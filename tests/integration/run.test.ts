@@ -62,6 +62,20 @@ before(async () => {
   await suite('healthy', '  setup: ../setup/fixture.ts\n  repeats: 2\n');
   await suite('secret', '  setup: ../setup/secret.ts\n');
   await suite('broken', '  setup: ../setup/broken.ts\n');
+  await put(
+    '.lab/setup/leaky.ts',
+    "export default async (ctx) => { throw new Error('login failed for ' + ctx.env('LAB_TEST_PASSWORD') + ' with sk-inline-key-123'); };\n",
+  );
+  await suite('leaky', '  setup: ../setup/leaky.ts\n');
+  await put('.lab/setup/hang.ts', 'export default () => new Promise(() => {});\n');
+  await suite('hang', '  setup: ../setup/hang.ts\n');
+  await put(
+    '.lab/setup/stuck-cleanup.ts',
+    "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); return { startUrl: ctx.env('LAB_FIXTURE_ORIGIN') + '/' }; };\n",
+  );
+  await suite('stuckcleanup', '  setup: ../setup/stuck-cleanup.ts\n');
+  await suite('badshape', `  url: ${fixture.url}/\n  storageState: badshape\n`);
+  await put('.lab/auth/badshape.json', '{ "cookies": [null], "origins": [] }');
   await suite('authed', `  url: ${fixture.url}/lab/state?scope=authed\n  storageState: host\n`);
   await suite('badstate', `  url: ${fixture.url}/\n  storageState: corrupt\n`);
   await put(
@@ -187,6 +201,9 @@ test('a missing provider key or broken named state fails preflight with exit 2 a
   const corrupt = await lab(['--suite', 'badstate', '--json']);
   assert.equal(corrupt.code, 2);
   assert.match(corrupt.json.error, /storage state corrupt: invalid JSON/u);
+  const badShape = await lab(['--suite', 'badshape', '--json']);
+  assert.equal(badShape.code, 2);
+  assert.match(badShape.json.error, /storage state badshape\.cookies\[0\]: must be an object/u);
   assert.equal(await runCount(), runs);
 });
 
@@ -215,8 +232,16 @@ test('setup secrets stay out of resolved config and cleanup-failure issues; a fa
     ['cleanup_failed'],
   );
   assert.match(item.issues[0].message, /cleanup failed for \{\{email\}\}/u);
-  assert.doesNotMatch(await readFile(join(item.outDir, 'resolved-config.json'), 'utf8'), new RegExp(CANARY, 'u'));
   assert.doesNotMatch(JSON.stringify(json), new RegExp(CANARY, 'u'));
+
+  // A run note holding the setup secret reaches persisted task and request fields only as its placeholder.
+  const noted = await lab(['--suite', 'secret', '--note', `Sign in as ${CANARY}.`, '--json']);
+  const config = await readFile(join(noted.json.runs[0].outDir, 'resolved-config.json'), 'utf8');
+  assert.doesNotMatch(config, new RegExp(CANARY, 'u'));
+  const persisted = JSON.parse(config);
+  assert.equal(persisted.request.note, 'Sign in as {{email}}.');
+  assert.match(persisted.task, /Run note: Sign in as \{\{email\}\}\./u);
+  assert.match(noted.json.runs[0].outcome.reason, /secret appeared in outbound text/u);
 
   const broken = await lab(['--suite', 'broken', '--json']);
   assert.equal(broken.code, 1);
@@ -282,4 +307,47 @@ test('both production adapters drive the same harness against local wire-format 
   } finally {
     server.close();
   }
+});
+
+test('bearer URLs are reduced to origin and path in resolved config', async () => {
+  turn = done;
+  const { json } = await lab([
+    '--persona',
+    'guest',
+    '--url',
+    `${fixture.url}/?token=bearer-canary-777#frag-canary-888`,
+    '--json',
+  ]);
+  const config = await readFile(join(json.runs[0].outDir, 'resolved-config.json'), 'utf8');
+  assert.doesNotMatch(config, /bearer-canary|frag-canary/u);
+  assert.equal(JSON.parse(config).request.url, `${fixture.url}/`);
+});
+
+test('setup errors never echo environment values or provider keys', async () => {
+  const env = { OPENAI_API_KEY: 'sk-inline-key-123', LAB_TEST_PASSWORD: 'pw-canary-5151' };
+  const { code, out, json } = await lab(['--suite', 'leaky', '--json'], { env });
+  assert.equal(code, 1);
+  assert.doesNotMatch(out, /pw-canary|sk-inline/u);
+  assert.equal(json.runs[0].outcome.reason, 'login failed for [env] with [env]');
+});
+
+test('a hanging setup ends at the time cap and a hanging cleanup is cut off', async () => {
+  turn = done;
+  let started = Date.now();
+  const hung = await lab(['--suite', 'hang', '--time-ms', '1000', '--json']);
+  assert.equal(hung.code, 1);
+  assert.deepEqual(
+    [hung.json.runs[0].outcome.state, hung.json.runs[0].outcome.limit, hung.json.runs[0].outcome.maximum],
+    ['limit_reached', 'time', 1000],
+  );
+  assert.ok(Date.now() - started < 3000);
+
+  started = Date.now();
+  const stuck = await lab(['--suite', 'stuckcleanup', '--time-ms', '3000', '--json']);
+  assert.equal(stuck.code, 0);
+  assert.deepEqual(
+    stuck.json.runs[0].issues.map((issue: { code: string }) => issue.code),
+    ['cleanup_timeout'],
+  );
+  assert.ok(Date.now() - started < 6000);
 });

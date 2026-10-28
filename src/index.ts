@@ -1,2 +1,10 @@
 export { run } from './cli.ts';
+export { ConfigError, loadProjectConfig } from './config/files.ts';
+export { resolveSubmission, validateSubmission } from './config/resolve.ts';
+export type { ResolvedEntry, RunRequest, RunSubmission, Selector } from './config/resolve.ts';
+export { runBatch } from './core/batch.ts';
+export type { BatchResult, BatchRun } from './core/batch.ts';
+export type { Outcome } from './core/outcomes.ts';
+export { CatalogError, loadCatalog } from './providers/catalog.ts';
+export { createProviders } from './providers/registry.ts';
 export type { CustomTool, SetupContext, SetupModule, SetupResult } from './setup/types.ts';

@@ -20,7 +20,7 @@ import {
   type SuiteEntry,
 } from './files.ts';
 
-type Selector =
+export type Selector =
   | { kind: 'persona'; id: string }
   | { kind: 'tag'; tag: string }
   | { kind: 'suite'; id: string }
@@ -37,7 +37,7 @@ export interface RunSubmission {
   limits?: Partial<Limits>;
 }
 
-interface RunRequest {
+export interface RunRequest {
   readonly selector: Selector;
   readonly url?: string;
   readonly note?: string;

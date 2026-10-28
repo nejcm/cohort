@@ -119,6 +119,44 @@ const routes: JsonSchema = {
     },
   },
 };
+const nameValue = { name: { type: 'string' }, value: { type: 'string' } } as const;
+// Matches Playwright's storageState shape so a bad file fails preflight, not browser creation.
+const storageStateSchema: JsonSchema = {
+  type: 'object',
+  required: ['cookies', 'origins'],
+  properties: {
+    cookies: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name', 'value', 'domain', 'path'],
+        properties: {
+          ...nameValue,
+          domain: { type: 'string', minLength: 1 },
+          path: { type: 'string', pattern: '^/' },
+          expires: { type: 'number' },
+          httpOnly: { type: 'boolean' },
+          secure: { type: 'boolean' },
+          sameSite: { enum: ['Strict', 'Lax', 'None'] },
+        },
+      },
+    },
+    origins: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['origin', 'localStorage'],
+        properties: {
+          origin: { type: 'string', pattern: '^https?://' },
+          localStorage: {
+            type: 'array',
+            items: { type: 'object', required: ['name', 'value'], properties: nameValue },
+          },
+        },
+      },
+    },
+  },
+};
 const relativePath: JsonSchema = { type: 'string', minLength: 1, maxLength: 1024 };
 
 const projectSchema: JsonSchema = {
@@ -376,12 +414,5 @@ export async function loadStorageState(projectRoot: string, name: string): Promi
   } catch {
     throw new ConfigError(`storage state ${name}: invalid JSON`);
   }
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !Array.isArray((value as { cookies?: unknown }).cookies) ||
-    !Array.isArray((value as { origins?: unknown }).origins)
-  )
-    throw new ConfigError(`storage state ${name}: must have cookies and origins lists`);
-  return value as Record<string, unknown>;
+  return checked<Record<string, unknown>>(storageStateSchema, value, `storage state ${name}`);
 }

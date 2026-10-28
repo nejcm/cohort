@@ -57,7 +57,7 @@ before(async () => {
   root = await mkdtemp(join(tmpdir(), 'lab-config-'));
   await put(
     '.lab/config.yml',
-    'schemaVersion: 1\nmodel: openai/model-a\nrepeats: 2\nlimits: { dollars: 1 }\nallowedOrigins: [http://api.example.test]\n',
+    'schemaVersion: 1\nmodel: openai/model-a\neffort: low\nrepeats: 2\nlimits: { dollars: 1 }\nallowedOrigins: [http://api.example.test]\n',
   );
   // Written in reverse order so stable ID ordering is not an accident of creation order.
   await put('.lab/personas/zed.md', persona('zed', 'goal: Find the exit.\n'));
@@ -93,15 +93,22 @@ entries:
   - persona: alpha
   - persona: zed
     url: http://b.test/
+  - persona: zed
+    effort: high
 `,
   );
 });
 after(() => rm(root, { recursive: true, force: true }));
 
-async function resolve(submission: RunSubmission, overrides: { allowUntested?: boolean; providers?: object } = {}) {
+async function resolve(
+  submission: RunSubmission,
+  overrides: { allowUntested?: boolean; providers?: object; projectEffort?: false } = {},
+) {
+  const project = await loadProjectConfig(root);
+  if (overrides.projectEffort === false) delete project.effort;
   return resolveSubmission(validateSubmission(submission), {
     projectRoot: root,
-    project: await loadProjectConfig(root),
+    project,
     catalog,
     providers: (overrides.providers ?? allKeys) as never,
     ...(overrides.allowUntested ? { allowUntested: true } : {}),
@@ -120,6 +127,7 @@ test('model and effort resolve per field across all five layers, then the catalo
     ['openai/model-a', 'medium', 'suite_entry', 'suite_entry'],
     ['anthropic/model-c', 'low', 'suite_default', 'suite_default'],
     ['anthropic/model-c', 'low', 'suite_default', 'suite_default'],
+    ['anthropic/model-c', 'high', 'suite_default', 'suite_entry'],
   ]);
   const run = await resolve({ selector: { kind: 'suite', id: 'mixed' }, model: 'openai/model-b', effort: 'high' });
   assert.ok(run.every(({ request, layers }) => request.model === 'model-b' && layers.modelFrom === 'run'));
@@ -130,11 +138,31 @@ test('model and effort resolve per field across all five layers, then the catalo
     [alpha!.request.model, alpha!.request.effort, alpha!.layers.modelFrom],
     ['model-b', 'high', 'persona'],
   );
-  const [zed] = await resolve({ selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/' });
+  const [mixed] = await resolve({ selector: { kind: 'persona', id: 'alpha' }, model: 'anthropic/model-c' });
   assert.deepEqual(
-    [zed!.request.model, zed!.request.effort, zed!.layers.modelFrom, zed!.layers.effortFrom],
-    ['model-a', 'medium', 'project', 'catalog_default'],
+    [mixed!.request.effort, mixed!.layers.modelFrom, mixed!.layers.effortFrom],
+    ['high', 'run', 'persona'],
   );
+
+  const zedOf = (overrides: Parameters<typeof resolve>[1] = {}, model?: string) =>
+    resolve(
+      { selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/', ...(model ? { model } : {}) },
+      overrides,
+    );
+  const project = (await zedOf())[0]!;
+  assert.deepEqual(
+    [project.request.model, project.request.effort, project.layers.modelFrom, project.layers.effortFrom],
+    ['model-a', 'low', 'project', 'project'],
+  );
+  const runModel = (await zedOf({}, 'openai/model-b'))[0]!;
+  assert.deepEqual(
+    [runModel.request.effort, runModel.layers.modelFrom, runModel.layers.effortFrom],
+    ['low', 'run', 'project'],
+  );
+  const fallback = (await zedOf({ projectEffort: false }))[0]!;
+  assert.deepEqual([fallback.request.effort, fallback.layers.effortFrom], ['medium', 'catalog_default']);
+  const fallbackB = (await zedOf({ projectEffort: false }, 'openai/model-b'))[0]!;
+  assert.equal(fallbackB.request.effort, 'low');
 });
 
 test('an inherited unsupported effort fails instead of being substituted', async () => {
@@ -143,11 +171,15 @@ test('an inherited unsupported effort fails instead of being substituted', async
     resolve({ selector: { kind: 'persona', id: 'alpha' }, model: 'openai/model-a' }),
     /effort high is not supported by openai\/model-a \(model from run, effort from persona\)/u,
   );
-  const [zed] = await resolve({
-    selector: { kind: 'persona', id: 'zed' },
-    url: 'http://a.test/',
-    model: 'openai/model-d',
-  });
+  // The project effort (low) is inherited by model-d, which supports only high.
+  await assert.rejects(
+    resolve({ selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/', model: 'openai/model-d' }),
+    /effort low is not supported by openai\/model-d \(model from run, effort from project\)/u,
+  );
+  const [zed] = await resolve(
+    { selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/', model: 'openai/model-d' },
+    { projectEffort: false },
+  );
   assert.equal(zed!.request.effort, 'high');
   await assert.rejects(
     resolve({

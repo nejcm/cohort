@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import type { BrowserContextOptions } from 'playwright';
 import { loadStorageState, sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
+import { createProviders } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { loadSetupModule } from '../setup/load.ts';
 import { redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
@@ -12,7 +13,7 @@ import type { AgentResult } from './agent.ts';
 import { runOnce } from './engine.ts';
 import type { Outcome } from './outcomes.ts';
 
-interface BatchRun {
+export interface BatchRun {
   runId: string;
   entryIndex: number;
   repeat: number;
@@ -42,6 +43,17 @@ interface BatchOptions {
 const stamp = (): string => new Date().toISOString().replace(/[-:]/gu, '').replace('T', '_').slice(0, 15);
 const newId = (prefix: string): string => `${prefix}_${stamp()}_${randomBytes(3).toString('hex')}`;
 const firstLine = (error: unknown): string => String((error as Error)?.message ?? error).split('\n')[0]!;
+const CLEANUP_BUDGET_MS = 10_000;
+
+function settleWithin<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }),
+  ]);
+}
 
 // Missing or malformed named states fail before any run starts.
 async function loadNamedStates(projectRoot: string, entries: readonly ResolvedEntry[]) {
@@ -55,6 +67,10 @@ async function loadNamedStates(projectRoot: string, entries: readonly ResolvedEn
 export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   const { projectRoot, entries, signal } = options;
   const env = options.env ?? process.env;
+  const keyEnvs = new Set(
+    [...Object.values(createProviders(env)), ...Object.values(options.providers)].map((provider) => provider.keyEnv),
+  );
+  const providerKeys = [...keyEnvs].flatMap((name) => env[name] ?? []);
   const states = await loadNamedStates(projectRoot, entries);
   const batchId = newId('batch');
   const runs: BatchRun[] = [];
@@ -81,8 +97,15 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       issues.push({ code: 'evidence_unavailable', message: 'the run ended before any screenshot' });
       return { ...base, outcome, usage: null, issues };
     };
+    const envRead: string[] = [];
+    // Setup and cleanup errors may echo environment values that were never registered as secrets.
+    const scrub = (error: unknown): string =>
+      [...providerKeys, ...envRead]
+        .filter((value) => value.length >= 4)
+        .toSorted((a, b) => b.length - a.length)
+        .reduce((text, value) => text.split(value).join('[env]'), secrets.redact(firstLine(error)));
     const agentError = (code: 'setup_error' | 'browser_error', error: unknown): BatchRun =>
-      failed({ state: 'agent_error', code, reason: secrets.redact(firstLine(error)).slice(0, 500), evidence: [] });
+      failed({ state: 'agent_error', code, reason: scrub(error).slice(0, 500), evidence: [] });
 
     let setupResult: SetupResult | null = null;
     let startUrl = request.url!;
@@ -93,18 +116,22 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (entry.setup) {
         setupHash = sha256(await readFile(entry.setup));
         const setup = await loadSetupModule(projectRoot, entry.setup);
-        setupResult = await setup({
-          runId,
-          scopeId: runId,
-          projectRoot,
-          signal: setupSignal,
-          env(name) {
-            const value = env[name];
-            if (!value) throw new Error(`environment variable ${name} is not set`);
-            return value;
-          },
-          onCleanup: (handler) => void cleanups.push(handler),
-        });
+        setupResult = await settleWithin(
+          setup({
+            runId,
+            scopeId: runId,
+            projectRoot,
+            signal: setupSignal,
+            env(name) {
+              const value = env[name];
+              if (!value) throw new Error(`environment variable ${name} is not set`);
+              envRead.push(value);
+              return value;
+            },
+            onCleanup: (handler) => void cleanups.push(handler),
+          }),
+          setupSignal,
+        );
         for (const [name, value] of Object.entries(setupResult.secrets ?? {})) secrets.bind(name, value);
         if (Object.keys(setupResult.tools ?? {}).length > 0)
           throw new Error('custom setup tools are not supported yet (Phase 5)');
@@ -122,6 +149,15 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
           reason: 'interrupted during setup',
           evidence: [],
         });
+      if (deadline.aborted)
+        return failed({
+          state: 'limit_reached',
+          limit: 'time',
+          reason: 'time limit reached during setup',
+          observed: Date.now() - startedAt,
+          maximum: request.limits.timeMs,
+          evidence: [],
+        });
       return agentError('setup_error', error);
     }
     try {
@@ -134,7 +170,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
               runId,
               batchId,
               repeat,
-              request,
+              request: request.url ? { ...request, url: safeUrl(request.url, secrets) } : request,
               persona,
               suiteId: entry.suiteId,
               entryIndex: entry.entryIndex,
@@ -184,10 +220,18 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     }
 
     async function runCleanups(): Promise<void> {
-      for (const cleanup of cleanups.splice(0).toReversed())
-        await cleanup().catch((error: unknown) =>
-          issues.push({ code: 'cleanup_failed', message: secrets.redact(firstLine(error)).slice(0, 200) }),
+      const budget = AbortSignal.timeout(Math.min(CLEANUP_BUDGET_MS, request.limits.timeMs));
+      for (const cleanup of cleanups.splice(0).toReversed()) {
+        if (budget.aborted) {
+          issues.push({ code: 'cleanup_timeout', message: 'cleanup skipped: the cleanup time budget is spent' });
+          continue;
+        }
+        await settleWithin(Promise.resolve().then(cleanup), budget).catch((error: unknown) =>
+          budget.aborted
+            ? issues.push({ code: 'cleanup_timeout', message: 'cleanup did not finish within its time budget' })
+            : issues.push({ code: 'cleanup_failed', message: scrub(error).slice(0, 200) }),
         );
+      }
     }
   }
 }
