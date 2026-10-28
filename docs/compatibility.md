@@ -35,25 +35,34 @@ Text perception mode is not implemented yet, so "both modes" is unverified.
 - Before every capture, magenta (`rgb(255, 0, 255)`) overlays are drawn in every frame and open shadow root. They cover:
   - `maskSelectors` and `[data-lab-masked]` fields;
   - elements whose value or rendered attribute (`placeholder`, `value`, `alt`, `title`, `aria-label`) contains a secret;
-  - the deepest element whose text contains a whole secret, which also catches secrets split across spans.
-- Tests decode the PNG and require every pixel of the rendered box to be masked for filled email and one-time-code fields, a DOM mirror, a fragment echo, split text, a placeholder, an open shadow root, a srcdoc frame, and a button label.
-- After capture the page is rescanned. If the mask regions or the frame list changed, the image is discarded and capture is retried up to three times; after that it fails closed. A change that appears and disappears between the two scans is not detected.
+  - the deepest element whose text contains a whole secret, which also catches secrets split across spans. Both the element's boxes and its content boxes are covered, so text under `display: contents` is masked too.
+- Tests decode the PNG and require every pixel of the rendered box to be masked for filled email and one-time-code fields, a DOM mirror, a fragment echo, split text, `display: contents` text, a placeholder, an open shadow root, a srcdoc frame, and a button label.
+- From before the scan until after capture, a `MutationObserver` (document and open shadow roots) and a capturing scroll listener run in every frame. The image is discarded and capture retried, up to three times, if any non-overlay mutation or scroll happened, a frame was replaced or reloaded, or the post-capture rescan differs. Then it fails closed. A test re-renders a frame identically while the overlay is up; it fails without the change tracking.
+- Not tracked: script-set `.value` on inputs (no DOM mutation), shadow roots attached after the scan starts, and closed shadow roots. A page that mutates its DOM continuously fails capture by design.
 - If a mask cannot be applied, a capture times out, or a secret appears in the outbound text, no further provider call is made and the run ends `agent_error(browser_error)`. This holds after failed actions too.
-- Locator candidates containing a registered secret are skipped, so `steps.jsonl` and replay scripts never contain one. If every candidate is unsafe, the target is unsupported.
+- Locator candidates whose raw strings contain a registered secret are skipped, for the target and every frame in its chain, so `steps.jsonl` and replay scripts do not contain one. If every candidate is unsafe, the target is unsupported. Recorded step arguments are redacted structurally, keys included; a numeric argument that had to be redacted makes its replay step throw instead of passing `NaN`.
 - Generated replays do not save screenshots, because replay fills real secret values.
 - Every value ever bound to a secret name stays masked and redacted for the whole run, even after rebinding.
 - Observation text and step URLs keep only origin and path, never queries or fragments.
 - Native traces (`trace.zip`) hold unmasked DOM snapshots. They are private evidence: never publish or commit them.
 
+## Stale targets
+
+At each clean capture every element's box is recorded and the mutation log is reset. A point action is rejected as `stale_target` when the hit element or its interactive target was not present at capture, has moved, or changed inside since. The agent then observes again and sends a fresh screenshot. A test swaps a button in after the observation; it is never clicked.
+
 ## Navigation guard
 
-`runOnce` aborts main-frame and subframe navigations, including form posts, to origins outside the allowlist. It closes popups and rejects start URLs with credentials or non-HTTP schemes. Subresources (images, scripts, fetch) are not restricted, and Playwright routes do not see redirect hops.
+- Navigations (main frame and subframes, including form posts) must go to the start origin or `allowedOrigins`. Other requests may also go to `resourceOrigins`. Non-HTTP navigations are blocked.
+- Playwright context routes enforce this for first requests in every page and frame. They do not see redirect hops, so a CDP `Fetch` interceptor on the page applies the same rule to every hop in the page's own process. A test redirects both a `fetch` and a `goto` through the fixture's lab redirect.
+- Backstop: any response from a disallowed origin (for example, a redirect inside an out-of-process frame, which the page session does not intercept) ends the run before the next provider call.
+- Popups are closed. Start URLs with credentials or non-HTTP schemes are rejected. WebSockets are not intercepted.
 
 ## Runtime
 
 - Setup modules load natively with type stripping. Relative imports must use explicit `.ts` extensions. Modules must live inside `.lab/setup/` and the path must not contain symlinks.
 - `node:sqlite` works in a child Node process. Node v26.8.2 printed no warning; check the Node 24 warning on CI.
-- Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`. It ends by waiting for network idle.
+- Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`. It ends by waiting up to 5 s for network idle, so a final form post completes. With persistent connections it simply proceeds after 5 s.
+- If writing `trace.zip` fails, the run still writes `steps.jsonl` and the replay, reports `tracePath: null`, and records issue `trace_failed`.
 
 ## Not verified (needs live keys or external targets)
 

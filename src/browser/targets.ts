@@ -1,4 +1,5 @@
 import type { ElementHandle, Frame, FrameLocator, Locator, Page } from 'playwright';
+import { changedSinceCapture, WATCH_KEY } from './observations.ts';
 
 type LocatorStep =
   | { by: 'role'; role: string; name: string }
@@ -222,7 +223,7 @@ async function uniqueStep(
   unsafe: (text: string) => boolean,
 ): Promise<LocatorStep | null> {
   for (const step of candidates(await element.evaluate(describe))) {
-    if (unsafe(JSON.stringify(step))) continue;
+    if (Object.values(step).some(unsafe)) continue;
     const locator = stepLocator(scope, step);
     if ((await locator.count()) === 1 && (await locator.evaluate((found, wanted) => found === wanted, element)))
       return step;
@@ -230,12 +231,21 @@ async function uniqueStep(
   return null;
 }
 
-// Hit-tests a CSS viewport point through open shadow roots and frames and returns a verified unique locator for it, skipping candidates `unsafe` flags (e.g. secrets).
+interface ResolveOptions {
+  /** Skips locator candidates with a flagged string, e.g. a secret. */
+  unsafe?: (text: string) => boolean;
+  /** Rejects targets that appeared, moved, or changed since the last masked capture. */
+  sinceCapture?: boolean;
+}
+
+// Hit-tests a CSS viewport point through open shadow roots and frames and returns a verified unique locator for it.
 export async function resolvePoint(
   page: Page,
   point: Point,
-  unsafe: (text: string) => boolean = () => false,
+  { unsafe = () => false, sinceCapture = false }: ResolveOptions = {},
 ): Promise<Resolution> {
+  const changed = async (element: ElementHandle): Promise<boolean> =>
+    sinceCapture && element.evaluate(changedSinceCapture, WATCH_KEY);
   let frame: Frame = page.mainFrame();
   let scope: Scope = page;
   let local = point;
@@ -243,6 +253,7 @@ export async function resolvePoint(
   for (let depth = 0; depth < 8; depth += 1) {
     const hit = (await frame.evaluateHandle(hitTest, local)).asElement();
     if (!hit) return { ok: false, reason: 'no_element' };
+    if (await changed(hit)) return { ok: false, reason: 'changed_since_capture' };
     const info = await hit.evaluate(classify);
     if (info.tag === 'canvas') return { ok: false, reason: 'canvas' };
     if (info.closedHost) return { ok: false, reason: 'closed_shadow_root' };
@@ -260,6 +271,7 @@ export async function resolvePoint(
     const target = (await hit.evaluateHandle(toInteractive)).asElement();
     const step: LocatorStep | null = target && (await uniqueStep(scope, target, unsafe));
     if (!target || !step) return { ok: false, reason: 'no_unique_locator' };
+    if (await changed(target)) return { ok: false, reason: 'changed_since_capture' };
     const locator = stepLocator(scope, step);
     const box = await locator.boundingBox();
     if (!box) return { ok: false, reason: 'not_visible' };

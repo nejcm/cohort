@@ -203,6 +203,10 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
 <label for="upload">Upload ID</label><input id="upload" type="file">`,
           ),
         );
+      case 'GET /lab/redirect':
+        // Lab-only open redirect for testing that redirect hops stay inside the allowlist.
+        response.writeHead(302, { location: url.searchParams.get('to') ?? '/' });
+        return void response.end();
       case 'GET /lab/canary':
         return send(
           page(
@@ -212,6 +216,7 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
 <label for="otp">One-time code</label><input id="otp" inputmode="numeric" autocomplete="one-time-code">
 <p>Token: <span id="echo"></span></p>
 <p id="split"><span id="split-a"></span><span id="split-b"></span></p>
+<p><span id="contents" style="display: contents"><span id="contents-a"></span><span id="contents-b"></span></span></p>
 <label for="reference">Reference</label><input id="reference">
 <div id="shadow-echo"></div>
 <iframe id="frame-echo" title="Echo frame" style="height: 60px" srcdoc="<p id='t' style='margin:0'></p><script>document.getElementById('t').textContent = decodeURIComponent(parent.location.hash.slice(1));</script>"></iframe>
@@ -222,6 +227,8 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
   document.getElementById('echo').textContent = token;
   document.getElementById('split-a').textContent = token.slice(0, 4);
   document.getElementById('split-b').textContent = token.slice(4);
+  document.getElementById('contents-a').textContent = token.slice(0, 4);
+  document.getElementById('contents-b').textContent = token.slice(4);
   document.getElementById('reference').placeholder = token;
   document.getElementById('shadow-echo').attachShadow({ mode: 'open' }).innerHTML = '<b></b>';
   document.getElementById('shadow-echo').shadowRoot.querySelector('b').textContent = token;

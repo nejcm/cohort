@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -7,7 +9,7 @@ import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
 import { MASK_RGB } from '../../src/browser/observations.ts';
 import { runAgent, type AgentOptions } from '../../src/core/agent.ts';
-import { ProviderError, type DecideRequest } from '../../src/providers/types.ts';
+import { ProviderError, type DecideRequest, type Usage } from '../../src/providers/types.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, pointOf, type Turn } from '../helpers/fake-provider.ts';
@@ -32,13 +34,18 @@ after(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function run(path: string, turns: (page: Page) => Turn | Turn[], overrides: Partial<AgentOptions> = {}) {
+async function run(
+  path: string,
+  turns: (page: Page) => Turn | Turn[],
+  overrides: Partial<AgentOptions> = {},
+  usage: Partial<Usage> = {},
+) {
   const page = await browser.newPage({ viewport: { width: 800, height: 1000 } });
   const secrets = new SecretStore();
   secrets.bind('email', EMAIL);
   secrets.bind('token', TOKEN);
   secrets.bind('totp', TOTP);
-  const provider = fakeProvider(turns(page));
+  const provider = fakeProvider(turns(page), usage);
   try {
     const result = await runAgent({
       runId: 'run_agent_test',
@@ -101,6 +108,8 @@ test('masks secrets in inputs, placeholders, split text, shadow roots, frames, a
       const region = (locator: Locator) => fullyMasked(locator, request);
       checks.fragmentEcho = await region(page.locator('#echo'));
       checks.splitText = await region(page.locator('#split'));
+      checks.displayContents =
+        (await region(page.locator('#contents-a'))) && (await region(page.locator('#contents-b')));
       checks.placeholder = await region(page.locator('#reference'));
       checks.shadowRoot = await region(page.locator('#shadow-echo b'));
       checks.frame = await region(page.frameLocator('#frame-echo').locator('#t'));
@@ -129,6 +138,7 @@ test('masks secrets in inputs, placeholders, split text, shadow roots, frames, a
   assert.deepEqual(checks, {
     fragmentEcho: true,
     splitText: true,
+    displayContents: true,
     placeholder: true,
     shadowRoot: true,
     frame: true,
@@ -323,15 +333,94 @@ test('a browser failure mid-action keeps the trail and ends as agent_error', asy
     },
   ]);
   assert.equal(result.outcome.state, 'agent_error');
-  assert.equal(result.steps.length, 2);
+  assert.equal(result.steps.length, 3);
+  assert.deepEqual(
+    [result.steps[2]?.action.name, result.steps[2]?.result.status],
+    ['press', 'error'],
+    'the failed attempt is recorded',
+  );
 });
 
-test('history stays within its text budget', async () => {
+test('history stays within its byte budget, including multi-byte text', async () => {
   const { provider } = await run('/', () => [
-    ...Array.from({ length: 10 }, (): Turn => () => ({ name: 'wait', args: { ms: 100, junk: 'x'.repeat(4000) } })),
+    ...Array.from({ length: 10 }, (): Turn => () => ({ name: 'wait', args: { ms: 100, junk: '語'.repeat(4000) } })),
     done,
   ]);
-  for (const request of provider.requests) assert.ok(request.history.join('\n').length <= 8000);
+  for (const request of provider.requests) assert.ok(Buffer.byteLength(request.history.join('\n')) <= 8000);
+});
+
+test('a call that settles past the dollar cap is not acted on', async () => {
+  const { result, provider } = await run('/', () => done, {}, { inputTokens: 50_000_000 });
+  assert.equal(provider.requests.length, 1);
+  assert.equal((result.outcome as { limit?: string }).limit, 'cost', JSON.stringify(result.outcome));
+  assert.equal(result.steps.length, 1);
+});
+
+test('a control swapped in after the observation is not clicked', async () => {
+  const { result } = await run('/lab/canary', (page) => [
+    async (request) => {
+      const target = await pointOf(page, page.locator('#continue'), request);
+      await page.locator('#continue').evaluate((button) => {
+        const swapped = document.createElement('button');
+        swapped.id = 'continue';
+        swapped.textContent = 'Delete account';
+        swapped.addEventListener('click', () => (document.title = 'deleted'));
+        button.replaceWith(swapped);
+      });
+      return act('click', { target })(request, 0);
+    },
+    done,
+  ]);
+  assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+  const click = result.steps.find((step) => step.action.name === 'click');
+  assert.equal(click?.result.status === 'rejected' && click.result.code, 'stale_target');
+  assert.ok(click?.afterScreenshotId, 'a fresh observation follows the rejection');
+});
+
+test('frame content re-rendered identically during capture is never sent unmasked', async () => {
+  const { result, provider } = await run(`/lab/canary#${TOKEN}`, (page) => [
+    async (request) => {
+      // Same URL, same boxes, but the re-render drops the overlay: only change tracking can catch it.
+      await page
+        .frameLocator('#frame-echo')
+        .locator('html')
+        .evaluate((root) => {
+          const original = root.innerHTML;
+          new MutationObserver((_, observer) => {
+            if (!root.querySelector('[data-lab-overlay]')) return;
+            observer.disconnect();
+            root.innerHTML = original;
+          }).observe(root, { childList: true });
+        });
+      return wait(request, 0);
+    },
+    async (request) => {
+      assert.ok(await fullyMasked(page.frameLocator('#frame-echo').locator('#t'), request), 'replaced frame unmasked');
+      return done(request, 1);
+    },
+  ]);
+  assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+  assert.equal(provider.requests.length, 2);
+});
+
+test('a response from a disallowed origin ends the run before another provider call', async () => {
+  const outside = createServer((_, response) => response.end('x'));
+  await new Promise<void>((resolve) => outside.listen(0, 'localhost', resolve));
+  const origin = `http://localhost:${(outside.address() as AddressInfo).port}`;
+  try {
+    const { result, provider } = await run('/', (page) => [
+      async (request) => {
+        await page.evaluate((url) => fetch(url, { mode: 'no-cors' }), `${origin}/beacon`);
+        return wait(request, 0);
+      },
+      done,
+    ]);
+    assert.equal(result.outcome.state, 'agent_error');
+    assert.match(JSON.stringify(result.outcome), /disallowed origin/u);
+    assert.equal(provider.requests.length, 1);
+  } finally {
+    outside.close();
+  }
 });
 
 test('start URLs with embedded credentials are rejected before navigation', async () => {

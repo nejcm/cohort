@@ -197,3 +197,25 @@ test('structured redaction handles numeric secrets without breaking JSON', () =>
     note: 'pin {{code}}',
   });
 });
+
+test('structured redaction covers keys, and a redacted number never replays as NaN', () => {
+  const secrets = new SecretStore();
+  secrets.bind('code', '1234');
+  assert.deepEqual(redactValue({ 'key-1234': 'x' }, secrets), { 'key-{{code}}': 'x' });
+  const args = redactValue({ ms: 1234 }, secrets) as Record<string, unknown>;
+  const script = generateReplay(
+    { runId: 'run_1', viewport: { width: 390, height: 844 }, hasTouch: false, locale: 'en', timezone: 'UTC' },
+    [step('s0001', { name: 'wait', args })],
+  );
+  assert.ok(!script.includes('NaN'), script);
+  assert.match(script, /throw new Error\("s0001: argument ms was redacted/u);
+});
+
+test('cached tokens above input tokens are not priced as negative spend', () => {
+  const prices = { input: 1, output: 1, cachedInput: 0.1 };
+  assert.equal(estimateCostUsd(usage(100, 0, { cachedInputTokens: 1000 }), prices), null);
+  const meter = new CostMeter(1, prices);
+  const reserved = meter.reserve(1000, 100)!;
+  meter.settle(reserved, usage(100, 0, { cachedInputTokens: 1000 }));
+  assert.equal(meter.spentUsd, reserved);
+});

@@ -18,6 +18,9 @@ function value(raw: unknown): string {
 
 function statement(step: StepRecord, hasTouch: boolean): string | null {
   const args = step.action.args;
+  const redacted = ['deltaX', 'deltaY', 'ms'].find((key) => key in args && !Number.isFinite(Number(args[key])));
+  if (redacted)
+    return `throw new Error(${j(`${step.id}: argument ${redacted} was redacted; this step cannot replay`)});`;
   const wheel = `await page.mouse.wheel(${Number(args.deltaX)}, ${Number(args.deltaY)});`;
   if (!step.target) {
     switch (step.action.name) {
@@ -81,7 +84,7 @@ test.use({ viewport, hasTouch: ${session.hasTouch}, locale: ${j(session.locale)}
 
 test(${j(`replay ${session.runId}`)}, async ({ page }) => {
 ${body.join('\n')}
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
 });
 `;
 }

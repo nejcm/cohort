@@ -29,6 +29,8 @@ export interface AgentOptions {
   /** Real start URL; may hold harness-only secrets such as a bearer fragment. */
   startUrl: string;
   allowedOrigins: readonly string[];
+  /** Third-party origins that may serve subresources but never navigations. */
+  resourceOrigins?: readonly string[];
   secrets: SecretStore;
   limits: Limits;
   screenshotsDir: string;
@@ -57,9 +59,9 @@ export interface AgentResult {
 }
 
 const HISTORY_ITEMS = 8;
-// About 2k tokens of history at a conservative 4 characters per token.
-const HISTORY_CHARS = 8000;
-const HISTORY_LINE_CHARS = 1000;
+// UTF-8 bytes, not tokens: about 2k tokens of English at 4 bytes/token; at most 8k for byte-level tokenizers.
+const HISTORY_BYTES = 8000;
+const HISTORY_LINE_BYTES = 1000;
 const ACTION_TIMEOUT_MS = 5000;
 
 const SAFETY_INSTRUCTIONS = `You are a synthetic user trying to accomplish a task in a web application.
@@ -72,6 +74,17 @@ Use report_blocked when an external prerequisite (email code, CAPTCHA, login pro
 Call done when the goal is achieved, citing the step whose screenshot shows it. Call give_up honestly when you cannot continue.`;
 
 const pad = (prefix: string, value: number): string => `${prefix}${String(value).padStart(4, '0')}`;
+const bytes = (text: string): number => Buffer.byteLength(text);
+
+function truncateBytes(text: string, max: number): string {
+  let result = text;
+  while (bytes(result) > max) result = result.slice(0, -Math.max(1, Math.floor((bytes(result) - max) / 4)));
+  return result;
+}
+
+class DeadlineError extends Error {
+  override name = 'DeadlineError';
+}
 
 function allowedDestination(url: URL, allowed: readonly string[]): string | null {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'only http and https URLs are allowed';
@@ -85,6 +98,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const deadline = startedAt + limits.timeMs;
   const meter = new CostMeter(limits.dollars, options.prices);
   const allowed = [new URL(options.startUrl).origin, ...options.allowedOrigins];
+  const resources = options.resourceOrigins ?? [];
   const instructions = `${SAFETY_INSTRUCTIONS}\n\nTask:\n${options.task}`;
   const maxOutputTokens = options.maxOutputTokens ?? 1024;
   const steps: StepRecord[] = [];
@@ -104,6 +118,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   let shots = 0;
   let observations = 0;
   let current = null as { id: string; capture: Capture; screenshotId: string } | null;
+  let pending = null as { call: ToolCall; started: number; target?: StepRecord['target'] } | null;
+  let escapedTo: string | null = null;
+
+  // Backstop for hops the request guard cannot see (e.g. redirects in out-of-process frames): any response from a disallowed origin ends the run.
+  page.on('response', (response) => {
+    const url = new URL(response.url());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    const permitted = response.request().isNavigationRequest() ? allowed : [...allowed, ...resources];
+    if (!permitted.includes(url.origin)) escapedTo ??= url.origin;
+  });
 
   page.on('dialog', (dialog) => {
     issues.push({
@@ -118,6 +142,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 
   const actionTimeout = (factor = 1): number =>
     Math.max(1, Math.min(ACTION_TIMEOUT_MS * factor, deadline - Date.now()));
+  const bounded = async <T>(work: Promise<T>): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    return Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new DeadlineError('time limit reached')), Math.max(0, deadline - Date.now()));
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
   const captureWithRetry = async (attempt = 0): Promise<Capture> => {
     try {
       return await captureMasked(page, {
@@ -134,7 +167,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   };
 
   const observe = async (): Promise<void> => {
-    const capture = await captureWithRetry();
+    const capture = await bounded(captureWithRetry());
     const screenshotId = pad('shot-', shots++);
     await writeFile(join(options.screenshotsDir, `${screenshotId}.png`), capture.png, { mode: 0o600 });
     current = { id: pad('o', observations++), capture, screenshotId };
@@ -158,6 +191,24 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   };
   const agentError = (code: AgentErrorCode, reason: string): AgentResult =>
     finish({ state: 'agent_error', code, reason: secrets.redact(reason), evidence: lastEvidence() });
+  const timeLimit = (reason: string): AgentResult =>
+    finish({
+      state: 'limit_reached',
+      limit: 'time',
+      reason,
+      observed: Date.now() - startedAt,
+      maximum: limits.timeMs,
+      evidence: lastEvidence(),
+    });
+  const costLimit = (reason: string): AgentResult =>
+    finish({
+      state: 'limit_reached',
+      limit: 'cost',
+      reason,
+      observed: meter.spentUsd,
+      maximum: limits.dollars,
+      evidence: lastEvidence(),
+    });
 
   const record = (
     call: ToolCall,
@@ -166,6 +217,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     extra: Partial<Pick<StepRecord, 'target' | 'afterScreenshotId'>> & { before?: typeof current } = {},
   ): StepRecord => {
     const before = 'before' in extra ? extra.before : current;
+    pending = null;
     const step: StepRecord = {
       schemaVersion: 1,
       runId: options.runId,
@@ -189,9 +241,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     const status =
       step.result.status === 'ok' ? 'ok' : `${step.result.status} ${step.result.code}: ${step.result.message}`;
     history.push(
-      `${step.id} ${call.name} ${JSON.stringify(step.action.args)} -> ${status}`.slice(0, HISTORY_LINE_CHARS),
+      truncateBytes(`${step.id} ${call.name} ${JSON.stringify(step.action.args)} -> ${status}`, HISTORY_LINE_BYTES),
     );
-    while (history.length > HISTORY_ITEMS || history.join('\n').length > HISTORY_CHARS) history.shift();
+    while (history.length > HISTORY_ITEMS || bytes(history.join('\n')) > HISTORY_BYTES) history.shift();
     return step;
   };
 
@@ -202,6 +254,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     await page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) });
     await observe();
   } catch (error) {
+    if (error instanceof DeadlineError) return timeLimit('time limit reached during the first observation');
     const prefix = error instanceof MaskError ? 'observation failed; provider calls suppressed: ' : '';
     return agentError('browser_error', prefix + secrets.redact(firstLine(error)));
   }
@@ -218,6 +271,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   try {
     return await loop();
   } catch (error) {
+    if (pending) {
+      const { call, started, target } = pending;
+      record(
+        call,
+        started,
+        { status: 'error', code: 'browser_error', message: firstLine(error) },
+        target ? { target } : {},
+      );
+    }
+    if (error instanceof DeadlineError) return timeLimit('time limit reached during a browser operation');
     return agentError('browser_error', `browser operation failed: ${firstLine(error)}`);
   }
 
@@ -234,24 +297,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           evidence: lastEvidence(),
         });
       const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0)
-        return finish({
-          state: 'limit_reached',
-          limit: 'time',
-          reason: 'time limit reached',
-          observed: Date.now() - startedAt,
-          maximum: limits.timeMs,
-          evidence: lastEvidence(),
-        });
-      if (meter.exhausted)
-        return finish({
-          state: 'limit_reached',
-          limit: 'cost',
-          reason: 'dollar limit reached',
-          observed: meter.spentUsd,
-          maximum: limits.dollars,
-          evidence: lastEvidence(),
-        });
+      if (remainingMs <= 0) return timeLimit('time limit reached');
+      if (meter.exhausted) return costLimit('dollar limit reached');
+      if (escapedTo)
+        return agentError(
+          'browser_error',
+          `a request reached disallowed origin ${escapedTo}; provider calls suppressed`,
+        );
 
       const observation = current!;
       const lastStep = steps.at(-1)!;
@@ -288,21 +340,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 
       // shortcut: unmeasured conservative token bound; replace with Phase 0 measured per-call components.
       const inputBound =
-        Math.ceil(outboundText.length / 2) +
-        4000 +
-        Math.ceil((observation.capture.width * observation.capture.height) / 500);
+        bytes(outboundText) + 4000 + Math.ceil((observation.capture.width * observation.capture.height) / 500);
       let decision: Decision | null = null;
       for (let attempt = 0; attempt < 2 && !decision; attempt += 1) {
         const reserved = meter.reserve(inputBound, maxOutputTokens);
-        if (reserved === null)
-          return finish({
-            state: 'limit_reached',
-            limit: 'cost',
-            reason: 'next provider call would exceed the dollar limit',
-            observed: meter.spentUsd,
-            maximum: limits.dollars,
-            evidence: lastEvidence(),
-          });
+        if (reserved === null) return costLimit('next provider call would exceed the dollar limit');
         const timeLeft = deadline - Date.now();
         usage.providerCalls += 1;
         try {
@@ -310,15 +352,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           meter.settle(reserved, decision.usage);
         } catch (error) {
           meter.settle(error instanceof ProviderError && !error.possiblyBilled ? 0 : reserved, null);
-          if (Date.now() >= deadline)
-            return finish({
-              state: 'limit_reached',
-              limit: 'time',
-              reason: 'time limit reached during a provider call',
-              observed: Date.now() - startedAt,
-              maximum: limits.timeMs,
-              evidence: lastEvidence(),
-            });
+          if (Date.now() >= deadline) return timeLimit('time limit reached during a provider call');
           if (!(error instanceof ProviderError) || !error.retryable || attempt === 1)
             return agentError('provider_error', (error as Error).message);
         }
@@ -331,15 +365,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + decision.usage.cachedInputTokens;
       }
       usage.returnedModel = decision.returnedModel ?? usage.returnedModel;
-      if (Date.now() >= deadline)
-        return finish({
-          state: 'limit_reached',
-          limit: 'time',
-          reason: 'time limit reached before acting on the provider response',
-          observed: Date.now() - startedAt,
-          maximum: limits.timeMs,
-          evidence: lastEvidence(),
-        });
+      if (Date.now() >= deadline) return timeLimit('time limit reached before acting on the provider response');
+      // Reservations are estimates; a call that settled past the cap is not acted on.
+      if (meter.exhausted) return costLimit('provider call settled past the dollar limit');
 
       const started = Date.now();
       if (decision.calls.length !== 1) {
@@ -351,6 +379,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         continue;
       }
       const call = decision.calls[0]!;
+      pending = { call, started };
       const invalid = validateToolCall(call);
       if (invalid) {
         record(call, started, { status: 'rejected', code: 'invalid_tool', message: invalid });
@@ -401,7 +430,18 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           reject('point_outside_screenshot', 'point lies outside the screenshot');
           continue;
         }
-        const resolved = await resolvePoint(page, css, (candidate) => secrets.contains(candidate));
+        const resolved = await bounded(
+          resolvePoint(page, css, { unsafe: (candidate) => secrets.contains(candidate), sinceCapture: true }),
+        );
+        if (!resolved.ok && resolved.reason === 'changed_since_capture') {
+          const failure = await observeAfter(call, started, {
+            status: 'rejected',
+            code: 'stale_target',
+            message: 'the target changed since the observation; observe again',
+          });
+          if (failure) return failure;
+          continue;
+        }
         if (!resolved.ok) {
           record(call, started, { status: 'error', code: 'unsupported_target', message: resolved.reason });
           return agentError('unsupported_target', `cannot represent the target faithfully: ${resolved.reason}`);
@@ -413,6 +453,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           position: resolved.position,
           tag: resolved.tag,
         };
+        pending.target = target;
         try {
           if (call.name === 'click') {
             if (options.hasTouch) await resolved.locator.tap({ position: resolved.position, timeout: actionTimeout() });
@@ -498,6 +539,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     } catch (error) {
       current = before;
       record(call, started, result, target ? { target } : {});
+      if (error instanceof DeadlineError) throw error;
       return agentError('browser_error', `observation failed; provider calls suppressed: ${firstLine(error)}`);
     }
     record(call, started, result, { ...(target ? { target } : {}), afterScreenshotId: current!.screenshotId, before });

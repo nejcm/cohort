@@ -14,7 +14,7 @@ export interface RunOnceOptions extends Omit<AgentOptions, 'page' | 'hasTouch' |
 }
 
 export interface RunOnceResult extends AgentResult {
-  tracePath: string;
+  tracePath: string | null;
   replayPath: string;
 }
 
@@ -25,6 +25,12 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
   const tracePath = join(options.outDir, 'trace.zip');
   const replayPath = join(options.outDir, 'replay.spec.ts');
   const allowed = new Set([new URL(options.startUrl).origin, ...options.allowedOrigins]);
+  const resources = new Set(options.resourceOrigins ?? []);
+  const permitted = (url: string, navigation: boolean): boolean => {
+    const { protocol, origin } = new URL(url);
+    if (protocol !== 'http:' && protocol !== 'https:') return !navigation;
+    return allowed.has(origin) || (!navigation && resources.has(origin));
+  };
   const browser = await chromium.launch();
   try {
     const context = await browser.newContext({
@@ -37,20 +43,30 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
     });
     await context.route('**/*', (route) => {
       const request = route.request();
-      const origin = new URL(request.url()).origin;
-      // shortcut: subresources (images, scripts, fetch) are not origin-restricted; add `resourceOrigins` per §8 when configured.
-      if (request.isNavigationRequest() && !allowed.has(origin)) return route.abort('blockedbyclient');
-      return route.fallback();
+      return permitted(request.url(), request.isNavigationRequest())
+        ? route.fallback()
+        : route.abort('blockedbyclient');
     });
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await context.newPage();
     context.on('page', (popup) => void popup.close());
+    // Routes never see redirect hops; CDP Fetch pauses every hop in the page's own process.
+    const cdp = await context.newCDPSession(page);
+    cdp.on('Fetch.requestPaused', ({ requestId, request, resourceType }) => {
+      const sent = permitted(request.url, resourceType === 'Document')
+        ? cdp.send('Fetch.continueRequest', { requestId })
+        : cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
+      sent.catch(() => {});
+    });
+    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     options.onPage?.(page);
-    let result: AgentResult;
+    const result = await runAgent({ ...options, page, hasTouch: options.device.touch, screenshotsDir });
+    let traced: string | null = tracePath;
     try {
-      result = await runAgent({ ...options, page, hasTouch: options.device.touch, screenshotsDir });
-    } finally {
       await context.tracing.stop({ path: tracePath });
+    } catch (error) {
+      traced = null;
+      result.issues.push({ code: 'trace_failed', message: (error as Error).message.split('\n')[0]!.slice(0, 200) });
     }
     await writeFile(join(options.outDir, 'steps.jsonl'), stepsJsonl(result.steps), { mode: 0o600 });
     await writeFile(
@@ -67,7 +83,7 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       ),
       { mode: 0o600 },
     );
-    return { ...result, tracePath, replayPath };
+    return { ...result, tracePath: traced, replayPath };
   } finally {
     await browser.close();
   }

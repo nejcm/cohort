@@ -7,6 +7,7 @@ export type CapEnforcement = 'priced_reservations' | 'provider_reported_cost' | 
 export function estimateCostUsd(usage: Usage, prices: Prices): number | null {
   const cached = usage.cachedInputTokens ?? 0;
   if (prices.input === null || prices.output === null) return null;
+  if (cached > usage.inputTokens) return null;
   if (cached > 0 && prices.cachedInput === null) return null;
   return (
     ((usage.inputTokens - cached) * prices.input +

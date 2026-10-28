@@ -49,13 +49,15 @@ export class SecretStore {
   }
 }
 
-/** Redacts strings, and numbers whose digits contain a secret, inside JSON-like values without reparsing. */
+/** Redacts keys, strings, and numbers whose digits contain a secret, inside JSON-like values without reparsing. */
 export function redactValue(value: unknown, secrets: SecretStore): unknown {
   if (typeof value === 'string') return secrets.redact(value);
   if (typeof value === 'number') return secrets.contains(String(value)) ? secrets.redact(String(value)) : value;
   if (Array.isArray(value)) return value.map((item) => redactValue(item, secrets));
   if (typeof value === 'object' && value !== null)
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item, secrets)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [secrets.redact(key), redactValue(item, secrets)]),
+    );
   return value;
 }
 

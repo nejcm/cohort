@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -9,6 +11,7 @@ import { runOnce } from '../../src/core/engine.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, pointOf } from '../helpers/fake-provider.ts';
+import { zipEntry } from '../helpers/zip.ts';
 import type { Page } from 'playwright';
 
 const repoRoot = new URL('../..', import.meta.url).pathname;
@@ -99,7 +102,7 @@ test('fake-model guest journey completes on a phone, then its generated script r
   }
   assert.match(replay, /bind\("\{\{guest_name\}\}"\)/u);
   assert.match(replay, /\.tap\(/u);
-  assert.ok((await stat(result.tracePath)).size > 0);
+  assert.ok((await stat(result.tracePath!)).size > 0);
 
   await symlink(join(repoRoot, 'node_modules'), join(outDir, 'node_modules'));
   const { stdout } = await promisify(execFile)(
@@ -152,9 +155,81 @@ test('runOnce blocks disallowed frame navigations and records a real trace', asy
     });
     assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
     assert.deepEqual(loaded, { same: 1, cross: 0 });
-    const trace = await readFile(result.tracePath);
-    assert.ok(trace.includes('trace.trace') && trace.includes('trace.network'), 'trace archive lacks trace entries');
+    const trace = await readFile(result.tracePath!);
+    assert.match(String(zipEntry(trace, 'trace.trace')), /"method":"goto"/u);
+    assert.match(String(zipEntry(trace, 'trace.network')), /\/lab\/targets/u);
   } finally {
     await other.close();
+  }
+});
+
+async function recorder(): Promise<{ server: Server; origin: string; hits: string[] }> {
+  const hits: string[] = [];
+  const server = createServer((request, response) => {
+    hits.push(request.url ?? '');
+    response.end('x');
+  });
+  await new Promise<void>((resolve) => server.listen(0, 'localhost', resolve));
+  return { server, origin: `http://localhost:${(server.address() as AddressInfo).port}`, hits };
+}
+
+test('runOnce keeps requests and redirect hops inside the allowlist and keeps artifacts when tracing fails', async () => {
+  const blocked = await recorder();
+  const resource = await recorder();
+  let page: Page | undefined;
+  try {
+    const provider = fakeProvider([
+      async () => {
+        await page!.evaluate(
+          async ({ blockedOrigin, resourceOrigin }) => {
+            for (const src of [`${blockedOrigin}/image`, `${resourceOrigin}/image`])
+              await new Promise((resolve) => {
+                const image = new Image();
+                image.addEventListener('load', resolve);
+                image.addEventListener('error', resolve);
+                image.src = src;
+              });
+            await fetch(`/lab/redirect?to=${encodeURIComponent(`${blockedOrigin}/hop`)}`).catch(() => {});
+          },
+          { blockedOrigin: blocked.origin, resourceOrigin: resource.origin },
+        );
+        return { name: 'goto', args: { url: `/lab/redirect?to=${encodeURIComponent(`${resource.origin}/nav`)}` } };
+      },
+      (request) => ({ name: 'done', args: { step: lastStepId(request), summary: 'Checked.' } }),
+    ]);
+    const outDir = join(dir, 'guard');
+    const result = await runOnce({
+      runId: 'run_test_003',
+      outDir,
+      provider,
+      model: 'fake-model',
+      effort: 'low',
+      prices: { input: 1, output: 4, cachedInput: 0.1 },
+      task: 'Look around.',
+      startUrl: `${fixture.url}/`,
+      allowedOrigins: [],
+      resourceOrigins: [resource.origin],
+      secrets: new SecretStore(),
+      limits: { steps: 5, timeMs: 30_000, dollars: 1 },
+      device: { viewport: { width: 800, height: 900 }, touch: false },
+      locale: 'en-US',
+      timezone: 'UTC',
+      onPage: (created: Page) => {
+        page = created;
+        created.context().tracing.stop = () => Promise.reject(new Error('disk full'));
+      },
+    });
+    assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+    assert.deepEqual(blocked.hits, []);
+    assert.deepEqual(new Set(resource.hits), new Set(['/image']), 'resource origins serve subresources only');
+    const goto = result.steps.find((step) => step.action.name === 'goto');
+    assert.equal(goto?.result.status, 'error', 'a navigation redirected to a resource-only origin is blocked');
+    assert.equal(result.tracePath, null);
+    assert.ok(result.issues.some((issue) => issue.code === 'trace_failed'));
+    assert.ok((await stat(join(outDir, 'steps.jsonl'))).size > 0);
+    assert.ok((await stat(result.replayPath)).size > 0);
+  } finally {
+    blocked.server.close();
+    resource.server.close();
   }
 });

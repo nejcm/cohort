@@ -86,3 +86,28 @@ test('closed shadow roots, canvas, and transformed frames are explicit unsupport
     assert.deepEqual(resolution, { ok: false, reason }, selector);
   }
 });
+
+test('locator candidates holding a JSON-escaped secret are skipped in frame chains and targets', async () => {
+  const secret = 'say "hi"\\4242';
+  const scratch = await browser.newPage();
+  try {
+    await scratch.evaluate(async (value) => {
+      const frame = document.createElement('iframe');
+      frame.id = `frame ${value}`;
+      frame.srcdoc = '<button id="go"></button>';
+      const loaded = new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
+      document.body.append(frame);
+      await loaded;
+      frame.contentDocument!.getElementById('go')!.textContent = `Pay ${value}`;
+    }, secret);
+    const resolution = await resolvePoint(scratch, await center(scratch.frameLocator('iframe').locator('#go')), {
+      unsafe: (text) => text.includes(secret),
+    });
+    assert.ok(resolution.ok, JSON.stringify(resolution));
+    const persisted = JSON.stringify(resolution.descriptor);
+    assert.ok(!persisted.includes(JSON.stringify(secret).slice(1, -1)), persisted);
+    assert.deepEqual(resolution.descriptor.target, { by: 'id', id: 'go' });
+  } finally {
+    await scratch.close();
+  }
+});
