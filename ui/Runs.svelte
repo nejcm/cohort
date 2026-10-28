@@ -4,6 +4,7 @@
   let runs = $state<RunSummary[]>([]);
   let cursor = $state<string | null>(null);
   let error = $state('');
+  let paged = false;
 
   async function load(more = false): Promise<void> {
     try {
@@ -11,8 +12,11 @@
         'GET',
         `/api/runs?limit=50${more && cursor ? `&cursor=${cursor}` : ''}`,
       );
-      runs = more ? [...runs, ...page.runs] : page.runs;
-      cursor = page.nextCursor;
+      const fresh = new Set(page.runs.map((run) => run.id));
+      // A refresh replaces the first page but keeps rows already loaded through "Load more".
+      runs = more ? [...runs, ...page.runs] : [...page.runs, ...(paged ? runs.filter((run) => !fresh.has(run.id)) : [])];
+      if (more || !paged) cursor = page.nextCursor;
+      paged ||= more;
       error = '';
     } catch (caught) {
       error = (caught as Error).message;
@@ -21,7 +25,7 @@
 
   $effect(() => {
     void load();
-    // shortcut: polls the first page every 3 s while runs are active; subscribe to a list event stream if this gets heavy.
+    // shortcut: polls only the first page every 3 s while runs are active, so active rows further down stay stale; subscribe to a list event stream if that matters.
     const timer = setInterval(() => {
       if (runs.some((run) => isActive(run.status))) void load();
     }, 3000);

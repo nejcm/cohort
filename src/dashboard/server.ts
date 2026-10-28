@@ -415,7 +415,8 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
           project,
           catalog,
           providers,
-          allowUntested: body.allowUntested === true,
+          // A preview lists untested models (inherited ones included) so the dialog can ask for consent before dispatch.
+          allowUntested: body.preview === true || body.allowUntested === true,
         });
         const plan = preflight(entries);
         if (body.preview === true) return void json(response, 200, { ...plan });

@@ -6,6 +6,7 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { build } from 'vite';
+import { LabDb } from '../../src/dashboard/db.ts';
 import { startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
@@ -90,6 +91,11 @@ before(async () => {
   await put('.lab/setup/fixture.ts', 'export default async () => ({});\n');
   await put('.lab/personas/scripted.md', PERSONA('scripted', 'Scripted', 'setup: ../setup/fixture.ts\n'));
   await put('.lab/suites/smoke.yml', 'schemaVersion: 1\nid: smoke\nname: Smoke\nentries:\n  - persona: guest\n');
+  await put('.lab/personas/trial.md', PERSONA('trial', 'Trial', 'model: openai/fresh\n'));
+  await put(
+    '.lab/suites/layered.yml',
+    'schemaVersion: 1\nid: layered\nname: Layered\ndefaults:\n  model: openai/unpriced\nentries:\n  - persona: guest\n  - persona: guest\n    model: openai/priced\n',
+  );
   dashboard = await startDashboard({
     projectRoot: root,
     env: { FAKE_API_KEY: KEY, OPENAI_API_KEY: KEY },
@@ -178,10 +184,8 @@ test('the run dialog is keyboard-operable, hides keyless providers, and shows es
 
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.locator('#run-model').inputValue(), 'openai/fresh');
-  await dialog
-    .getByRole('alert')
-    .getByText(/untested/u)
-    .waitFor();
+  await dialog.getByLabel('Allow the untested model').waitFor();
+  assert.equal(await dialog.getByRole('button', { name: /^Start \d+ runs?$/u }).isDisabled(), true);
   await page.keyboard.press('Tab');
   assert.equal(await focused(), 'run-effort');
   const efforts = await page
@@ -201,6 +205,39 @@ test('the run dialog is keyboard-operable, hides keyless providers, and shows es
     false,
     'text mode allows non-vision models',
   );
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+});
+
+test('inherited models drive effort choices and untested consent; tag and suite dispatch show every layer', async () => {
+  await page.getByRole('button', { name: 'New run' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New run' });
+  await page.locator('#run-url').fill(`${fixture.url}/`);
+  await dialog.getByText('from project').first().waitFor();
+  await dialog.getByText(/unmeasured estimate \$/u).waitFor();
+  const efforts = () =>
+    page.locator('#run-effort option').evaluateAll((items) => items.map((item) => (item as HTMLOptionElement).value));
+  assert.deepEqual(await efforts(), ['', 'low', 'medium'], 'only efforts the inherited model supports');
+
+  await page.locator('#run-target').selectOption('trial');
+  await dialog.getByText('from persona').waitFor();
+  const consent = dialog.getByLabel('Allow the untested model');
+  await consent.waitFor();
+  assert.equal(await dialog.getByRole('button', { name: /^Start 1 run$/u }).isDisabled(), true);
+  await consent.check();
+  await dialog.getByRole('button', { name: /^Start 1 run$/u, disabled: false }).waitFor();
+
+  await page.locator('#run-kind').selectOption('tag');
+  await page.locator('#run-target').selectOption('guest');
+  await consent.check();
+  for (const persona of ['guest', 'hostile', 'scripted', 'trial'])
+    await dialog.getByRole('cell', { name: persona, exact: true }).waitFor();
+
+  await page.locator('#run-kind').selectOption('suite');
+  await page.locator('#run-target').selectOption('layered');
+  await dialog.getByText('from suite_default').waitFor();
+  await dialog.getByText('from suite_entry').waitFor();
+  await dialog.getByRole('button', { name: /^Start 2 runs$/u }).waitFor();
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 });
@@ -334,6 +371,7 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   await dialog.getByText('adhoc-first-time-user').waitFor();
   await dialog.getByRole('button', { name: /^Start 1 run$/u }).click();
   await page.getByRole('heading', { name: 'Outcome: completed' }).waitFor();
+  await page.locator('#adhoc-suite').selectOption('smoke');
   await page.getByRole('button', { name: 'Preview entry' }).click();
   await page.getByText('It also creates .lab/personas/adhoc-first-time-user.md').waitFor();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -348,4 +386,105 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   assert.deepEqual(violations, []);
   assert.ok(!bodies.some((body) => body.includes(KEY)), 'no key in any API response the UI received');
   assert.ok(!(await page.content()).includes(KEY));
+});
+
+test('the persona generator form previews a draft without saving it', async () => {
+  turn = () => ({ name: 'write_persona', args: { markdown: PERSONA('drafted', 'Drafted') } });
+  await page.goto(`${dashboard.origin}/#/personas/new`);
+  await page.locator('#gen-url').fill(`${fixture.url}/`);
+  await page.locator('#gen-description').fill('A first-time visitor.');
+  await page.locator('#gen-model').selectOption('openai/priced');
+  await page.getByRole('button', { name: 'Generate preview' }).click();
+  await page.getByText(/^Draft from openai\/priced; cost \$/u).waitFor();
+  assert.match(await page.locator('#draft-source').inputValue(), /^id: drafted$/mu);
+  await assert.rejects(readFile(join(root, '.lab/personas/drafted.md')));
+  turn = done;
+});
+
+test('typing during a save is kept as unsaved text', async () => {
+  await page.goto(`${dashboard.origin}/#/personas/trial`);
+  const source = page.locator('#editor-source');
+  await page.waitForFunction(() =>
+    (document.querySelector('#editor-source') as HTMLTextAreaElement | null)?.value.includes('You are a guest.'),
+  );
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/personas/trial', async (route) => {
+    if (route.request().method() === 'PUT') await held;
+    await route.continue();
+  });
+  await source.focus();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.type('First part.');
+  const sent = page.waitForRequest((request) => request.method() === 'PUT');
+  await page.getByRole('button', { name: 'Validate and save' }).click();
+  await sent;
+  await source.focus();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.type(' Second part.');
+  release();
+  await page.getByText('Saved .lab/personas/trial.md.').waitFor();
+  await page.unroute('**/api/personas/trial');
+  assert.match(await source.inputValue(), /First part\. Second part\.$/u);
+  const disk = await readFile(join(root, '.lab/personas/trial.md'), 'utf8');
+  assert.ok(disk.endsWith('First part.'), disk);
+  await page.getByRole('heading', { name: '.lab/personas/trial.md (unsaved)' }).waitFor();
+});
+
+test('a run view picks up comparison claims added after its own run finished', async () => {
+  let runNo = 0;
+  const blocker = gate();
+  turn = (request, index) => {
+    const last = lastStepId(request);
+    if (last === 's0000') runNo += 1;
+    if (runNo === 1 && last === 's0000')
+      return { name: 'scroll', args: { observationId: request.observation.id, target: null, deltaX: 0, deltaY: 200 } };
+    return runNo === 2 ? blocker.turn(request, index) : done(request, index);
+  };
+  const started = await page.evaluate(async (url) => {
+    const response = await fetch('/api/runs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${sessionStorage.getItem('lab-token')}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ submission: { selector: { kind: 'persona', id: 'guest' }, url, repeats: 2 } }),
+    });
+    return (await response.json()) as { runIds: string[] };
+  }, `${fixture.url}/`);
+  await page.goto(`${dashboard.origin}/#/runs/${started.runIds[0]}`);
+  await blocker.reached;
+  await page.getByRole('heading', { name: 'Outcome: completed' }).waitFor();
+  await page.getByRole('heading', { name: 'Friction claims (0)' }).waitFor();
+  blocker.release();
+  await page.getByRole('heading', { name: 'Friction claims (1)' }).waitFor({ timeout: 15_000 });
+  turn = done;
+});
+
+test('polling while a run is active keeps rows loaded through Load more', async () => {
+  const side = new LabDb(join(root, '.lab/index.sqlite'));
+  const [template] = side.listRuns(1);
+  side.insertBatch('batch_20260101_000000_pagepg', {});
+  const ids = Array.from({ length: 60 }, (_, index) => `run_20260101_000000_p${String(index).padStart(5, '0')}`);
+  for (const [index, id] of ids.entries())
+    side.insertRun({
+      ...template!,
+      id,
+      batch_id: 'batch_20260101_000000_pagepg',
+      entry_index: 0,
+      repeat_index: index,
+      status: index === 0 ? 'running' : 'finished',
+      created_at: `2026-01-01T00:00:${String(index % 60).padStart(2, '0')}.000Z`,
+      artifact_dir: `.lab/runs/${id}`,
+    });
+  try {
+    await page.goto(`${dashboard.origin}/#/runs`);
+    await page.getByRole('button', { name: 'Load more' }).click();
+    const rows = page.locator('table.runs tbody tr');
+    await page.waitForFunction(() => document.querySelectorAll('table.runs tbody tr').length > 50);
+    const loaded = await rows.count();
+    await page.waitForResponse((response) => response.url().endsWith('/api/runs?limit=50'));
+    await page.waitForTimeout(100);
+    assert.equal(await rows.count(), loaded);
+  } finally {
+    side.updateRun(ids[0]!, { status: 'finished' });
+    side.close();
+  }
 });

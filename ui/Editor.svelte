@@ -69,12 +69,14 @@
     saving = true;
     error = '';
     message = '';
+    const sent = source;
     try {
       loaded = await api<Editable>('PUT', `/api/${kind}/${encodeURIComponent(id)}`, {
-        source,
+        source: sent,
         revision: loaded.revision,
       });
-      source = loaded.source;
+      // Text typed while the save was in flight stays; it is simply unsaved again.
+      if (source === sent) source = loaded.source;
       message = `Saved ${file}.`;
       onsaved();
     } catch (caught) {
@@ -109,6 +111,7 @@
         bind:model={topModel.get, topModel.set}
         bind:effort={topEffort.get, topEffort.set}
         inherited={kind === 'personas' ? 'project default' : 'persona or project'}
+        inheritedModels={kind === 'personas' && config ? [config.defaults.model] : []}
         idPrefix="{kind}-default"
       />
     </fieldset>

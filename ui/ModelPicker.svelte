@@ -7,6 +7,7 @@
     model = $bindable(''),
     effort = $bindable(''),
     inherited = 'project default',
+    inheritedModels = [],
     idPrefix,
   }: {
     models: Models;
@@ -14,12 +15,19 @@
     model?: string;
     effort?: string;
     inherited?: string;
+    /** Models the blank choice resolves to, so it offers only efforts they all support. */
+    inheritedModels?: string[];
     idPrefix: string;
   } = $props();
 
   const EFFORTS = ['low', 'medium', 'high'];
   const chosen = $derived(models.models.find((entry) => entry.id === model));
-  const efforts = $derived(chosen ? chosen.supportedEffortLevels : EFFORTS);
+  const fallback = $derived(models.models.filter((entry) => inheritedModels.includes(entry.id)));
+  const efforts = $derived(
+    chosen
+      ? chosen.supportedEffortLevels
+      : EFFORTS.filter((level) => fallback.every((entry) => entry.supportedEffortLevels.includes(level))),
+  );
   const unusable = (entry: Models['models'][number]): string | null =>
     !entry.enabled
       ? 'not usable until its catalog entry is completed'

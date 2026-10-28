@@ -340,7 +340,7 @@ test('preflight prints model, untested status, cost estimate, and batch budget; 
     priced.out,
     /guest x2: openai\/test-model effort low \(model from project, effort from catalog_default\)/u,
   );
-  assert.match(priced.out, /untested: no; estimated \$\d+\.\d\d-\$\d+\.\d\d per run/u);
+  assert.match(priced.out, /untested: no; unmeasured estimate \$\d+\.\d\d-\$\d+\.\d\d per run/u);
   assert.match(priced.out, /maximum batch budget: \$4\.00/u);
 
   const runs = await runCount();

@@ -12,7 +12,7 @@
     untested: boolean;
     repeats: number;
     limits: { steps: number; timeMs: number; dollars: number };
-    estimatePerRun: { minUsd: number; maxUsd: number } | null;
+    estimatePerRun: { minUsd: number; maxUsd: number; basis: 'unmeasured' } | null;
   }
   interface Preview {
     plans: Plan[];
@@ -48,7 +48,11 @@
     kind === 'persona' ? personas.map((persona) => persona.id) : kind === 'tag' ? tags : suites.map((suite) => suite.id),
   );
   const effectiveMode = $derived((mode || config?.defaults.mode || 'vision') as 'vision' | 'text');
-  const untested = $derived(models?.models.find((entry) => entry.id === model)?.untested === true);
+  let inheritedModels = $state<string[]>([]);
+  const untested = $derived(
+    models?.models.find((entry) => entry.id === model)?.untested === true ||
+      preview?.plans.some((plan) => plan.untested) === true,
+  );
 
   const number = (value: number | null | undefined): number | undefined =>
     value === null || value === undefined || Number.isNaN(value) ? undefined : value;
@@ -82,6 +86,7 @@
     loadError = '';
     [kind, url, note, mode, model, effort, allowUntested] = ['persona', '', '', '', '', '', false];
     [repeats, steps, timeMs, dollars] = [null, null, null, null];
+    inheritedModels = [];
     dialog.showModal();
     try {
       [models, config, { personas }, { suites }] = await Promise.all([
@@ -109,7 +114,10 @@
     const timer = setTimeout(() => {
       api<Preview>('POST', '/api/runs', body).then(
         (result) => {
-          if (current === generation) preview = result;
+          if (current !== generation) return;
+          preview = result;
+          if (!body.submission.model)
+            inheritedModels = [...new Set(result.plans.map((plan) => `${plan.provider}/${plan.model}`))];
         },
         (error: Error) => {
           if (current === generation) previewError = error.message;
@@ -183,6 +191,7 @@
           bind:model
           bind:effort
           inherited={config?.defaults.model ?? 'project default'}
+          {inheritedModels}
           idPrefix="run"
         />
       {/if}
@@ -212,7 +221,7 @@
                 <td>{plan.limits.steps} steps, {plan.limits.timeMs / 1000} s, {usd(plan.limits.dollars)}</td>
                 <td>
                   {plan.estimatePerRun
-                    ? `estimate ${usd(plan.estimatePerRun.minUsd)}–${usd(plan.estimatePerRun.maxUsd)}`
+                    ? `${plan.estimatePerRun.basis} estimate ${usd(plan.estimatePerRun.minUsd)}–${usd(plan.estimatePerRun.maxUsd)}`
                     : 'cost unknown; dollar cap unenforceable'}
                 </td>
               </tr>
@@ -230,7 +239,7 @@
     </section>
     <div class="actions">
       <button type="button" onclick={() => dialog.close()}>Close</button>
-      <button type="submit" disabled={!preview || submitting}>
+      <button type="submit" disabled={!preview || submitting || (untested && !allowUntested)}>
         Start {runCount} run{runCount === 1 ? '' : 's'}
       </button>
     </div>

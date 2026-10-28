@@ -69,6 +69,48 @@ test('follow resumes after a dropped stream with Last-Event-ID and stops when th
   }
 });
 
+test('follow reconnects after a clean close of an active run and stops once the run has finished', async () => {
+  const urls: string[] = [];
+  const replies = [
+    () => new Response(frame(1, 'run.started'), { status: 200 }),
+    () => Response.json({ run: { status: 'running' } }),
+    () => new Response(frame(2, 'step.started'), { status: 200 }),
+    () => Response.json({ run: { status: 'finished' } }),
+  ];
+  const originalFetch = globalThis.fetch;
+  Object.assign(globalThis, { sessionStorage: { getItem: () => 'token' } });
+  globalThis.fetch = async (url, init) => {
+    urls.push(
+      `${String(url)} ${(init?.headers as Record<string, string> | undefined)?.['last-event-id'] ?? ''}`.trim(),
+    );
+    return replies.shift()!();
+  };
+  try {
+    const events: LiveEvent[] = [];
+    await new Promise<void>((resolve) =>
+      follow(
+        'run_x',
+        (event) => events.push(event),
+        resolve,
+        () => 0,
+      ),
+    );
+    assert.deepEqual(
+      events.map((event) => event.id),
+      [1, 2],
+    );
+    assert.deepEqual(urls, [
+      '/api/runs/run_x/events 0',
+      '/api/runs/run_x',
+      '/api/runs/run_x/events 1',
+      '/api/runs/run_x',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Reflect.deleteProperty(globalThis, 'sessionStorage');
+  }
+});
+
 test('picker edits keep comments and the Markdown body, and clearing a value removes the key', () => {
   const persona = '---\nid: guest # keep\nname: Guest\n---\n\nBody text.\n';
   const withModel = setAt(persona, ['model'], 'openai/x', true);

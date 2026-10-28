@@ -64,14 +64,21 @@ const decoded = (text: string): string => {
   }
 };
 
+const after = (pair: string): string => pair.split('=').slice(1).join('=');
+
 // Query and fragment values may be tokens the page echoes back, so they are masked and redacted like secrets.
 function urlSecrets(url: URL): SecretStore {
   const secrets = new SecretStore();
-  const fragment = url.hash.slice(1);
-  const raw = [
-    ...`${url.search.slice(1)}&${fragment}`.split(/[?&;]/u).map((pair) => pair.split('=').slice(1).join('=')),
-    fragment,
-  ];
+  // Whole values as URLSearchParams sees them, plus `;`/`?` splits for apps that parse their own separators.
+  const raw = [url.search.slice(1), url.hash.slice(1)].flatMap((part) => [
+    part,
+    ...part.split('&').flatMap((pair) => [
+      after(pair),
+      ...after(pair)
+        .split(/[;?]/u)
+        .flatMap((piece) => [piece, after(piece)]),
+    ]),
+  ]);
   const values = new Set(raw.flatMap((value) => [value, decoded(value)]));
   [...values].filter((value) => value.length >= 4).forEach((value, index) => secrets.bind(`url_value_${index}`, value));
   return secrets;

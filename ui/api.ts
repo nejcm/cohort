@@ -157,7 +157,7 @@ export function splitEvents(buffer: string): { events: LiveEvent[]; rest: string
 
 /**
  * The single SSE client: authenticated fetch streaming, resumed with Last-Event-ID after a drop.
- * `onEnd` fires once the server closes the stream for a finished run or refuses it.
+ * `onEnd` fires once the run has finished (or the server refuses the stream); a clean close of an active run reconnects.
  */
 export function follow(
   runId: string,
@@ -167,6 +167,7 @@ export function follow(
 ): () => void {
   const controller = new AbortController();
   let last = 0;
+  let finished = false;
   void (async () => {
     for (let attempt = 0; !controller.signal.aborted; attempt += 1) {
       try {
@@ -183,14 +184,18 @@ export function follow(
           buffer = split.rest;
           for (const event of split.events) {
             last = event.id;
+            finished ||= event.type === 'run.finished';
             onEvent(event);
           }
         }
-        return onEnd();
+        const { run } = finished
+          ? { run: null }
+          : await api<{ run: { status: string } }>('GET', `/api/runs/${encodeURIComponent(runId)}`);
+        if (!run || !isActive(run.status)) return onEnd();
       } catch {
         if (controller.signal.aborted) return;
-        await new Promise((resolve) => setTimeout(resolve, delay(attempt)));
       }
+      await new Promise((resolve) => setTimeout(resolve, delay(attempt)));
     }
   })();
   return () => controller.abort();

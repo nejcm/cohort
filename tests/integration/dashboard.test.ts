@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
 import { LabDb } from '../../src/dashboard/db.ts';
+import { saveEditable, type EditError } from '../../src/dashboard/files.ts';
 import { CSP, startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
@@ -252,6 +253,11 @@ test('run previews resolve pickers server-side with estimate or unknown-cost ran
   assert.equal(priced.plans[0].model, 'test-model');
   assert.equal(priced.plans[0].modelFrom, 'project');
   assert.ok(priced.plans[0].estimatePerRun.minUsd > 0);
+  assert.equal(priced.plans[0].estimatePerRun.basis, 'unmeasured');
+  for (const limits of [{ steps: 1 }, { steps: 1, dollars: 0.001 }, { steps: 40 }]) {
+    const { minUsd, maxUsd } = (await submit({ ...base, limits }, { preview: true })).json().plans[0].estimatePerRun;
+    assert.ok(minUsd <= maxUsd, `${JSON.stringify(limits)}: ${minUsd} <= ${maxUsd}`);
+  }
   assert.ok(typeof priced.maxBatchUsd === 'number');
   const unpriced = (await submit({ ...base, model: 'openai/unpriced-model' }, { preview: true })).json();
   assert.deepEqual(
@@ -262,11 +268,11 @@ test('run previews resolve pickers server-side with estimate or unknown-cost ran
     (await submit({ ...base, model: 'openai/blind-model' }, { preview: true })).json().error,
     /not vision-capable/u,
   );
-  assert.match((await submit({ ...base, model: 'openai/fresh-model' }, { preview: true })).json().error, /untested/u);
   assert.equal(
-    (await submit({ ...base, model: 'openai/fresh-model' }, { preview: true, allowUntested: true })).status,
-    200,
+    (await submit({ ...base, model: 'openai/fresh-model' }, { preview: true })).json().plans[0].untested,
+    true,
   );
+  assert.match((await submit({ ...base, model: 'openai/fresh-model' })).json().error, /untested/u);
   assert.match(
     (await submit({ ...base, model: 'anthropic/test-claude' }, { preview: true })).json().error,
     /unavailable/u,
@@ -564,14 +570,15 @@ test("the queue bound counts the active batch's waiting repetitions", async () =
 
 test('concurrent saves from one revision let exactly one win', async () => {
   const current = (await call('GET', '/api/personas/guest')).json();
-  const save = (text: string) =>
-    call('PUT', '/api/personas/guest', {
-      body: { source: `${current.source}${text}\n`, revision: current.revision },
-    });
-  const replies = await Promise.all([save('First writer.'), save('Second writer.')]);
-  assert.deepEqual(replies.map((reply) => reply.status).toSorted(), [200, 409]);
-  const winner = replies.find((reply) => reply.status === 200)!.json();
-  assert.equal(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), winner.source);
+  // Started in one tick, so without serialization every save reads the file before any writes it.
+  const saves = Array.from({ length: 8 }, (_, index) =>
+    saveEditable(root, 'personas', 'guest', `${current.source}Writer ${index}.\n`, current.revision),
+  );
+  const results = await Promise.allSettled(saves);
+  const won = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+  assert.equal(won.length, 1);
+  assert.ok(results.every((result) => result.status === 'fulfilled' || (result.reason as EditError).status === 409));
+  assert.equal(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), won[0]!.source);
 });
 
 test('batch snapshots keep no URL query or fragment credentials', async () => {

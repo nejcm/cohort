@@ -5,7 +5,7 @@ import { estimateCostUsd } from './cost.ts';
 function costLine(entry: ResolvedEntry): {
   text: string;
   maxUsd: number | null;
-  perRun: { minUsd: number; maxUsd: number } | null;
+  perRun: EntryPlan['estimatePerRun'];
 } {
   const { pricesPerMTok: prices, untested } = entry.request.catalog.entry;
   const { steps, dollars } = entry.request.limits;
@@ -20,11 +20,13 @@ function costLine(entry: ResolvedEntry): {
     },
     prices,
   );
-  const perRun = perCall === null ? null : { minUsd: perCall * 2, maxUsd: Math.min(dollars, perCall * steps) };
+  const maxUsd = perCall === null ? 0 : Math.min(dollars, perCall * steps);
+  const perRun =
+    perCall === null ? null : { minUsd: Math.min(perCall * 2, maxUsd), maxUsd, basis: 'unmeasured' as const };
   const cost =
     perRun === null
       ? 'cost unknown; dollar cap unenforceable'
-      : `estimated $${perRun.minUsd.toFixed(2)}-$${perRun.maxUsd.toFixed(2)} per run`;
+      : `unmeasured estimate $${perRun.minUsd.toFixed(2)}-$${perRun.maxUsd.toFixed(2)} per run`;
   return {
     text: `untested: ${untested ? 'yes' : 'no'}; ${cost}`,
     maxUsd: perCall === null ? null : dollars * entry.request.repeats,
@@ -42,8 +44,8 @@ export interface EntryPlan {
   untested: boolean;
   repeats: number;
   limits: { steps: number; timeMs: number; dollars: number };
-  /** Catalog price x step-cap estimate per run; null when prices are unknown. */
-  estimatePerRun: { minUsd: number; maxUsd: number } | null;
+  /** Catalog price x assumed tokens per call, bounded by the step and dollar caps; null when prices are unknown. */
+  estimatePerRun: { minUsd: number; maxUsd: number; basis: 'unmeasured' } | null;
 }
 
 /** Per-entry plan lines and the maximum batch spend, or null when some prices are unknown. */

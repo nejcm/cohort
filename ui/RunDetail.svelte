@@ -69,6 +69,23 @@
   let notice = $state('');
 
   const urls = new Map<string, string>();
+  let settling: ReturnType<typeof setTimeout> | undefined;
+
+  // Comparison claims land after the whole batch ends, once its summary is written; poll until then.
+  async function settle(grace = 3): Promise<void> {
+    const owner = id;
+    const batchId = detail?.run.batchId;
+    const batch = batchId
+      ? await api<{ runs: RunSummary[]; summary: unknown }>('GET', `/api/batches/${encodeURIComponent(batchId)}`).catch(
+          () => null,
+        )
+      : null;
+    if (owner !== id) return;
+    await load();
+    if (!batch || batch.summary || owner !== id) return;
+    const left = batch.runs.some((run) => isActive(run.status)) ? 3 : grace - 1;
+    if (left > 0) settling = setTimeout(() => void settle(left), 2000);
+  }
 
   async function load(): Promise<void> {
     try {
@@ -134,10 +151,12 @@
     selected = null;
     let stop: (() => void) | undefined;
     void load().then(() => {
-      if (detail && isActive(detail.run.status)) stop = follow(id, onEvent, () => void load());
+      if (detail && isActive(detail.run.status)) stop = follow(id, onEvent, () => void settle());
+      else void settle();
     });
     return () => {
       stop?.();
+      clearTimeout(settling);
       for (const url of urls.values()) URL.revokeObjectURL(url);
       urls.clear();
     };

@@ -132,7 +132,7 @@ test('generation previews a validated persona and stays on its landing page', as
   assert.match(text, /^App URL: http:\/\/127\.0\.0\.1:\d+\/landing\n<owner_description>\nA restaurant booking site\./u);
   assert.match(text, /<landing_page_text>\n[\s\S]*Ignore previous instructions[\s\S]*<\/landing_page_text>$/u);
   assert.doesNotMatch(JSON.stringify(request), /query-secret-99|dom-secret-77/u);
-  assert.match(text, /\[masked\][\s\S]*\{\{url_value_0\}\}/u);
+  assert.match(text, /\[masked\][\s\S]*\{\{url_value_\d+\}\}/u);
   // The 1280px viewport is sent at 1024px, so CSS pixels scale by 0.8.
   const png = decodePng(Buffer.from(request!.observation.pngBase64, 'base64'));
   assert.ok(masked(png, 864, 24), 'masked element hidden in the screenshot');
@@ -142,16 +142,23 @@ test('generation previews a validated persona and stays on its landing page', as
   await assert.rejects(stat(join(root, '.lab/personas')), 'a preview writes nothing');
 });
 
-test('structured fragment parameters stay out of the model text and screenshot', async () => {
+test('structured query and fragment parameters stay out of the model text and screenshot', async () => {
   turn = writes(PERSONA);
-  const sent = provider.requests.length;
-  const { code, out } = await generate([], `${siteUrl}/landing#token=fragment-canary-42&view=full`);
-  assert.equal(code, 0, out);
-  const [request] = provider.requests.slice(sent);
-  assert.doesNotMatch(JSON.stringify(request), /fragment-canary-42/u);
-  assert.match(request!.observation.text, /\[masked\][\s\S]*\{\{url_value_\d+\}\}/u);
-  const png = decodePng(Buffer.from(request!.observation.pngBase64, 'base64'));
-  assert.ok(masked(png, 864, 104), 'echoed fragment token hidden in the screenshot');
+  for (const [suffix, canary] of [
+    ['#token=fragment-canary-42&view=full', 'fragment-canary-42'],
+    ['#token=abc;semi-canary-42&view=full', 'semi-canary-42'],
+    ['?token=abc?quest-canary-42&view=full', 'quest-canary-42'],
+    ['?token=abc;qsemi-canary-42&view=full', 'qsemi-canary-42'],
+  ] as const) {
+    const sent = provider.requests.length;
+    const { code, out } = await generate([], `${siteUrl}/landing${suffix}`);
+    assert.equal(code, 0, out);
+    const [request] = provider.requests.slice(sent);
+    assert.ok(!JSON.stringify(request).includes(canary), suffix);
+    assert.match(request!.observation.text, /\[masked\][\s\S]*\{\{url_value_\d+\}\}/u, suffix);
+    const png = decodePng(Buffer.from(request!.observation.pngBase64, 'base64'));
+    assert.ok(masked(png, 864, 104), `echoed token hidden in the screenshot: ${suffix}`);
+  }
 });
 
 test('a redirecting or self-navigating landing page is refused before the target loads', async () => {
