@@ -2,7 +2,8 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Mutation } from './scenarios.ts';
+import { parseArgs } from 'node:util';
+import { MUTATIONS, type Mutation } from './scenarios.ts';
 
 interface Submission {
   name: string;
@@ -64,7 +65,7 @@ async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
 }
 
 export async function startFixture(
-  options: { mutations?: readonly Mutation[]; host?: string } = {},
+  options: { mutations?: readonly Mutation[]; host?: string; port?: number } = {},
 ): Promise<FixtureServer> {
   const mutations = new Set(options.mutations ?? []);
   const store = new Map<string, Submission[]>();
@@ -378,7 +379,7 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
       response.end();
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, options.host ?? '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(options.port ?? 0, options.host ?? '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://${options.host ?? '127.0.0.1'}:${port}`,
@@ -396,4 +397,15 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
         server.close((error) => (error ? reject(error) : resolve()));
       }),
   };
+}
+
+if (import.meta.main) {
+  const { values } = parseArgs({
+    options: { port: { type: 'string', default: '4173' }, mutation: { type: 'string', multiple: true, default: [] } },
+  });
+  const unknown = values.mutation.filter((name) => !(name in MUTATIONS));
+  if (unknown.length > 0)
+    throw new Error(`unknown mutation ${unknown.join(', ')}; known: ${Object.keys(MUTATIONS).join(', ')}`);
+  const fixture = await startFixture({ port: Number(values.port), mutations: values.mutation as Mutation[] });
+  process.stdout.write(`fixture app: ${fixture.url}/ (Ctrl-C to stop)\n`);
 }

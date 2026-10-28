@@ -2,6 +2,21 @@
 
 Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, with a scripted fake model. Node 24 itself has not been run locally yet; CI pins `.node-version`.
 
+## Runtime, browser, and providers (release candidate 0.1.0-rc.0)
+
+| Component | Supported | Verified |
+| --- | --- | --- |
+| Node.js | 24.2.0 or later (`engines`) | Local: v26.8.2 only. CI runs every check and the package smoke test on Node 24 (`.node-version`); no Node 24 run has been observed locally |
+| Package manager for users | npm (no Bun) | `scripts/package-smoke.ts`: npm 12.2.1, Bun removed from `PATH` |
+| Bun | Development only (`bun@1.4.4`) | Local |
+| Playwright | 1.64.1, exact pin | Local |
+| Browser | Chromium 156.0.8078.4 (Playwright revision 1248), headless, plus headed for `lab login` | Headless local; the headed `lab login` window is not exercised by tests |
+| Operating system | Linux | Local Linux 7.2; macOS and Windows untested |
+| OpenAI | Responses API through `fetch`, `reasoning.effort` | Fake HTTP server only; not live |
+| Anthropic | Messages API through `fetch`, `output_config.effort` | Fake HTTP server only; not live |
+| Shipped models | None enabled | The one catalog entry is a disabled candidate until live verification |
+| Dashboard browsers | Chromium | Firefox and WebKit untested |
+
 ## Target resolution and replay
 
 Each row passes `tests/integration/targets.test.ts`: the hit point resolves to a unique locator that is the same element, and clicking that locator replays the action.
@@ -70,7 +85,7 @@ At each clean capture every element's box is recorded and the mutation log is re
 
 - `.lab/config.yml`, personas, and suites are validated against closed schemas (unknown fields and schema versions fail). Persona viewports are 240-3840 x 240-2160; locales and time zones must be accepted by `Intl`.
 - Persona, suite, storage-state, and setup paths must stay inside their `.lab/` folders with no symlinked segment.
-- Not implemented yet, rejected at preflight: `mode: text`, non-empty `routes`, and custom tools returned by setup (`setup_error`).
+- Not implemented yet, rejected at preflight: `mode: text`. (Routes and custom tools landed in Phase 5.)
 - When setup runs, its `startUrl` replaces the configured URL, and its storage state replaces a named one. The time cap includes setup.
 - Setup, including loading its module, is raced against the run's time cap and cancellation: a hung setup ends as `limit_reached(time)` or `interrupted`. Cleanups share a budget of min(10 s, time cap); overruns are recorded as `cleanup_timeout`.
 - Setup and cleanup error text is redacted for setup secrets, for every value setup read through `ctx.env()`, and for provider key variables (shown as `[env]`). If one of those values is shorter than 4 characters and appears in the text, the whole message is withheld. Values read through `ctx.env()` are not masked in screenshots, because many are not secrets.
@@ -134,6 +149,14 @@ At each clean capture every element's box is recorded and the mutation log is re
   Other browsers were not tested.
 - Run limits show only after the run finishes, because they come from `resolved-config.json`.
 - Svelte components have no type checking: `svelte-check` was not added. The logic they rely on lives in typechecked `ui/*.ts` files.
+
+## Packaging, Action, and hardening (Phase 6)
+
+- `scripts/package-smoke.ts` (`bun run smoke:package` after `bun run build`) packs the tarball, checks its file list (only `dist/`, `examples/personas/`, `LICENSE`, `NOTICE`, `README.md`, `package.json`), installs it with npm into an empty directory with Bun removed from `PATH`, then runs the installed `lab --version`, `init`, `persona validate`, `doctor`, a fixture run through the installed library with a scripted model, `lab report`, `lab ui` (static page with CSP, 401 without the token, the run in `/api/runs`), and the Action script against the installed CLI. Passed locally on Node v26.8.2; CI runs it on Node 24.
+- The Action (`action.yml`) is tested with a stub CLI: inputs arrive as separate arguments, outputs and exit codes map from the JSON result, and no step interpolates inputs into shell or uploads anything. It has not run on GitHub-hosted runners yet.
+- `tests/integration/canary.test.ts` scans every file a run, its batch, and the reports write under `.lab` (except `trace.zip`) for setup secrets, an environment-only value, and the provider key, and checks owner-only modes.
+- `lab init` and `lab doctor` exist; doctor never calls a model.
+- A hard-killed `lab run` leaves run directories without `manifest.json`. `lab doctor` lists them; they are not finalized automatically, because another `lab run` may still own them.
 
 ## Not verified (needs live keys or external targets)
 

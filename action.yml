@@ -1,0 +1,106 @@
+name: Synthetic Customer Lab
+description: Run synthetic-user journeys with the lab CLI from the same release as this Action.
+author: Synthetic Customer Lab contributors
+
+inputs:
+  persona:
+    description: Persona ID to run (choose one of persona, tag, suite, or url with note).
+    required: false
+  tag:
+    description: Run every persona with this tag.
+    required: false
+  suite:
+    description: Suite ID to run.
+    required: false
+  url:
+    description: Start URL. Never put bearer tokens here; use setup bindings.
+    required: false
+  note:
+    description: Ad-hoc goal or note.
+    required: false
+  model:
+    description: Optional <provider>/<id> override, same precedence as lab run --model.
+    required: false
+  effort:
+    description: Optional low|medium|high override.
+    required: false
+  repeats:
+    description: Optional repetitions per entry.
+    required: false
+  allow-untested:
+    description: Set to "true" to allow untested catalog entries.
+    required: false
+    default: 'false'
+  working-directory:
+    description: Project directory that contains .lab/.
+    required: false
+    default: '.'
+  install-browser:
+    description: Set to "false" to skip installing Chromium and its system dependencies.
+    required: false
+    default: 'true'
+  package:
+    description: npm package spec to install instead of this release (for testing a release candidate tarball).
+    required: false
+    default: ''
+
+outputs:
+  batch-id:
+    description: Batch ID, empty when no batch started.
+    value: ${{ steps.run.outputs.batch-id }}
+  report-path:
+    description: Path of the batch report.html.
+    value: ${{ steps.run.outputs.report-path }}
+  exit-code:
+    description: 0 all completed, 1 any other outcome, 2 invalid configuration.
+    value: ${{ steps.run.outputs.exit-code }}
+  runs:
+    description: Number of runs that started.
+    value: ${{ steps.run.outputs.runs }}
+  completed:
+    description: Runs that completed.
+    value: ${{ steps.run.outputs.completed }}
+  abandoned:
+    description: Runs the agent abandoned.
+    value: ${{ steps.run.outputs.abandoned }}
+  blocked:
+    description: Runs that ended blocked.
+    value: ${{ steps.run.outputs.blocked }}
+  agent-error:
+    description: Runs that ended as agent or harness errors, including interruptions.
+    value: ${{ steps.run.outputs.agent-error }}
+  limit-reached:
+    description: Runs that hit a step, time, or cost limit.
+    value: ${{ steps.run.outputs.limit-reached }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the lab CLI
+      shell: bash
+      env:
+        LAB_PREFIX: ${{ runner.temp }}/synthetic-customer-lab
+        LAB_PACKAGE: ${{ inputs.package }}
+      run: |
+        spec="${LAB_PACKAGE:-synthetic-customer-lab@$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package.json').version")}"
+        npm install --prefix "$LAB_PREFIX" --no-save --no-audit --no-fund "$spec"
+        echo "$LAB_PREFIX/node_modules/.bin" >> "$GITHUB_PATH"
+    - name: Install Chromium
+      if: inputs.install-browser == 'true'
+      shell: bash
+      run: playwright install --with-deps chromium
+    - name: Run lab
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_PERSONA: ${{ inputs.persona }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_SUITE: ${{ inputs.suite }}
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_NOTE: ${{ inputs.note }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_EFFORT: ${{ inputs.effort }}
+        INPUT_REPEATS: ${{ inputs.repeats }}
+        INPUT_ALLOW_UNTESTED: ${{ inputs.allow-untested }}
+      run: node "$GITHUB_ACTION_PATH/action/run.ts"

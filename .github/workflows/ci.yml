@@ -27,3 +27,37 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - run: bun run verify
+
+  # Packed tarball installed with npm and no Bun on PATH, on the Node version in .node-version.
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run build
+      - run: node scripts/package-smoke.ts
+      - id: pack
+        run: |
+          mkdir "$RUNNER_TEMP/project"
+          echo "tarball=$RUNNER_TEMP/$(npm pack --pack-destination "$RUNNER_TEMP" | tail -n 1)" >> "$GITHUB_OUTPUT"
+      - id: action
+        uses: ./
+        continue-on-error: true
+        with:
+          package: ${{ steps.pack.outputs.tarball }}
+          working-directory: ${{ runner.temp }}/project
+          install-browser: 'false'
+          persona: first-time-host
+          url: http://127.0.0.1:9/
+      - name: The Action reports a configuration failure without a project
+        env:
+          EXIT_CODE: ${{ steps.action.outputs.exit-code }}
+        run: test "$EXIT_CODE" = 2

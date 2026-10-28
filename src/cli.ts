@@ -33,8 +33,14 @@ import { createProviders } from './providers/registry.ts';
 import { ProviderError, type Effort, type ProviderAdapter } from './providers/types.ts';
 import { GenerateError, generatePersona } from './personas/generate.ts';
 import { isLoopback, startDashboard } from './dashboard/server.ts';
+import { initProject } from './config/init.ts';
+import { doctor } from './doctor.ts';
+import { scrubEnv } from './setup/run.ts';
+import { SecretStore } from './setup/secrets.ts';
 
 const USAGE = `Usage: lab [options]
+       lab init
+       lab doctor [--json]
        lab run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
        lab report <run-or-batch-id> [--format json|md|html]
        lab replay <run-id> [--json]
@@ -129,6 +135,26 @@ export async function run(
     return 0;
   }
   const [command, id, ...extra] = positionals;
+  if (command === 'init' && id === undefined) {
+    try {
+      const { created, kept } = await initProject(deps.cwd ?? process.cwd());
+      for (const path of created) write(`created ${path}\n`);
+      for (const path of kept) write(`kept ${path} (exists)\n`);
+      write('next: lab doctor\n');
+      return 0;
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error;
+      write(`Error: ${error.message}\n`);
+      return 2;
+    }
+  }
+  if (command === 'doctor' && id === undefined) {
+    const env = deps.env ?? process.env;
+    const checks = await doctor(deps.cwd ?? process.cwd(), env, deps.providers ?? createProviders(env));
+    if (values.json) write(`${JSON.stringify({ checks })}\n`);
+    else for (const check of checks) write(`${check.level.padEnd(5)} ${check.message}\n`);
+    return checks.some((check) => check.level === 'error') ? 2 : 0;
+  }
   if (command === 'run' && id === undefined) return runCommand(values, write, deps);
   if (command === 'ui' && id === undefined) return uiCommand(values, write, deps);
   if (command === 'login' && id === undefined)
@@ -166,7 +192,8 @@ async function reportCommand(id: string, format: string, write: Write, deps: Dep
   if (!['json', 'md', 'html'].includes(format)) throw new BundleError('--format must be json, md, or html');
   const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
   const text = await readBundleFile(dir, 'report.json');
-  if (text === null) throw new BundleError(`${id} has no report.json`);
+  if (text === null)
+    throw new BundleError(`${id} has no report.json; it is still running, or its process stopped before finalizing`);
   if (format === 'json') write(text);
   else if (kind === 'batch') {
     const report = JSON.parse(text) as BatchReport;
@@ -468,5 +495,19 @@ if (import.meta.main) {
   const controller = new AbortController();
   process.once('SIGINT', () => controller.abort('user'));
   process.once('SIGTERM', () => controller.abort('process'));
-  process.exitCode = await run(process.argv.slice(2), undefined, { signal: controller.signal });
+  process.exitCode = await run(process.argv.slice(2), undefined, { signal: controller.signal }).catch(
+    (error: unknown) => {
+      // Bounded and key-free; LAB_DEBUG=1 adds the stack.
+      const keys = Object.values(createProviders()).flatMap((provider) => process.env[provider.keyEnv] ?? []);
+      const text = process.env.LAB_DEBUG === '1' ? String((error as Error)?.stack ?? error) : firstLine(error);
+      process.stderr.write(`lab: unexpected error: ${scrubEnv(text, new SecretStore(), keys)}\n`);
+      return 2;
+    },
+  );
+}
+
+function firstLine(error: unknown): string {
+  return String((error as Error)?.message ?? error)
+    .split('\n')[0]!
+    .slice(0, 500);
 }

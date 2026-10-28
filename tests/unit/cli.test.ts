@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 import { run } from '../../src/cli.ts';
 
 async function capture(argv: string[]): Promise<{ code: number; out: string }> {
@@ -49,4 +54,64 @@ test('invalid run invocations exit 2 before reading any project', async () => {
     assert.equal(code, 2, argv.join(' '));
     assert.match(out, expected);
   }
+});
+
+test('init creates the project layout once and doctor reports it without printing keys', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-init-'));
+  await promisify(execFile)('git', ['init', '-q', root]);
+  const cli = async (argv: string[], env: NodeJS.ProcessEnv = {}) => {
+    let out = '';
+    const code = await run(argv, (text) => void (out += text), { cwd: root, env });
+    return { code, out };
+  };
+  const first = await cli(['init']);
+  assert.equal(first.code, 0);
+  for (const path of ['.lab/config.yml', '.lab/.gitignore', '.lab/personas/first-time-host.md'])
+    assert.match(first.out, new RegExp(`created ${path.replaceAll('.', '\\.')}`, 'u'));
+  await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  const second = await cli(['init']);
+  assert.doesNotMatch(second.out, /created/u);
+  assert.match(second.out, /kept \.lab\/config\.yml/u);
+  assert.equal(await readFile(join(root, '.lab/config.yml'), 'utf8'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  assert.equal((await cli(['persona', 'validate'])).code, 0);
+
+  await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: anthropic/claude-sonnet-5-5\n');
+  const unusable = await cli(['doctor']);
+  assert.equal(unusable.code, 2);
+  assert.match(unusable.out, /error default model: model is disabled until its capabilities are confirmed/u);
+  assert.match(unusable.out, /error ANTHROPIC_API_KEY is not set/u);
+  assert.match(unusable.out, /ok    \.lab\/runs is gitignored/u);
+  assert.match(unusable.out, /ok    \.lab\/auth is gitignored/u);
+
+  const key = 'sk-doctor-canary-0123456789';
+  await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  await writeFile(
+    join(root, '.lab/models.yml'),
+    'version: test\nmodels:\n  - id: vision-model\n    provider: openai\n    label: v\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
+  );
+  await mkdir(join(root, '.lab/runs/run_20261028_000000_abcdef'), { recursive: true });
+  const ready = await cli(['doctor'], { OPENAI_API_KEY: key });
+  assert.equal(ready.code, 0, ready.out);
+  assert.match(ready.out, /ok    default model openai\/vision-model \(low\)/u);
+  assert.match(ready.out, /ok    OPENAI_API_KEY is set/u);
+  assert.match(ready.out, /warn  1 run\(s\) without manifest\.json.*run_20261028_000000_abcdef/u);
+  const json = await cli(['doctor', '--json'], { OPENAI_API_KEY: key });
+  assert.ok(Array.isArray(JSON.parse(json.out).checks));
+  assert.doesNotMatch(ready.out + json.out, new RegExp(key, 'u'));
+});
+
+test('init refuses a symlinked .lab and doctor asks for init', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-init-'));
+  const elsewhere = await mkdtemp(join(tmpdir(), 'lab-elsewhere-'));
+  const cli = async (argv: string[]) => {
+    let out = '';
+    const code = await run(argv, (text) => void (out += text), { cwd: root, env: {} });
+    return { code, out };
+  };
+  assert.match((await cli(['doctor'])).out, /error no \.lab directory here; run: lab init/u);
+  await symlink(elsewhere, join(root, '.lab'));
+  const refused = await cli(['init']);
+  assert.equal(refused.code, 2);
+  assert.match(refused.out, /\.lab must be a plain directory/u);
+  assert.deepEqual(await readdir(elsewhere), []);
 });

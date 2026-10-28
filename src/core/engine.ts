@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type BrowserContextOptions, type Page, type Request, type Route } from 'playwright';
 import type { RouteRule } from '../config/files.ts';
@@ -115,6 +115,7 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
     let traced: string | null = tracePath;
     try {
       await context.tracing.stop({ path: tracePath });
+      await chmod(tracePath, 0o600);
     } catch (error) {
       traced = null;
       const message = options.secrets.redact((error as Error).message.split('\n')[0]!).slice(0, 200);

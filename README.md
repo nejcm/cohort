@@ -1,110 +1,92 @@
 # Synthetic Customer Lab
 
-> Working title. Pre-alpha: `lab run` works offline against a scripted fake model; no shipped model is enabled yet.
+> Working title. Release candidate `0.1.0-rc.0`: tested offline against a scripted model; no shipped model is enabled until live verification.
 
-AI synthetic users that operate your web app like real people. You give a persona a goal, the agent drives a real browser from screenshots, and every action is recorded as an inspectable Playwright trail plus a replayable script. Open source, self-hosted, bring your own LLM keys.
+AI synthetic users that operate your web app like real people. You give a persona a goal; an agent drives a real Chromium browser from screenshots, the way a first-time user would, and every action is recorded as an inspectable Playwright trail plus a replayable script. Reports separate what the harness measured from what the agent thought, and every claim cites screenshot evidence.
 
-## Status
+- Local-first: a CLI and a local dashboard. No hosted service, accounts, or telemetry.
+- Bring your own LLM key (OpenAI or Anthropic). Keys stay in your environment.
+- Honest outcomes: `completed`, `abandoned`, `blocked(kind)`, `agent_error(code)`, or `limit_reached(limit)`. An agent failure is never reported as a UX failure.
+- Bounded spend: step, time, and dollar caps, with "cost unknown" stated when prices are missing.
 
-Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–5 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, persona validation and generation, the `lab ui` dashboard, setup modules with custom tools, `lab login`, route mocks, and blocker detection. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+What it is not: an accessibility audit, a substitute for user research, a load tester, or a CAPTCHA or payment bot. Synthetic behaviour is not validated against real people.
 
-## Prerequisites
+## Quick start
 
-- Node.js 24.2.0+ (see `.node-version`)
-- [Bun](https://bun.sh) for development only; the published package does not need it
-
-## Setup
+Requires Node.js 24.2.0 or later and npm.
 
 ```sh
-bun install --frozen-lockfile
-bunx playwright install chromium
-cp .env.example .env.local   # add the provider keys you want; never commit real values
+npm install --save-dev synthetic-customer-lab   # not yet published; see docs/release-checklist.md
+npx playwright install chromium
+npx lab init      # .lab/ with config, three example personas, and a .gitignore for private evidence
+npx lab doctor    # runtime, browser, config, model, keys, paths; never calls a model
+```
+
+`lab doctor` reports that the default model is disabled: no model has been verified live yet. Add a model you have checked to `.lab/models.yml` ([how](docs/operating.md#models)) and set its key, for example `export ANTHROPIC_API_KEY=...`.
+
+Try it on the bundled fixture app (from a clone of this repository; it needs only Node):
+
+```sh
+node fixtures/friction-app/server.ts --port 4173        # add --mutation hidden_primary etc. for seeded friction
+npx lab run --persona first-time-host --url http://127.0.0.1:4173/ --repeats 1
+open .lab/runs/<batch-id>/report.html                    # the run prints its report path
 ```
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `bun run verify` | typecheck, lint, format check, tests, unused-code check |
-| `bun run build` | compile to `dist/` |
-| `bun run test` | unit and Chromium integration tests (`node --test`, fake model, no network to providers) |
+| `lab init` | Create `.lab/` without overwriting anything |
+| `lab doctor [--json]` | Check the setup; exit 2 on any error |
+| `lab run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--allow-untested`, `--json` |
+| `lab report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
+| `lab replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
+| `lab trace <run-id>` | Open the private trace locally with `playwright show-trace` |
+| `lab login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.lab/auth/<name>.json` |
+| `lab persona validate` | Check every persona and suite, reporting all problems |
+| `lab persona generate --url <url> --description <text> [--out <file>]` | One metered call over a landing page; preview unless `--out` |
+| `lab ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1` |
 
-## Running
+Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration.
 
-The shipped catalog has no enabled model yet. Add a verified entry to `.lab/models.yml` (see PLAN §5), then:
+Each run writes `.lab/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
 
-```sh
-lab run --persona <id>            # one persona and its goal
-lab run --tag <tag>               # personas with a tag, in ID order
-lab run --suite <id>              # ordered suite entries
-lab run --url <url> --note <goal> # ad-hoc first-time user
-```
+## Documentation
 
-Each run writes `.lab/runs/<run-id>/`. The run directory holds:
-
-- `trace.zip`, `steps.jsonl`, `screenshots/`, and `replay.spec.ts`;
-- `resolved-config.json` and `report.json` (canonical), with `report.md` and `report.html` rendered from it;
-- `manifest.json`, written last and atomically, which inventories every other file.
-
-Each batch writes a summary to `.lab/runs/<batch-id>/report.{json,md,html}`. It gives completion rate with numerator and denominator, blocked runs by kind and detector, user cancellations, agent errors, limits, and costs.
-
-```sh
-lab report <run-or-batch-id> [--format json|md|html]  # print or re-render a report
-lab replay <run-id>   # rerun replay.spec.ts with no model; needs @playwright/test in the project
-lab trace <run-id>    # open trace.zip locally with playwright show-trace
-lab login --url <url> --state <name>  # log in by hand in a headed browser; saves .lab/auth/<name>.json
-```
-
-Setup modules, custom tools (fresh one-time codes and similar), saved logins, route mocks, and how blockers are detected: [docs/setup-and-login.md](docs/setup-and-login.md).
-
-```sh
-lab persona validate                                   # check every persona and suite, reporting all problems
-lab persona generate --url <url> --description <text>  # one metered call over the landing page; prints a preview
-lab persona generate ... --out .lab/personas/<id>.md   # save only when asked; never overwrites
-```
-
-How to write personas and suites, how prompt layers combine, and the generator guidance: [docs/personas.md](docs/personas.md). Three editable examples are in `examples/personas/`.
-
-`lab replay` prepares bindings in this order:
-
-1. If the run used a setup module, it runs that module again. The module's custom tools are served to the script over a loopback bridge, so codes are acquired fresh.
-2. Otherwise it uses `LAB_START_URL` from the environment.
-3. Failing that, it uses the recorded start URL, but only when that URL was not reduced to origin and path.
-
-The result is recorded as `passed` or `failed` in the run report.
-
-Overrides: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--url`, `--note`. Untested catalog entries need `--allow-untested`. `--json` prints one JSON result. Exit codes: `0` all runs completed, `1` any other outcome or cancellation, `2` invalid invocation or configuration.
-
-### Dashboard
-
-```sh
-lab ui [--port <n>]           # loopback only; prints http://127.0.0.1:<port>/#token=...
-lab ui --host <address>       # explicit exposure; prints a warning first
-```
-
-The dashboard covers:
-
-- run history;
-- the run dialog (persona, tag, suite or ad-hoc dispatch, with model and effort pickers and a cost estimate, or "cost unknown" when prices are missing);
-- a live run view with steps, screenshot timeline, claims, cost and cancel;
-- authenticated report, replay and trace downloads;
-- persona and suite editors;
-- persona generation;
-- saving an ad-hoc run to a suite.
-
-Edits are checked against the file's revision: a file changed on disk is never overwritten, and your text stays in the editor. Every API call needs the per-launch token as `Authorization: Bearer`. Requests with a foreign `Host` or `Origin` are refused. Setup references in personas and suites are read-only through the API. Runs are indexed in `.lab/index.sqlite` (gitignored). A restart marks unfinished runs `interrupted` and never resumes them.
-
-## Environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `OPENAI_API_KEY` | Enables OpenAI models in the model picker |
-| `ANTHROPIC_API_KEY` | Enables Anthropic models in the model picker |
+- [Operating the lab](docs/operating.md): keys, models, costs and limits, blockers, replay bindings, artifacts, retention and deletion, diagnostics.
+- [Personas and suites](docs/personas.md): formats, prompt layers, generator guidance.
+- [Setup modules and saved login](docs/setup-and-login.md): custom tools for one-time codes, storage state, routes, blocker detection.
+- [GitHub Action](docs/github-action.md): the thin Action and a workflow that never uploads traces.
+- [Compatibility](docs/compatibility.md): exact runtime, browser, and provider status, and what is unsupported.
+- [Security review notes](docs/security.md): the threat model, its controls, and what remains.
+- [Release-candidate checklist](docs/release-checklist.md): what is automated and what is still manual.
+- [Report examples](docs/report-examples/) for every outcome, generated from the fixture.
 
 ## Evidence warning
 
-Run directories (`.lab/runs`) hold native Playwright traces, which record unmasked DOM snapshots and may contain secrets. Keep them private; never publish or commit them. Screenshots sent to models, `steps.jsonl`, and generated replay scripts are masked or use `{{placeholder}}` bindings. Reports and screenshots may still show sensitive content; treat every artifact as sensitive until reviewed.
+`trace.zip` files are native Playwright traces with unmasked DOM snapshots and typed values; they contain secrets. Keep `.lab/runs` and `.lab/auth` private: never publish, commit, or upload them. Screenshots sent to models are masked for known secrets and scripts use `{{placeholder}}` bindings, but reports and screenshots can still show sensitive app content. Use test accounts and synthetic data.
+
+## Roadmap
+
+The MVP ends with screening by outside developers. Add-ons follow in this order, each only after the previous one is useful:
+
+1. Crawler and suggestions: an `explore` mode that proposes personas and replayable tests from observed paths.
+2. PR regression: replay an approved script on base and head with confirmation and one advisory PR comment.
+3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
+4. Keyboard and small-screen scenario packs.
+
+## Development
+
+```sh
+bun install --frozen-lockfile
+bunx playwright install chromium
+bun run verify          # typecheck, lint, format check, tests, unused-code check
+bun run build           # dist/ and the dashboard in dist/ui
+bun run smoke:package   # npm-installed tarball, no Bun on PATH
+```
+
+Bun is for development only; the published package runs on Node. Tests use a scripted fake model and never call a provider. Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md), [original idea](docs/original-idea.md).
 
 ## License
 
-Apache-2.0, see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
