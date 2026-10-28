@@ -97,7 +97,7 @@ export async function replayRun(
         storageState = result.storageState ?? storageState;
         if (Object.keys(result.tools ?? {}).length > 0) {
           customToolDefinitions(result.tools);
-          bridge = await serveTools(result.tools!, secrets, scrub, Math.min(30_000, capMs), env);
+          bridge = await serveTools(result.tools!, secrets, scrub, capMs, env);
         }
       } catch (error) {
         const reason = options.signal?.aborted
@@ -138,20 +138,24 @@ export async function replayRun(
 }
 
 // Loopback only, one random token, alive just for this replay: the script calls trusted tools as the run did.
-async function serveTools(
+export async function serveTools(
   tools: Record<string, CustomTool>,
   secrets: SecretStore,
   scrub: (text: string) => string,
-  timeoutMs: number,
+  capMs: number,
   env: NodeJS.ProcessEnv,
 ): Promise<{ close: () => void }> {
   const token = randomBytes(24).toString('hex');
+  const deadline = Date.now() + capMs;
   const server = createServer(async (request, response) => {
     const reply = (status: number, body: object): void => {
       response.writeHead(status, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(body));
+      response.end(JSON.stringify(body), () => {
+        if (status !== 200 && status !== 500) request.socket.destroy();
+      });
     };
-    if (request.method !== 'POST' || request.headers.authorization !== `Bearer ${token}`)
+    const loopback = ['127.0.0.1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress ?? '');
+    if (!loopback || request.method !== 'POST' || request.headers.authorization !== `Bearer ${token}`)
       return reply(403, { error: 'forbidden' });
     let raw = '';
     for await (const chunk of request) {
@@ -166,6 +170,8 @@ async function serveTools(
     }
     if (typeof call?.name !== 'string' || !Object.hasOwn(tools, call.name))
       return reply(404, { error: 'unknown tool' });
+    const timeoutMs = Math.min(30_000, deadline - Date.now());
+    if (timeoutMs <= 0) return reply(500, { error: 'tool_timeout: the replay ran past its time limit' });
     const result = await runCustomTool(call.name, tools[call.name]!, call, secrets, timeoutMs, scrub);
     return result.status === 'ok'
       ? reply(200, { bound: result.bound })

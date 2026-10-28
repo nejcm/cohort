@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Frame, Page } from 'playwright';
 
 export const MASK_RGB = [255, 0, 255] as const;
 
@@ -184,32 +184,52 @@ export async function captureMasked(
       continue;
     }
     const cdp = await page.context().newCDPSession(page);
+    let onNavigated: ((frame: Frame) => void) | undefined;
     try {
-      const { pageX, pageY } = await page.evaluate(() => ({
-        pageX: visualViewport?.pageLeft ?? 0,
-        pageY: visualViewport?.pageTop ?? 0,
-      }));
       const scale = Math.min(1, options.maxWidth / viewport.width);
       const shot = async () => {
         // CDP capture can hang right after a navigation commit until the renderer has produced a frame.
         await page.evaluate(
           () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
+        const { pageX, pageY } = await page.evaluate(() => ({
+          pageX: visualViewport?.pageLeft ?? 0,
+          pageY: visualViewport?.pageTop ?? 0,
+        }));
         return (await cdp.send('Page.captureScreenshot', {
           format: 'png',
           clip: { x: pageX, y: pageY, width: viewport.width, height: viewport.height, scale },
         })) as { data: string };
       };
+      // A capture that a main-frame commit overtakes never settles or fails outright; retry on the new document.
+      const navigated = new Promise<null>((resolve) => {
+        onNavigated = (frame) => {
+          if (frame !== page.mainFrame()) return;
+          lastError = new Error('page navigated during capture');
+          resolve(null);
+        };
+        page.on('framenavigated', onNavigated);
+      });
+      const failed = (error: unknown) => {
+        lastError = error;
+        return null;
+      };
       let timer: NodeJS.Timeout | undefined;
-      const { data } = await Promise.race([
-        shot(),
+      const result = await Promise.race([
+        shot().catch(failed),
+        navigated,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new MaskError('screenshot capture timed out')), CAPTURE_TIMEOUT_MS);
         }),
       ]).finally(() => clearTimeout(timer));
-      const png = Buffer.from(data, 'base64');
+      if (!result) {
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        continue;
+      }
+      const png = Buffer.from(result.data, 'base64');
       capture = { png, ...pngSize(png), viewport, maskedRegions: before.rects.flat().length };
     } finally {
+      if (onNavigated) page.off('framenavigated', onNavigated);
       await cdp.detach().catch(() => {});
       await Promise.allSettled(page.frames().map((frame) => frame.evaluate(removeMasks)));
     }

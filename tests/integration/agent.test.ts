@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
-import { MASK_RGB } from '../../src/browser/observations.ts';
+import { captureMasked, MASK_RGB } from '../../src/browser/observations.ts';
 import { runAgent, type AgentOptions } from '../../src/core/agent.ts';
 import { ProviderError, type DecideRequest, type Usage } from '../../src/providers/types.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
@@ -401,6 +401,35 @@ test('frame content re-rendered identically during capture is never sent unmaske
   ]);
   assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
   assert.equal(provider.requests.length, 2);
+});
+
+test('a navigation committing mid-capture retries on the new document instead of hanging', async () => {
+  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  const context = page.context();
+  const open = context.newCDPSession.bind(context);
+  let navigations = 0;
+  // Chromium never answers a capture that a main-frame commit overtakes; navigate right behind the first one.
+  context.newCDPSession = async (target) => {
+    const session = await open(target);
+    const send = session.send.bind(session) as (method: string, params?: object) => Promise<unknown>;
+    session.send = ((method: string, params?: object) => {
+      const sent = send(method, params);
+      if (method === 'Page.captureScreenshot' && navigations++ === 0)
+        void send('Page.navigate', { url: `${fixture.url}/lab/canary` }).catch(() => {});
+      return sent;
+    }) as typeof session.send;
+    return session;
+  };
+  try {
+    await page.goto(`${fixture.url}/`);
+    const started = Date.now();
+    const capture = await captureMasked(page, { secrets: [], maskSelectors: [], maxWidth: 800 });
+    assert.ok(Date.now() - started < 5000);
+    assert.equal(capture.width, 800);
+    assert.match(page.url(), /\/lab\/canary$/u);
+  } finally {
+    await page.close();
+  }
 });
 
 test('a response from a disallowed origin ends the run before another provider call', async () => {

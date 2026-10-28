@@ -115,4 +115,4 @@ This list is in `src/core/blockers.ts`. It is small on purpose and not exhaustiv
 | captcha | `challenges.cloudflare.com`, `.hcaptcha.com` |
 | payment | `checkout.stripe.com`, `www.paypal.com`, `pay.google.com` |
 
-A model `goto` straight to one of these hosts is rejected as `navigation_denied` and is not counted as a blocker. A model choosing to go there is not evidence that the app needs it.
+A model `goto` straight to one of these hosts is recorded as `navigation_denied` and also ends the run as a harness-detected `blocked(kind)`, because the destination is never allowed. Route rules (including `**/*`) cannot hide these navigations from the harness.

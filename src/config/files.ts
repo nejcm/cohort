@@ -477,10 +477,12 @@ export async function saveStorageState(projectRoot: string, name: string, state:
   if (!new RegExp(ID, 'u').test(name)) throw new ConfigError(`invalid storage state name: ${name}`);
   checked(storageStateSchema, state, `storage state ${name}`);
   const dir = join(projectRoot, '.lab', 'auth');
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  for (const path of [join(projectRoot, '.lab'), dir])
+  // Checked level by level so a symlinked .lab never gets an auth directory created through it.
+  for (const path of [join(projectRoot, '.lab'), dir]) {
+    await mkdir(path, { recursive: true, mode: 0o700 });
     if ((await lstat(path)).isSymbolicLink())
       throw new ConfigError(`symlink not allowed: ${relative(projectRoot, path)}`);
+  }
   const path = join(dir, `${name}.json`);
   const temp = `${path}.tmp-${randomBytes(4).toString('hex')}`;
   try {

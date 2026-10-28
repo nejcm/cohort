@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, type BrowserContextOptions, type Page, type Request } from 'playwright';
+import { chromium, type BrowserContextOptions, type Page, type Request, type Route } from 'playwright';
 import type { RouteRule } from '../config/files.ts';
 import { generateReplay, replayGaps } from '../evidence/replay.ts';
 import { stepsJsonl } from '../evidence/steps.ts';
@@ -59,19 +59,20 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       ...(options.storageState ? { storageState: options.storageState } : {}),
     });
     const denied: string[] = [];
-    await context.route('**/*', (route) => {
+    const guard = (route: Route): Promise<void> | undefined => {
       const request = route.request();
-      if (permitted(request.url(), request.isNavigationRequest())) return route.fallback();
+      if (permitted(request.url(), request.isNavigationRequest())) return undefined;
       if (request.isNavigationRequest() && topLevel(request)) denied.push(request.url());
       return route.abort('blockedbyclient');
-    });
+    };
+    await context.route('**/*', (route) => guard(route) ?? route.fallback());
     const routes = options.routes ?? [];
     const hits = routes.map(() => 0);
     // Later registrations take precedence, so each rule runs before the guard above and re-checks the allowlist.
     for (const [index, rule] of routes.entries())
       await context.route(rule.match, (route) => {
-        const request = route.request();
-        if (!permitted(request.url(), request.isNavigationRequest())) return route.abort('blockedbyclient');
+        const blocked = guard(route);
+        if (blocked) return blocked;
         hits[index]! += 1;
         return rule.action === 'block'
           ? route.abort('blockedbyclient')

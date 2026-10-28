@@ -10,12 +10,14 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';
+import { MASK_RGB } from '../../src/browser/observations.ts';
 import { run } from '../../src/cli.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
+import { decodePng } from '../helpers/png.ts';
 
 const repoRoot = new URL('../..', import.meta.url).pathname;
 const CANARY = 'cleanup-canary-4242';
@@ -121,6 +123,10 @@ before(async () => {
   await suite(
     'routed',
     `  url: ${fixture.url}/lab/routed\n  routes:\n    - match: "**/lab/routed"\n      action: fulfill\n      contentType: text/html\n      body: "<h1>Mocked vendor status</h1>"\n    - match: "**/analytics/**"\n      action: block\n`,
+  );
+  await suite(
+    'catchall',
+    `  url: ${fixture.url}/\n  routes:\n    - match: "**/*"\n      action: fulfill\n      contentType: text/html\n      body: "<script>window.open('https://accounts.google.com/o/oauth2/auth')</script>"\n`,
   );
   await put(
     '.lab/setup/override.ts',
@@ -676,6 +682,12 @@ test('a setup module signs in with storage state; its code tool rebinds just bef
   const sent = provider.requests.slice(sentBefore);
   assert.ok(sent.every((request) => request.tools.some((tool) => tool.name === 'request_code')));
   assert.ok(sent.some((request) => request.history.some((line) => line.includes('code: {{code}}'))));
+  const afterFill = sent.filter((request) => request.history.at(-1)?.split(' ')[1] === 'fill');
+  assert.equal(afterFill.length, 2);
+  for (const request of afterFill) {
+    const png = decodePng(Buffer.from(request.observation.pngBase64, 'base64'));
+    assert.deepEqual(png.pixel(codeAt!.x, codeAt!.y), [...MASK_RGB], 'the typed code is masked in the sent PNG');
+  }
   const outbound = JSON.stringify(sent.map(({ observation, ...rest }) => ({ ...rest, text: observation.text })));
   const first = json.runs[0];
   const artifacts = await Promise.all(
@@ -733,6 +745,13 @@ test('known identity, captcha, and payment destinations end as harness-detected 
     assert.deepEqual([auto, found.state, found.kind, found.detectedBy], [auto, 'blocked', 'oauth', 'harness']);
   }
   assert.equal(calls, 1, 'scripted sign-in hops stop before any provider call');
+  const caught = (await lab(['--suite', 'catchall', '--json'])).json.runs[0].outcome;
+  assert.deepEqual([caught.state, caught.kind, caught.detectedBy], ['blocked', 'oauth', 'harness']);
+
+  turn = () => ({ name: 'goto', args: { url: 'https://accounts.google.com/o/oauth2/auth' } });
+  const direct = (await lab(['--persona', 'guest', '--url', `${fixture.url}/`, '--json'])).json.runs[0].outcome;
+  assert.deepEqual([direct.state, direct.kind, direct.detectedBy], ['blocked', 'oauth', 'harness']);
+  assert.equal(direct.evidence.length, 1);
 
   for (const [path, kind] of [
     ['/lab/captcha', 'captcha'],

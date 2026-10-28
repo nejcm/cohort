@@ -3,7 +3,14 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { checkProject, ConfigError, loadPersona, loadProjectConfig, loadSuite } from '../../src/config/files.ts';
+import {
+  checkProject,
+  ConfigError,
+  loadPersona,
+  loadProjectConfig,
+  loadSuite,
+  saveStorageState,
+} from '../../src/config/files.ts';
 import { PERSONA_GUIDANCE } from '../../src/personas/generate.ts';
 import { resolveSubmission, validateSubmission, type RunSubmission } from '../../src/config/resolve.ts';
 import { validateCatalog, type ModelCatalogEntry } from '../../src/providers/catalog.ts';
@@ -428,5 +435,23 @@ test('the shipped persona and guest suite examples validate unchanged; the docs 
     assert.ok(docs.includes(`> ${PERSONA_GUIDANCE}`));
   } finally {
     await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('saved login state refuses a symlinked .lab or .lab/auth', async () => {
+  const project = await mkdtemp(join(tmpdir(), 'lab-login-'));
+  const elsewhere = await mkdtemp(join(tmpdir(), 'lab-elsewhere-'));
+  const state = { cookies: [], origins: [] };
+  try {
+    await mkdir(join(project, '.lab'));
+    await symlink(elsewhere, join(project, '.lab/auth'));
+    await assert.rejects(saveStorageState(project, 'host', state), /symlink not allowed: \.lab\/auth/u);
+    await rm(join(project, '.lab'), { recursive: true });
+    await symlink(elsewhere, join(project, '.lab'));
+    await assert.rejects(saveStorageState(project, 'host', state), /symlink not allowed: \.lab$/u);
+    assert.deepEqual(await readdir(elsewhere), [], 'nothing is created through the symlink');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+    await rm(elsewhere, { recursive: true, force: true });
   }
 });

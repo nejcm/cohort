@@ -76,18 +76,19 @@ export async function runCustomTool(
 ): Promise<CustomToolResult> {
   const invalid = validate(tool.inputSchema as JsonSchema, call.args, name);
   if (invalid) return { status: 'rejected', code: 'invalid_tool', message: invalid };
-  const raw = JSON.stringify(call.args);
-  if (secrets.hasPlaceholder(raw) || secrets.contains(raw))
+  if (argStrings(call.args).some((text) => secrets.hasPlaceholder(text) || secrets.contains(text)))
     return { status: 'rejected', code: 'secret_in_custom_args', message: 'custom tool arguments may not hold secrets' };
   const bound: Record<string, string> = {};
   const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
   let result: unknown;
+  let settled = false;
   try {
     result = await Promise.race([
       tool.execute(structuredClone(call.args), {
         signal: controller.signal,
         bindSecret: (secretName, value) => {
+          if (settled) throw new Error('bindSecret called after the tool call ended');
           const placeholder = secrets.bind(secretName, value);
           bound[secretName] = value;
           return placeholder;
@@ -104,6 +105,7 @@ export async function runCustomTool(
     const message = (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? 'error';
     return { status: 'error', code: 'tool_error', message: scrub(message).slice(0, 500) };
   } finally {
+    settled = true;
     clearTimeout(timer);
   }
   const { text, secretRefs } = (result ?? {}) as { text?: unknown; secretRefs?: unknown };
@@ -128,3 +130,12 @@ export async function runCustomTool(
 }
 
 class ToolTimeout extends Error {}
+
+function argStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+  if (Array.isArray(value)) return value.flatMap(argStrings);
+  if (value && typeof value === 'object')
+    return Object.entries(value).flatMap(([key, item]) => [key, ...argStrings(item)]);
+  return [];
+}

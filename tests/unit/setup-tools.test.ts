@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { connect } from 'node:net';
 import { knownBlocker } from '../../src/core/blockers.ts';
+import { serveTools } from '../../src/core/replay.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
 import { customToolDefinitions, runCustomTool } from '../../src/setup/tools.ts';
 import type { CustomTool } from '../../src/setup/types.ts';
@@ -34,13 +36,14 @@ const call = (args: Record<string, unknown>) => ({ name: 't', args });
 test('custom tool calls are schema-checked, refuse secrets in arguments, and time out', async () => {
   const secrets = new SecretStore();
   secrets.bind('password', 'hunter-2-canary');
+  secrets.bind('quoted', 'q"u\\ote-canary');
   let calls = 0;
   const counting = tool(async () => {
     calls += 1;
     return {};
   });
   assert.equal((await runCustomTool('t', counting, call({ inbox: 3 }), secrets, 1000)).status, 'rejected');
-  for (const inbox of ['{{password}}', 'x hunter-2-canary'])
+  for (const inbox of ['{{password}}', 'x hunter-2-canary', 'q"u\\ote-canary'])
     assert.deepEqual(await runCustomTool('t', counting, call({ inbox }), secrets, 1000), {
       status: 'rejected',
       code: 'secret_in_custom_args',
@@ -58,6 +61,21 @@ test('custom tool calls are schema-checked, refuse secrets in arguments, and tim
     message: 'custom tool t ran past 20 ms',
   });
   assert.ok(aborted, 'the tool signal aborts on timeout');
+
+  let late: unknown;
+  const slow = tool(async (_args, { bindSecret }) => {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    try {
+      bindSecret('late', 'late-canary');
+    } catch (error) {
+      late = error;
+    }
+    return {};
+  });
+  assert.equal((await runCustomTool('t', slow, call({}), secrets, 10)).status, 'error');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.ok(late instanceof Error, 'bindSecret refuses after the call ended');
+  assert.ok(!secrets.names.includes('late'));
 });
 
 test('custom tool output binds fresh secrets, returns only placeholders, and is redacted and bounded', async () => {
@@ -104,4 +122,52 @@ test('the identity-provider list matches hosts and subdomains, not lookalikes', 
   assert.equal(knownBlocker('https://okta.com.evil.test/'), null);
   assert.equal(knownBlocker('https://notaccounts.google.com/'), null);
   assert.equal(knownBlocker('not a url'), null);
+});
+
+test('the replay tool bridge closes rejected connections and stops running tools past the replay deadline', async () => {
+  let runs = 0;
+  const env: NodeJS.ProcessEnv = {};
+  const bridge = await serveTools(
+    {
+      t: tool(async () => {
+        runs += 1;
+        return {};
+      }),
+    },
+    new SecretStore(),
+    (text) => text,
+    80,
+    env,
+  );
+  try {
+    const { port } = new URL(env.LAB_TOOL_BRIDGE!);
+    const reply = await new Promise<string>((resolve) => {
+      let data = '';
+      const socket = connect(Number(port), '127.0.0.1', () =>
+        socket.write(
+          'POST / HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\nAuthorization: Bearer nope\r\nContent-Length: 2\r\n\r\n{}',
+        ),
+      );
+      socket.on('data', (chunk) => (data += String(chunk)));
+      socket.on('close', () => resolve(data));
+    });
+    assert.match(reply, /^HTTP\/1\.1 403/u);
+
+    const invoke = () =>
+      fetch(env.LAB_TOOL_BRIDGE!, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${env.LAB_TOOL_TOKEN}` },
+        body: JSON.stringify({ name: 't', args: {} }),
+      });
+    assert.equal((await invoke()).status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const late = await invoke();
+    assert.deepEqual(
+      [late.status, await late.json()],
+      [500, { error: 'tool_timeout: the replay ran past its time limit' }],
+    );
+    assert.equal(runs, 1);
+  } finally {
+    bridge.close();
+  }
 });

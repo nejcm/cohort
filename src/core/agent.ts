@@ -645,6 +645,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         const denied = allowedDestination(url, allowed);
         if (denied) {
           reject('navigation_denied', denied);
+          const listed = knownBlocker(url.href);
+          if (listed) return blockedByHarness(listed);
           continue;
         }
         try {
