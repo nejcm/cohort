@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { ConfigError, loadPersona, loadProjectConfig, loadSuite } from '../../src/config/files.ts';
+import { checkProject, ConfigError, loadPersona, loadProjectConfig, loadSuite } from '../../src/config/files.ts';
+import { PERSONA_GUIDANCE } from '../../src/personas/generate.ts';
 import { resolveSubmission, validateSubmission, type RunSubmission } from '../../src/config/resolve.ts';
 import { validateCatalog, type ModelCatalogEntry } from '../../src/providers/catalog.ts';
 import { createProviders } from '../../src/providers/registry.ts';
@@ -350,5 +351,79 @@ test('config files reject unknown versions, unknown fields, and unsafe or invali
     await assert.rejects(loadSuite(bad, 's'), /limits: unknown property/u);
   } finally {
     await rm(bad, { recursive: true, force: true });
+  }
+});
+
+test('every prompt layer records where it came from; setup wins the start URL', async () => {
+  const [first, second] = await resolve({ selector: { kind: 'suite', id: 'mixed' }, note: 'Run note.' });
+  assert.deepEqual(
+    [first!.layers.goalFrom, second!.layers.goalFrom, first!.layers.urlFrom, first!.layers.runNote],
+    ['suite_entry', 'persona', 'setup', 'Run note.'],
+  );
+  const [zed] = await resolve({ selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/' });
+  assert.deepEqual([zed!.layers.goalFrom, zed!.layers.urlFrom], ['persona', 'run']);
+  const [adhoc] = await resolve({ selector: { kind: 'adhoc' }, url: 'http://a.test/', note: 'Find help.' });
+  assert.deepEqual([adhoc!.layers.goalFrom, adhoc!.layers.goal, adhoc!.layers.runNote], ['run', 'Find help.', null]);
+  assert.ok(Object.isFrozen(adhoc!.layers));
+});
+
+test('authoring diagnostics name the file, line, entry, and known alternatives', async () => {
+  const bad = await mkdtemp(join(tmpdir(), 'lab-diag-'));
+  const write = async (path: string, content: string): Promise<void> => {
+    await mkdir(dirname(join(bad, path)), { recursive: true });
+    await writeFile(join(bad, path), content);
+  };
+  try {
+    await write('.lab/config.yml', 'schemaVersion: 1\nmodel: openai/model-a\n');
+    await write('.lab/personas/good.md', persona('good', ''));
+    await write('.lab/personas/twice.md', persona('twice', 'id: twice\n'));
+    await write('.lab/personas/tags.md', persona('tags', '').replace('tags: [guest]', 'tags: [guest, guest]'));
+    await write(
+      '.lab/suites/s.yml',
+      'schemaVersion: 1\nid: s\nname: S\nentries: [{ persona: good }, { persona: ghost }]\n',
+    );
+    await write('.lab/suites/broken.yml', 'schemaVersion: 1\nid: broken\nname: [\n');
+    await assert.rejects(loadPersona(bad, 'twice'), /twice\.md: invalid YAML: Map keys must be unique at line 11/u);
+    await assert.rejects(loadPersona(bad, 'tags'), /tags: duplicate tag guest/u);
+    await assert.rejects(loadPersona(bad, 'ghost'), /unknown persona ghost: no \.lab\/personas\/ghost\.md/u);
+    await assert.rejects(loadSuite(bad, 'nope'), /unknown suite nope: no \.lab\/suites\/nope\.yml/u);
+    const project = await loadProjectConfig(bad);
+    const options = { projectRoot: bad, project, catalog, providers: allKeys };
+    await assert.rejects(
+      resolveSubmission({ selector: { kind: 'suite', id: 's' } }, options),
+      /\.lab\/suites\/s\.yml entries\[1\]: unknown persona ghost/u,
+    );
+    await rm(join(bad, '.lab/personas/twice.md'));
+    await rm(join(bad, '.lab/personas/tags.md'));
+    await assert.rejects(
+      resolveSubmission({ selector: { kind: 'tag', tag: 'host' }, url: 'http://a.test/' }, options),
+      /no persona has tag host; known tags: guest/u,
+    );
+    await write('.lab/personas/twice.md', persona('twice', 'id: twice\n'));
+    const checked = await checkProject(bad);
+    assert.equal(checked.personas, 1);
+    assert.equal(checked.suites, 2);
+    assert.equal(checked.problems.length, 3);
+    assert.match(checked.problems.join('\n'), /twice\.md: invalid YAML/u);
+    assert.match(checked.problems.join('\n'), /broken\.yml: invalid YAML/u);
+    assert.match(checked.problems.join('\n'), /s\.yml entries\[1\]: unknown persona ghost/u);
+  } finally {
+    await rm(bad, { recursive: true, force: true });
+  }
+});
+
+test('the shipped persona examples validate unchanged; the docs carry the generator guidance verbatim', async () => {
+  const project = await mkdtemp(join(tmpdir(), 'lab-examples-'));
+  try {
+    const examples = new URL('../../examples/personas/', import.meta.url).pathname;
+    const names = (await readdir(examples)).toSorted();
+    assert.deepEqual(names, ['first-time-host.md', 'mobile-first-guest.md', 'returning-desktop-user.md']);
+    await mkdir(join(project, '.lab/personas'), { recursive: true });
+    for (const name of names) await copyFile(join(examples, name), join(project, '.lab/personas', name));
+    assert.deepEqual(await checkProject(project), { personas: 3, suites: 0, problems: [] });
+    const docs = await readFile(new URL('../../docs/personas.md', import.meta.url), 'utf8');
+    assert.ok(docs.includes(`> ${PERSONA_GUIDANCE}`));
+  } finally {
+    await rm(project, { recursive: true, force: true });
   }
 });

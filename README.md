@@ -6,7 +6,7 @@ AI synthetic users that operate your web app like real people. You give a person
 
 ## Status
 
-Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–2 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, and `lab replay`/`lab report`/`lab trace`. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–3 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, and persona validation and generation. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
 
 ## Prerequisites
 
@@ -53,6 +53,14 @@ lab report <run-or-batch-id> [--format json|md|html]  # print or re-render a rep
 lab replay <run-id>   # rerun replay.spec.ts with no model; needs @playwright/test in the project
 lab trace <run-id>    # open trace.zip locally with playwright show-trace
 ```
+
+```sh
+lab persona validate                                   # check every persona and suite, reporting all problems
+lab persona generate --url <url> --description <text>  # one metered call over the landing page; prints a preview
+lab persona generate ... --out .lab/personas/<id>.md   # save only when asked; never overwrites
+```
+
+How to write personas and suites, how prompt layers combine, and the generator guidance: [docs/personas.md](docs/personas.md). Three editable examples are in `examples/personas/`.
 
 `lab replay` prepares bindings in this order:
 

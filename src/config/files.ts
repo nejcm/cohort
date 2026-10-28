@@ -350,19 +350,36 @@ export async function loadProjectConfig(projectRoot: string): Promise<ProjectCon
   );
 }
 
-function parsePersona(content: string, source: string): Omit<Persona, 'setup'> & { setup?: string } {
+/** Parses and validates persona Markdown without touching the file system; `setup` stays as written. */
+export function parsePersona(content: string, source: string): Omit<Persona, 'setup'> & { setup?: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/u.exec(content);
   if (!match) throw new ConfigError(`${source}: missing YAML frontmatter`);
-  const front = checked<Omit<Persona, 'body' | 'hash'>>(personaSchema, parseYaml(match[1]!, source), source);
+  // The leading newline makes YAML error line numbers match the file.
+  const front = checked<Omit<Persona, 'body' | 'hash'>>(personaSchema, parseYaml(`\n${match[1]!}`, source), source);
+  const duplicate = front.tags.find((tag, index) => front.tags.indexOf(tag) !== index);
+  if (duplicate) throw new ConfigError(`${source}.tags: duplicate tag ${duplicate}`);
   checkLocaleAndZone(front, source);
   const body = match[2]!.trim();
   if (!body) throw new ConfigError(`${source}: persona body is empty`);
   return { ...front, body, hash: sha256(content) };
 }
 
+async function requireFile(projectRoot: string, path: string, what: string): Promise<void> {
+  if (!(await lstat(join(projectRoot, path)).catch(() => null))) throw new ConfigError(`unknown ${what}: no ${path}`);
+}
+
+async function listIds(projectRoot: string, dir: string, extension: string): Promise<string[]> {
+  const names = await readdir(join(projectRoot, '.lab', dir)).catch(() => []);
+  return names
+    .filter((name) => name.endsWith(extension))
+    .map((name) => name.slice(0, -extension.length))
+    .toSorted();
+}
+
 export async function loadPersona(projectRoot: string, personaId: string): Promise<Persona> {
   if (!new RegExp(ID, 'u').test(personaId)) throw new ConfigError(`invalid persona id: ${personaId}`);
   const source = `.lab/personas/${personaId}.md`;
+  await requireFile(projectRoot, source, `persona ${personaId}`);
   const persona = parsePersona(await readContained(projectRoot, ['.lab', 'personas'], `${personaId}.md`), source);
   if (persona.id !== personaId) throw new ConfigError(`${source}: id ${persona.id} does not match the file name`);
   if (persona.setup)
@@ -371,25 +388,47 @@ export async function loadPersona(projectRoot: string, personaId: string): Promi
 }
 
 export async function loadPersonasByTag(projectRoot: string, tag: string): Promise<Persona[]> {
-  let names: string[];
-  try {
-    names = await readdir(join(projectRoot, '.lab', 'personas'));
-  } catch {
-    names = [];
-  }
-  const ids = names
-    .filter((name) => name.endsWith('.md'))
-    .map((name) => name.slice(0, -3))
-    .toSorted();
+  const ids = await listIds(projectRoot, 'personas', '.md');
   const personas = await Promise.all(ids.map((personaId) => loadPersona(projectRoot, personaId)));
   const matching = personas.filter((persona) => persona.tags.includes(tag));
-  if (matching.length === 0) throw new ConfigError(`no persona has tag ${tag}`);
+  if (matching.length === 0) {
+    const known = [...new Set(personas.flatMap((persona) => persona.tags))].toSorted();
+    throw new ConfigError(`no persona has tag ${tag}; known tags: ${known.join(', ') || 'none'}`);
+  }
   return matching;
+}
+
+const message = (error: unknown): string => (error instanceof ConfigError ? error.message : String(error));
+
+/** Loads every persona and suite, collecting each problem instead of stopping at the first. */
+export async function checkProject(
+  projectRoot: string,
+): Promise<{ personas: number; suites: number; problems: string[] }> {
+  const problems: string[] = [];
+  const personaIds = await listIds(projectRoot, 'personas', '.md');
+  const valid = new Set<string>();
+  for (const personaId of personaIds)
+    await loadPersona(projectRoot, personaId).then(
+      () => valid.add(personaId),
+      (error: unknown) => problems.push(message(error)),
+    );
+  const suiteIds = await listIds(projectRoot, 'suites', '.yml');
+  for (const suiteId of suiteIds)
+    await loadSuite(projectRoot, suiteId).then(
+      (suite) =>
+        suite.entries.forEach((entry, index) => {
+          if (!personaIds.includes(entry.persona))
+            problems.push(`.lab/suites/${suiteId}.yml entries[${index}]: unknown persona ${entry.persona}`);
+        }),
+      (error: unknown) => problems.push(message(error)),
+    );
+  return { personas: valid.size, suites: suiteIds.length, problems };
 }
 
 export async function loadSuite(projectRoot: string, suiteId: string): Promise<Suite> {
   if (!new RegExp(ID, 'u').test(suiteId)) throw new ConfigError(`invalid suite id: ${suiteId}`);
   const source = `.lab/suites/${suiteId}.yml`;
+  await requireFile(projectRoot, source, `suite ${suiteId}`);
   const suite = checked<Suite>(
     suiteSchema,
     parseYaml(await readContained(projectRoot, ['.lab', 'suites'], `${suiteId}.yml`), source),

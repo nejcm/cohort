@@ -67,6 +67,8 @@ export interface ResolvedEntry {
     readonly modelFrom: Layer;
     readonly effortFrom: Layer;
     readonly goal: string | null;
+    readonly goalFrom: 'run' | 'suite_entry' | 'persona' | null;
+    readonly urlFrom: 'run' | 'suite_entry' | 'suite_default' | 'setup';
     readonly suiteNote: string | null;
     readonly runNote: string | null;
   };
@@ -75,7 +77,7 @@ export interface ResolvedEntry {
 const DEFAULT_LIMITS: Limits = Object.freeze({ steps: 40, timeMs: 600_000, dollars: 2 });
 const DEFAULT_MODE: Mode = 'vision';
 const DEFAULT_REPEATS = 3;
-const DEFAULT_MASKS = ['input[type="password"]', '[data-lab-secret]'];
+export const DEFAULT_MASKS = ['input[type="password"]', '[data-lab-secret]'];
 
 const submissionSchema: JsonSchema = {
   type: 'object',
@@ -170,8 +172,16 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
     suite = await loadSuite(projectRoot, selector.id);
     const personas = new Map<string, Persona>();
     targets = [];
-    for (const entry of suite.entries) {
-      if (!personas.has(entry.persona)) personas.set(entry.persona, await loadPersona(projectRoot, entry.persona));
+    for (const [index, entry] of suite.entries.entries()) {
+      if (!personas.has(entry.persona))
+        personas.set(
+          entry.persona,
+          await loadPersona(projectRoot, entry.persona).catch((error: unknown) => {
+            throw error instanceof ConfigError
+              ? new ConfigError(`.lab/suites/${suite!.id}.yml entries[${index}]: ${error.message}`)
+              : error;
+          }),
+        );
       targets.push({ persona: personas.get(entry.persona)!, entry });
     }
   } else targets = [{ persona: ADHOC_PERSONA, entry: null }];
@@ -224,10 +234,18 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
       throw new ConfigError(`${where}: provider ${resolved.provider} is unavailable; set ${adapter.keyEnv}`);
 
     const adhoc = selector.kind === 'adhoc';
-    const goal = adhoc ? submission.note! : (entry?.goal ?? persona.goal ?? null);
+    const [goalFrom, goal] = pick<string>([
+      ['run', adhoc ? submission.note : undefined],
+      ['suite_entry', entry?.goal],
+      ['persona', persona.goal],
+    ]) ?? [null, null];
     const suiteNote = entry?.note ?? defaults.note ?? null;
     const runNote = adhoc ? null : (submission.note ?? null);
-    const url = submission.url ?? entry?.url ?? defaults.url;
+    const [urlFrom, url] = pick<string>([
+      ['run', submission.url],
+      ['suite_entry', entry?.url],
+      ['suite_default', defaults.url],
+    ]) ?? ['setup', undefined];
     const setup = defaults.setup ?? persona.setup ?? null;
     if (!url && !setup) throw new ConfigError(`${where}: no start URL; pass --url or configure a url or setup`);
     const request: RunRequest = {
@@ -260,6 +278,9 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
         modelFrom,
         effortFrom: chosenEffort?.[0] ?? 'catalog_default',
         goal,
+        goalFrom: goalFrom as ResolvedEntry['layers']['goalFrom'],
+        // Setup always returns the start URL, so it wins over any configured URL.
+        urlFrom: (setup ? 'setup' : urlFrom) as ResolvedEntry['layers']['urlFrom'],
         suiteNote,
         runNote,
       },

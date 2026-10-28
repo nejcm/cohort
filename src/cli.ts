@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { lstat } from 'node:fs/promises';
+import { lstat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve as resolvePath } from 'node:path';
 import { parseArgs } from 'node:util';
-import { ConfigError, loadProjectConfig } from './config/files.ts';
-import { resolveSubmission, validateSubmission, type ResolvedEntry, type RunSubmission } from './config/resolve.ts';
+import { checkProject, ConfigError, loadProjectConfig } from './config/files.ts';
+import {
+  DEFAULT_MASKS,
+  resolveSubmission,
+  validateSubmission,
+  type ResolvedEntry,
+  type RunSubmission,
+} from './config/resolve.ts';
 import { runBatch, type BatchResult } from './core/batch.ts';
 import { estimateCostUsd } from './core/cost.ts';
 import { replayRun } from './core/replay.ts';
@@ -20,15 +26,19 @@ import {
   type BatchReport,
   type RunReport,
 } from './evidence/report.ts';
-import { CatalogError, loadCatalog } from './providers/catalog.ts';
+import { CatalogError, loadCatalog, resolveModel } from './providers/catalog.ts';
 import { createProviders } from './providers/registry.ts';
-import type { ProviderAdapter } from './providers/types.ts';
+import { ProviderError, type Effort, type ProviderAdapter } from './providers/types.ts';
+import { GenerateError, generatePersona } from './personas/generate.ts';
 
 const USAGE = `Usage: lab [options]
        lab run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
        lab report <run-or-batch-id> [--format json|md|html]
        lab replay <run-id> [--json]
        lab trace <run-id>
+       lab persona validate
+       lab persona generate --url <url> --description <text> [--out <file>] [--model <provider>/<id>]
+                            [--effort low|medium|high] [--dollars <n>] [--allow-untested] [--json]
 
 Options:
   -h, --help     Show this help
@@ -66,7 +76,11 @@ const RUN_OPTIONS = {
   'allow-untested': { type: 'boolean' },
   json: { type: 'boolean' },
   format: { type: 'string' },
+  description: { type: 'string' },
+  out: { type: 'string' },
 } as const;
+
+const GENERATE_DOLLARS = 0.5;
 
 function readVersion(): string {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -117,6 +131,16 @@ export async function run(
       return 2;
     }
   }
+  if (command === 'persona' && (id === 'validate' || id === 'generate') && extra.length === 0) {
+    try {
+      return id === 'validate' ? await validateCommand(write, deps) : await generateCommand(values, write, deps);
+    } catch (error) {
+      const invalid = error instanceof ConfigError || error instanceof CatalogError;
+      if (!invalid && !(error instanceof GenerateError || error instanceof ProviderError)) throw error;
+      write(values.json ? `${JSON.stringify({ error: error.message })}\n` : `Error: ${error.message}\n`);
+      return invalid ? 2 : 1;
+    }
+  }
   write(`Unknown command: ${positionals.join(' ')}\n\n${USAGE}`);
   return 2;
 }
@@ -150,6 +174,69 @@ async function replayCommand(id: string, json: boolean, write: Write, deps: Depe
       : `${output.trimEnd()}\nreplay ${id}: ${report.replay.status}\n`,
   );
   return passed ? 0 : 1;
+}
+
+async function validateCommand(write: Write, deps: Dependencies): Promise<number> {
+  const { personas, suites, problems } = await checkProject(deps.cwd ?? process.cwd());
+  for (const problem of problems) write(`error: ${problem}\n`);
+  write(`${personas} valid persona(s), ${suites} suite(s), ${problems.length} problem(s)\n`);
+  return problems.length === 0 ? 0 : 2;
+}
+
+async function generateCommand(
+  values: Record<string, string | boolean | undefined>,
+  write: Write,
+  deps: Dependencies,
+): Promise<number> {
+  const { url, description, out } = values as Record<string, string | undefined>;
+  if (!url || !description) throw new ConfigError('persona generate requires --url and --description');
+  const dollars = values.dollars === undefined ? GENERATE_DOLLARS : Number(values.dollars);
+  if (!Number.isFinite(dollars) || dollars <= 0 || dollars > 1000)
+    throw new ConfigError('--dollars must be in (0, 1000]');
+  const projectRoot = deps.cwd ?? process.cwd();
+  const env = deps.env ?? process.env;
+  const [project, catalog] = await Promise.all([loadProjectConfig(projectRoot), loadCatalog(projectRoot)]);
+  const effort = (values.effort as Effort | undefined) ?? project.effort;
+  const resolved = resolveModel(catalog, (values.model as string | undefined) ?? project.model, {
+    mode: 'vision',
+    allowUntested: values['allow-untested'] === true,
+    ...(effort ? { effort } : {}),
+  });
+  const provider = (deps.providers ?? createProviders(env))[resolved.provider];
+  if (!provider?.available()) throw new ConfigError(`provider ${resolved.provider} is unavailable; set its API key`);
+  const outPath = out === undefined ? null : resolvePath(projectRoot, out);
+  if (outPath && !outPath.endsWith('.md')) throw new ConfigError('--out must name a .md file');
+  const generated = await generatePersona({
+    url,
+    description,
+    provider,
+    model: resolved.model,
+    effort: resolved.effort,
+    prices: resolved.catalog.entry.pricesPerMTok,
+    dollars,
+    maskSelectors: project.screenshots?.maskSelectors ?? DEFAULT_MASKS,
+    ...(deps.signal ? { signal: deps.signal } : {}),
+  });
+  if (outPath)
+    await writeFile(outPath, generated.markdown, { flag: 'wx', mode: 0o600 }).catch((error: NodeJS.ErrnoException) => {
+      throw new ConfigError(
+        error.code === 'EEXIST' ? `${out} exists; not overwritten` : `cannot write ${out}: ${error.code}`,
+      );
+    });
+  const cost =
+    generated.estimatedCostUsd === null ? 'cost unknown' : `estimated $${generated.estimatedCostUsd.toFixed(4)}`;
+  if (values.json)
+    write(
+      `${JSON.stringify({ id: generated.id, markdown: generated.markdown, saved: outPath, cost, usage: generated.usage })}\n`,
+    );
+  else {
+    write(generated.markdown);
+    if (outPath) {
+      const named = outPath.endsWith(`/${generated.id}.md`) ? '' : `; rename it to ${generated.id}.md to run it`;
+      write(`saved ${out} (${resolved.provider}/${resolved.model}, ${cost})${named}\n`);
+    }
+  }
+  return 0;
 }
 
 function showTrace(tracePath: string): Promise<number> {
