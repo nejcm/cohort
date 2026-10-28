@@ -1,4 +1,4 @@
-# Compatibility notes (Phase 0)
+# Compatibility notes (Phases 0-1)
 
 Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, with a scripted fake model. Node 24 itself has not been run locally yet; CI pins `.node-version`.
 
@@ -63,6 +63,17 @@ At each clean capture every element's box is recorded and the mutation log is re
 - `node:sqlite` works in a child Node process. Node v26.8.2 printed no warning; check the Node 24 warning on CI.
 - Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`. It ends by waiting up to 5 s for network idle, so a final form post completes. With persistent connections it simply proceeds after 5 s.
 - If writing `trace.zip` fails, the run still writes `steps.jsonl` and the replay, reports `tracePath: null`, and records issue `trace_failed`.
+
+## Runner and configuration (Phase 1)
+
+- `.lab/config.yml`, personas, and suites are validated against closed schemas (unknown fields and schema versions fail). Persona viewports are 240-3840 x 240-2160; locales and time zones must be accepted by `Intl`.
+- Persona, suite, storage-state, and setup paths must stay inside their `.lab/` folders with no symlinked segment.
+- Not implemented yet, rejected at preflight: `mode: text`, non-empty `routes`, and custom tools returned by setup (`setup_error`).
+- When setup runs, its `startUrl` replaces the configured URL, and its storage state replaces a named one. The time cap includes setup.
+- Untested catalog entries need explicit confirmation: `--allow-untested`, or `allowUntested` in the engine API.
+- Cancellation: `SIGINT` ends as `interrupted` by `user`, `SIGTERM` as `process`. The pending provider call or browser wait is abandoned right away. A pending provider call keeps its reservation as possibly billed. Repeats that never started are counted as `skipped`.
+- Loop detection: three consecutive identical actions (name and arguments, ignoring the observation ID) end as `agent_error(loop)` when none changed the masked screenshot or URL, or each was rejected. Report tools that are accepted reset the count, as does any action that changes the screen. Playwright hides the caret in screenshots, so a blinking caret does not count as a change. Animated pages may hide a real loop until the step cap.
+- `lab run` prints a cost range before running. It assumes 6k input and 300 output tokens per call, from 2 calls up to the step cap, capped at the dollar limit. Without prices it prints "cost unknown; dollar cap unenforceable".
 
 ## Not verified (needs live keys or external targets)
 

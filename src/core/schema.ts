@@ -1,5 +1,5 @@
 export type JsonSchema = {
-  type?: 'object' | 'string' | 'number' | 'integer' | 'null';
+  type?: 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null';
   const?: unknown;
   enum?: readonly unknown[];
   required?: readonly string[];
@@ -10,6 +10,8 @@ export type JsonSchema = {
   maxLength?: number;
   minimum?: number;
   maximum?: number;
+  items?: JsonSchema;
+  minItems?: number;
   oneOf?: readonly JsonSchema[];
   description?: string;
 };
@@ -25,6 +27,18 @@ export function validate(schema: JsonSchema, value: unknown, path = '$'): string
   switch (schema.type) {
     case 'null':
       return value === null ? null : `${path}: must be null`;
+    case 'boolean':
+      return typeof value === 'boolean' ? null : `${path}: must be a boolean`;
+    case 'array': {
+      if (!Array.isArray(value)) return `${path}: must be a list`;
+      if (schema.minItems !== undefined && value.length < schema.minItems) return `${path}: too few items`;
+      if (!schema.items) return null;
+      for (const [index, item] of value.entries()) {
+        const error = validate(schema.items, item, `${path}[${index}]`);
+        if (error) return error;
+      }
+      return null;
+    }
     case 'string':
       if (typeof value !== 'string') return `${path}: must be a string`;
       if (schema.minLength !== undefined && value.length < schema.minLength) return `${path}: too short`;

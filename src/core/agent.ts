@@ -37,6 +37,10 @@ export interface AgentOptions {
   maxWidth?: number;
   maskSelectors?: readonly string[];
   maxOutputTokens?: number;
+  /** Abort with reason `'process'` for process interruption; any other reason counts as the user. */
+  signal?: AbortSignal;
+  /** Epoch ms the time cap counts from; earlier than now when setup already ran. */
+  startedAt?: number;
 }
 
 interface RunUsage {
@@ -63,6 +67,8 @@ const HISTORY_ITEMS = 8;
 const HISTORY_BYTES = 8000;
 const HISTORY_LINE_BYTES = 1000;
 const ACTION_TIMEOUT_MS = 5000;
+const LOOP_REPEATS = 3;
+const REPORT_TOOLS = new Set(['report_friction', 'report_blocked', 'done', 'give_up']);
 
 const SAFETY_INSTRUCTIONS = `You are a synthetic user trying to accomplish a task in a web application.
 Act only through the provided tools and make exactly one tool call per turn.
@@ -86,6 +92,16 @@ class DeadlineError extends Error {
   override name = 'DeadlineError';
 }
 
+class InterruptError extends Error {
+  override name = 'InterruptError';
+}
+
+// Arguments minus the observation ID, so the same click on successive unchanged screenshots matches.
+function fingerprint(call: ToolCall): string {
+  const { observationId: _, ...rest } = call.args;
+  return `${call.name} ${JSON.stringify(rest)}`;
+}
+
 function allowedDestination(url: URL, allowed: readonly string[]): string | null {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'only http and https URLs are allowed';
   if (url.username || url.password) return 'URLs with embedded credentials are not allowed';
@@ -94,7 +110,7 @@ function allowedDestination(url: URL, allowed: readonly string[]): string | null
 
 export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const { page, secrets, limits } = options;
-  const startedAt = Date.now();
+  const startedAt = options.startedAt ?? Date.now();
   const deadline = startedAt + limits.timeMs;
   const meter = new CostMeter(limits.dollars, options.prices);
   const allowed = [new URL(options.startUrl).origin, ...options.allowedOrigins];
@@ -117,9 +133,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   };
   let shots = 0;
   let observations = 0;
-  let current = null as { id: string; capture: Capture; screenshotId: string } | null;
+  let current = null as { id: string; capture: Capture; screenshotId: string; url: string } | null;
   let pending = null as { call: ToolCall; started: number; target?: StepRecord['target'] } | null;
   let escapedTo: string | null = null;
+  let ineffective = { key: '', count: 0 };
+  const signal = options.signal;
 
   // Backstop for hops the request guard cannot see (e.g. redirects in out-of-process frames): any response from a disallowed origin ends the run.
   page.on('response', (response) => {
@@ -144,12 +162,19 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     Math.max(1, Math.min(ACTION_TIMEOUT_MS * factor, deadline - Date.now()));
   const bounded = async <T>(work: Promise<T>): Promise<T> => {
     let timer: NodeJS.Timeout | undefined;
+    let onAbort: (() => void) | undefined;
     return Promise.race([
       work,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new DeadlineError('time limit reached')), Math.max(0, deadline - Date.now()));
+        onAbort = () => reject(new InterruptError('interrupted'));
+        if (signal?.aborted) reject(new InterruptError('interrupted'));
+        signal?.addEventListener('abort', onAbort, { once: true });
       }),
-    ]).finally(() => clearTimeout(timer));
+    ]).finally(() => {
+      clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+    });
   };
   const captureWithRetry = async (attempt = 0): Promise<Capture> => {
     try {
@@ -170,7 +195,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     const capture = await bounded(captureWithRetry());
     const screenshotId = pad('shot-', shots++);
     await writeFile(join(options.screenshotsDir, `${screenshotId}.png`), capture.png, { mode: 0o600 });
-    current = { id: pad('o', observations++), capture, screenshotId };
+    current = { id: pad('o', observations++), capture, screenshotId, url: page.url() };
   };
 
   const evidenceAt = (stepId: string): EvidenceRef[] => {
@@ -191,6 +216,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   };
   const agentError = (code: AgentErrorCode, reason: string): AgentResult =>
     finish({ state: 'agent_error', code, reason: secrets.redact(reason), evidence: lastEvidence() });
+  const interrupted = (): AgentResult => {
+    const by = signal?.reason === 'process' ? 'process' : 'user';
+    return finish({
+      state: 'agent_error',
+      code: 'interrupted',
+      interruptedBy: by,
+      reason: `interrupted by ${by}`,
+      evidence: lastEvidence(),
+    });
+  };
   const timeLimit = (reason: string): AgentResult =>
     finish({
       state: 'limit_reached',
@@ -238,6 +273,17 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       ...(extra.target ? { target: extra.target } : {}),
     };
     steps.push(step);
+    const after = step.afterScreenshotId ? current : null;
+    const progressed =
+      step.result.status === 'ok' &&
+      after !== null &&
+      (!before || before.url !== after.url || !before.capture.png.equals(after.capture.png));
+    if (progressed || call.name === 'navigate' || (REPORT_TOOLS.has(call.name) && step.result.status === 'ok'))
+      ineffective = { key: '', count: 0 };
+    else {
+      const key = fingerprint(call);
+      ineffective = { key, count: ineffective.key === key ? ineffective.count + 1 : 1 };
+    }
     const status =
       step.result.status === 'ok' ? 'ok' : `${step.result.status} ${step.result.code}: ${step.result.message}`;
     history.push(
@@ -251,9 +297,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const startDenied = allowedDestination(new URL(options.startUrl), allowed);
   if (startDenied) return agentError('browser_error', `start URL rejected: ${startDenied}`);
   try {
-    await page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) });
+    await bounded(page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) }));
     await observe();
   } catch (error) {
+    if (error instanceof InterruptError) return interrupted();
     if (error instanceof DeadlineError) return timeLimit('time limit reached during the first observation');
     const prefix = error instanceof MaskError ? 'observation failed; provider calls suppressed: ' : '';
     return agentError('browser_error', prefix + secrets.redact(firstLine(error)));
@@ -280,6 +327,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         target ? { target } : {},
       );
     }
+    if (error instanceof InterruptError || signal?.aborted) return interrupted();
     if (error instanceof DeadlineError) return timeLimit('time limit reached during a browser operation');
     return agentError('browser_error', `browser operation failed: ${firstLine(error)}`);
   }
@@ -296,6 +344,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           maximum: limits.steps,
           evidence: lastEvidence(),
         });
+      if (signal?.aborted) return interrupted();
+      if (ineffective.count >= LOOP_REPEATS)
+        return agentError('loop', `the same action had no visible effect ${ineffective.count} times in a row`);
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) return timeLimit('time limit reached');
       if (meter.exhausted) return costLimit('dollar limit reached');
@@ -347,11 +398,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         if (reserved === null) return costLimit('next provider call would exceed the dollar limit');
         const timeLeft = deadline - Date.now();
         usage.providerCalls += 1;
+        const timeout = AbortSignal.timeout(Math.max(1, timeLeft));
         try {
-          decision = await options.provider.decide(request, { signal: AbortSignal.timeout(Math.max(1, timeLeft)) });
+          decision = await bounded(
+            options.provider.decide(request, { signal: signal ? AbortSignal.any([timeout, signal]) : timeout }),
+          );
           meter.settle(reserved, decision.usage);
         } catch (error) {
           meter.settle(error instanceof ProviderError && !error.possiblyBilled ? 0 : reserved, null);
+          if (error instanceof InterruptError || signal?.aborted) return interrupted();
           if (Date.now() >= deadline) return timeLimit('time limit reached during a provider call');
           if (!(error instanceof ProviderError) || !error.retryable || attempt === 1)
             return agentError('provider_error', (error as Error).message);
@@ -365,6 +420,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + decision.usage.cachedInputTokens;
       }
       usage.returnedModel = decision.returnedModel ?? usage.returnedModel;
+      if (signal?.aborted) return interrupted();
       if (Date.now() >= deadline) return timeLimit('time limit reached before acting on the provider response');
       // Reservations are estimates; a call that settled past the cap is not acted on.
       if (meter.exhausted) return costLimit('provider call settled past the dollar limit');
@@ -490,7 +546,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       } else if (call.name === 'press') {
         await page.keyboard.press(String(args.key));
       } else if (call.name === 'wait') {
-        await page.waitForTimeout(Math.min(Number(args.ms), Math.max(0, deadline - Date.now())));
+        await bounded(page.waitForTimeout(Math.min(Number(args.ms), Math.max(0, deadline - Date.now()))));
       } else if (call.name === 'goto') {
         const raw = String(args.url);
         if (secrets.hasPlaceholder(raw) || secrets.contains(raw)) {

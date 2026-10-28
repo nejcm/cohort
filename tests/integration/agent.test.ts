@@ -430,3 +430,130 @@ test('start URLs with embedded credentials are rejected before navigation', asyn
   assert.equal(result.outcome.state, 'agent_error');
   assert.equal(provider.requests.length, 0);
 });
+
+const clickOn =
+  (page: Page, selector: string): Turn =>
+  async (request) => ({
+    name: 'click',
+    args: { observationId: request.observation.id, target: await pointOf(page, page.locator(selector), request) },
+  });
+
+test('repeated clicks with no visible effect stop as a loop agent error, not a UX outcome', async () => {
+  const { result, provider } = await run('/lab/loop', (page) => clickOn(page, '#next'));
+  assert.deepEqual([result.outcome.state, (result.outcome as { code: string }).code], ['agent_error', 'loop']);
+  assert.equal(provider.requests.length, 3);
+  assert.equal(result.steps.length, 4);
+  assert.equal(result.outcome.evidence.length, 1);
+});
+
+test('repetition that changes the screen, or varies, is not a loop', async () => {
+  const counting = await run('/lab/loop', (page) => [...Array<Turn>(5).fill(clickOn(page, '#count')), done]);
+  assert.equal(counting.result.outcome.state, 'completed');
+  const varied = await run('/lab/loop', (page) => [clickOn(page, '#next'), wait, clickOn(page, '#next'), wait, done]);
+  assert.equal(varied.result.outcome.state, 'completed');
+});
+
+test('malformed provider turns (no tool call) repeat into a loop error', async () => {
+  const { result, provider } = await run('/', () => () => []);
+  assert.equal((result.outcome as { code?: string }).code, 'loop');
+  assert.equal(provider.requests.length, 3);
+  assert.ok(result.steps.slice(1).every((step) => step.result.status === 'rejected'));
+});
+
+test('a terminal action on the final allowed step finishes; one more step hits the cap', async () => {
+  const limits = { steps: 2, timeMs: 30_000, dollars: 2 };
+  const last = await run('/', () => [wait, done], { limits });
+  assert.equal(last.result.outcome.state, 'completed');
+  const over = await run('/', () => [wait, act('scroll', { target: null, deltaX: 0, deltaY: 10 }), done], { limits });
+  assert.deepEqual(over.result.outcome, {
+    ...over.result.outcome,
+    state: 'limit_reached',
+    limit: 'steps',
+    observed: 2,
+  });
+  assert.equal(over.provider.requests.length, 2);
+});
+
+test('provider-reported spend enforces the dollar cap when prices are unknown', async () => {
+  const { result, provider } = await run(
+    '/',
+    () => [wait, act('scroll', { target: null, deltaX: 0, deltaY: 10 }), done],
+    { prices: { input: null, output: null, cachedInput: null }, limits: { steps: 40, timeMs: 30_000, dollars: 1 } },
+    { reportedCostUsd: 0.6 },
+  );
+  assert.equal((result.outcome as { limit?: string }).limit, 'cost');
+  assert.equal(provider.requests.length, 2);
+  assert.equal(result.usage.capEnforcement, 'provider_reported_cost');
+  assert.equal(result.usage.providerReportedCostUsd, 1.2);
+});
+
+for (const by of ['user', 'process'] as const)
+  test(`cancellation (${by}) during a pending provider call ends as interrupted and keeps the reservation`, async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const { result } = await run(
+      '/',
+      () => () => {
+        setTimeout(() => controller.abort(by), 100);
+        return new Promise<never>(() => {});
+      },
+      { signal: controller.signal },
+    );
+    assert.deepEqual(result.outcome, {
+      state: 'agent_error',
+      code: 'interrupted',
+      interruptedBy: by,
+      reason: `interrupted by ${by}`,
+      evidence: [{ stepId: 's0000', screenshotId: 'shot-0000' }],
+    });
+    assert.ok(Date.now() - started < 5000);
+    assert.ok(result.usage.reservedUnsettledCostUsd > 0);
+  });
+
+test('cancellation during a pending browser action ends promptly as interrupted', async () => {
+  const controller = new AbortController();
+  const started = Date.now();
+  const { result } = await run(
+    '/',
+    () => () => {
+      setTimeout(() => controller.abort('user'), 100);
+      return { name: 'wait', args: { ms: 5000 } };
+    },
+    { signal: controller.signal },
+  );
+  assert.equal((result.outcome as { code?: string }).code, 'interrupted');
+  assert.ok(Date.now() - started < 3000);
+  assert.equal(result.steps.at(-1)!.action.name, 'wait');
+});
+
+test('page text cannot widen navigation: an injected instruction followed by the model is still denied', async () => {
+  const { result, provider } = await run('/lab/injection', () => [goto('https://exfil.invalid/collect'), done]);
+  assert.equal(result.outcome.state, 'completed');
+  assert.equal(result.steps[1]!.result.status === 'rejected' && result.steps[1]!.result.code, 'navigation_denied');
+  assert.ok(provider.requests.every((request) => !/SYSTEM NOTICE/u.test(request.instructions)));
+});
+
+for (const [path, kind] of [
+  ['/lab/captcha', 'captcha'],
+  ['/lab/email-code', 'email_code'],
+  ['/lab/payment', 'payment'],
+] as const)
+  test(`the ${kind} gate ends as an agent-declared blocker with evidence`, async () => {
+    const { result } = await run(path, () => (request) => ({
+      name: 'report_blocked',
+      args: { kind, step: lastStepId(request), reason: 'Cannot continue.' },
+    }));
+    assert.deepEqual(
+      [result.outcome.state, (result.outcome as { kind?: string }).kind, result.outcome.evidence.length],
+      ['blocked', kind, 1],
+    );
+  });
+
+const giveUp =
+  (kind: string): Turn =>
+  (request) => ({ name: 'give_up', args: { kind, step: lastStepId(request), reason: 'Lost.' } });
+
+test('an agent give_up is abandonment; an uncertain give_up is an agent error', async () => {
+  assert.equal((await run('/', () => giveUp('journey_abandoned'))).result.outcome.state, 'abandoned');
+  assert.equal((await run('/', () => giveUp('agent_uncertain'))).result.outcome.state, 'agent_error');
+});

@@ -172,7 +172,7 @@ export async function loadCatalog(projectRoot: string): Promise<ModelCatalog> {
 export function resolveModel(
   catalog: ModelCatalog,
   qualified: string,
-  options: { effort?: Effort; mode: 'vision' | 'text' },
+  options: { effort?: Effort; mode: 'vision' | 'text'; allowUntested?: boolean },
 ): ResolvedModel {
   const slash = qualified.indexOf('/');
   if (slash <= 0) throw new CatalogError(`model must be <provider>/<id>: ${qualified}`);
@@ -182,6 +182,8 @@ export function resolveModel(
   if (!entry) throw new CatalogError(`model not in catalog: ${qualified}`);
   if (entry.visionCapable === null || entry.supportedEffortLevels.length === 0)
     throw new CatalogError(`model is disabled until its capabilities are confirmed: ${qualified}`);
+  if (entry.untested && !options.allowUntested)
+    throw new CatalogError(`model is untested; confirm explicitly to use it: ${qualified}`);
   if (options.mode === 'vision' && entry.visionCapable !== true)
     throw new CatalogError(`model is not vision-capable: ${qualified}`);
   const effort = options.effort ?? entry.defaultEffort;

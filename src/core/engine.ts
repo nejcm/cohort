@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, type Page } from 'playwright';
+import { chromium, type BrowserContextOptions, type Page } from 'playwright';
 import { generateReplay } from '../evidence/replay.ts';
 import { stepsJsonl } from '../evidence/steps.ts';
 import { runAgent, type AgentOptions, type AgentResult } from './agent.ts';
@@ -10,6 +10,7 @@ export interface RunOnceOptions extends Omit<AgentOptions, 'page' | 'hasTouch' |
   device: { viewport: { width: number; height: number }; touch: boolean };
   locale: string;
   timezone: string;
+  storageState?: BrowserContextOptions['storageState'];
   onPage?: (page: Page) => void;
 }
 
@@ -18,7 +19,7 @@ export interface RunOnceResult extends AgentResult {
   replayPath: string;
 }
 
-// Phase 0 spike engine: one fresh context per run, trace started before the first navigation.
+// One fresh browser and context per run, trace started before the first navigation.
 export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
   const screenshotsDir = join(options.outDir, 'screenshots');
   await mkdir(screenshotsDir, { recursive: true, mode: 0o700 });
@@ -40,6 +41,7 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       timezoneId: options.timezone,
       serviceWorkers: 'block',
       acceptDownloads: false,
+      ...(options.storageState ? { storageState: options.storageState } : {}),
     });
     await context.route('**/*', (route) => {
       const request = route.request();
