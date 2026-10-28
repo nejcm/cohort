@@ -477,9 +477,9 @@ test('repeated clicks with no visible effect stop as a loop agent error, not a U
 
 test('repetition that changes the screen, or varies, is not a loop', async () => {
   const counting = await run('/lab/loop', (page) => [...Array<Turn>(5).fill(clickOn(page, '#count')), done]);
-  assert.equal(counting.result.outcome.state, 'completed');
+  assert.equal(counting.result.outcome.state, 'completed', JSON.stringify(counting.result.outcome));
   const varied = await run('/lab/loop', (page) => [clickOn(page, '#next'), wait, clickOn(page, '#next'), wait, done]);
-  assert.equal(varied.result.outcome.state, 'completed');
+  assert.equal(varied.result.outcome.state, 'completed', JSON.stringify(varied.result.outcome));
 });
 
 test('malformed provider turns (no tool call) repeat into a loop error', async () => {

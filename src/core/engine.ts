@@ -96,6 +96,11 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
         : cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
       sent.catch(() => {});
     });
+    // A popup closed before its first request never reaches the routes above; window.open still names its target.
+    cdp.on('Page.windowOpen', ({ url }) => {
+      if (URL.canParse(url) && !permitted(url, true)) denied.push(url);
+    });
+    await cdp.send('Page.enable');
     await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     options.onPage?.(page);
     const result = await runAgent({

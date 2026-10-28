@@ -753,14 +753,19 @@ test('known identity, captcha, and payment destinations end as harness-detected 
   const paid = pay.json.runs[0].outcome;
   assert.deepEqual([paid.state, paid.kind, paid.detectedBy], ['blocked', 'payment', 'harness']);
 
-  for (const auto of ['location', 'popup']) {
+  // popup-closed: the popup is gone before its request, as when the harness closes it first under load.
+  for (const auto of ['location', 'popup', 'popup-closed']) {
     const sso = await lab(['--persona', 'guest', '--url', `${fixture.url}/lab/oauth?auto=${auto}`, '--json']);
     const found = sso.json.runs[0].outcome;
     assert.deepEqual([auto, found.state, found.kind, found.detectedBy], [auto, 'blocked', 'oauth', 'harness']);
   }
   assert.equal(calls, 1, 'scripted sign-in hops stop before any provider call');
   const caught = (await lab(['--suite', 'catchall', '--json'])).json.runs[0].outcome;
-  assert.deepEqual([caught.state, caught.kind, caught.detectedBy], ['blocked', 'oauth', 'harness']);
+  assert.deepEqual(
+    [caught.state, caught.kind, caught.detectedBy],
+    ['blocked', 'oauth', 'harness'],
+    JSON.stringify(caught),
+  );
 
   turn = () => ({ name: 'goto', args: { url: 'https://accounts.google.com/o/oauth2/auth' } });
   const direct = (await lab(['--persona', 'guest', '--url', `${fixture.url}/`, '--json'])).json.runs[0].outcome;

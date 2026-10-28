@@ -127,6 +127,8 @@ test('the identity-provider list matches hosts and subdomains, not lookalikes', 
 test('the replay tool bridge closes rejected connections and stops running tools past the replay deadline', async () => {
   let runs = 0;
   const env: NodeJS.ProcessEnv = {};
+  // Wide enough for the 403 probe and first call on a loaded machine; the late call waits it out.
+  const deadline = Date.now() + 1000;
   const bridge = await serveTools(
     {
       t: tool(async () => {
@@ -136,7 +138,7 @@ test('the replay tool bridge closes rejected connections and stops running tools
     },
     new SecretStore(),
     (text) => text,
-    Date.now() + 80,
+    deadline,
     env,
   );
   try {
@@ -160,7 +162,7 @@ test('the replay tool bridge closes rejected connections and stops running tools
         body: JSON.stringify({ name: 't', args: {} }),
       });
     assert.equal((await invoke()).status, 200);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    while (Date.now() <= deadline) await new Promise((resolve) => setTimeout(resolve, deadline - Date.now() + 1));
     const late = await invoke();
     assert.deepEqual(
       [late.status, await late.json()],

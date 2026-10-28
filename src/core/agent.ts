@@ -42,7 +42,7 @@ export interface AgentOptions {
   maxOutputTokens?: number;
   /** Trusted setup tools offered to the model beside the built-ins. */
   customTools?: Record<string, CustomTool>;
-  /** Top-level navigation URLs the route guard denied, appended live; known blocker hosts end the run. */
+  /** Top-level navigation and popup URLs the guard denied, appended live; known blocker hosts end the run. */
   deniedNavigations?: readonly string[];
   /** Redacts custom-tool text; defaults to secret redaction. */
   scrub?: (text: string) => string;
@@ -469,7 +469,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         } catch (error) {
           meter.settle(error instanceof ProviderError && !error.possiblyBilled ? 0 : reserved, null);
           if (error instanceof InterruptError || signal?.aborted) return interrupted();
-          if (Date.now() >= deadline) return timeLimit('time limit reached during a provider call');
+          // Timers run on libuv's cached clock and can fire a few ms before Date.now() reaches the deadline.
+          if (error instanceof DeadlineError || timeout.aborted || Date.now() >= deadline)
+            return timeLimit('time limit reached during a provider call');
           if (!(error instanceof ProviderError) || !error.retryable || attempt === 1)
             return agentError('provider_error', (error as Error).message);
         }

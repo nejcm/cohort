@@ -296,6 +296,8 @@ test('queued and running runs cancel from the run view', async () => {
   await blocker.reached;
   await page.getByRole('button', { name: 'Cancel run' }).focus();
   await page.keyboard.press('Enter');
+  // Releasing before the cancel request lands lets the run complete first.
+  await page.getByText('Cancellation requested.').waitFor();
   blocker.release();
   turn = done;
   await page.getByRole('heading', { name: 'Outcome: agent_error' }).waitFor();

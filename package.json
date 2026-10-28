@@ -38,7 +38,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/unit/ tests/integration/",
+    "test": "node --test --test-timeout=120000 tests/unit/ tests/integration/",
     "knip": "knip",
     "verify": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run knip",
     "smoke:package": "node scripts/package-smoke.ts"

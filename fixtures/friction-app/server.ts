@@ -274,9 +274,9 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
           page(
             'Sign in',
             `<h1>Sign in to manage your stay</h1><p><a class="primary" id="oauth" href="https://accounts.google.com/o/oauth2/v2/auth?client_id=fixture">Continue with Identity Provider</a></p>${
-              // Lab-only: ?auto=popup|location starts the sign-in hop without a click.
+              // Lab-only: ?auto=popup|popup-closed|location starts the sign-in hop without a click.
               url.searchParams.has('auto')
-                ? `<script>addEventListener('load', () => ${url.searchParams.get('auto') === 'popup' ? 'window.open(oauth.href)' : 'location.assign(oauth.href)'});</script>`
+                ? `<script>addEventListener('load', () => ${{ popup: 'window.open(oauth.href)', 'popup-closed': 'window.open(oauth.href).close()' }[url.searchParams.get('auto')!] ?? 'location.assign(oauth.href)'});</script>`
                 : ''
             }`,
           ),
