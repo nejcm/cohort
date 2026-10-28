@@ -7,6 +7,9 @@ import type { StepRecord } from '../evidence/steps.ts';
 import { canonical, type Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { redactValue, safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
+import { customToolDefinitions, runCustomTool } from '../setup/tools.ts';
+import type { CustomTool } from '../setup/types.ts';
+import { knownBlocker, KNOWN_BLOCKERS } from './blockers.ts';
 import { CostMeter, type CapEnforcement } from './cost.ts';
 import type { AgentErrorCode, EvidenceRef, Outcome } from './outcomes.ts';
 import { BUILTIN_TOOLS, validateToolCall, type ToolCall } from './tools.ts';
@@ -37,6 +40,12 @@ export interface AgentOptions {
   maxWidth?: number;
   maskSelectors?: readonly string[];
   maxOutputTokens?: number;
+  /** Trusted setup tools offered to the model beside the built-ins. */
+  customTools?: Record<string, CustomTool>;
+  /** Top-level navigation URLs the route guard denied, appended live; known blocker hosts end the run. */
+  deniedNavigations?: readonly string[];
+  /** Redacts custom-tool text; defaults to secret redaction. */
+  scrub?: (text: string) => string;
   /** Abort with reason `'process'` for process interruption; any other reason counts as the user. */
   signal?: AbortSignal;
   /** Epoch ms the time cap counts from; earlier than now when setup already ran. */
@@ -142,6 +151,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   let escapedTo: string | null = null;
   let ineffective = { key: '', count: 0 };
   const signal = options.signal;
+  const customTools = options.customTools ?? {};
+  const customDefinitions = customToolDefinitions(customTools);
+  const tools = [...BUILTIN_TOOLS, ...customDefinitions];
+  const customText = customDefinitions.length > 0 ? JSON.stringify(customDefinitions) : null;
+
+  const harnessBlock = (): ReturnType<typeof knownBlocker> =>
+    (options.deniedNavigations ?? []).map(knownBlocker).find(Boolean) ?? null;
 
   // Backstop for hops the request guard cannot see (e.g. redirects in out-of-process frames): any response from a disallowed origin ends the run.
   page.on('response', (response) => {
@@ -250,11 +266,25 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       evidence: lastEvidence(),
     });
 
+  const blockedByHarness = (block: NonNullable<ReturnType<typeof harnessBlock>>): AgentResult => {
+    const evidence = lastEvidence();
+    if (evidence.length === 0)
+      return agentError('browser_error', `navigation to ${block.host} was blocked before any screenshot`);
+    const hint = block.kind === 'oauth' ? '; use a saved login (lab login) or setup storage state' : '';
+    return finish({
+      state: 'blocked',
+      kind: block.kind,
+      detectedBy: 'harness',
+      reason: `navigation to ${block.host}, a known ${block.kind} destination (list v${KNOWN_BLOCKERS.version}), is outside the allowed origins${hint}`,
+      evidence,
+    });
+  };
+
   const record = (
     call: ToolCall,
     started: number,
     result: StepRecord['result'],
-    extra: Partial<Pick<StepRecord, 'target' | 'afterScreenshotId'>> & { before?: typeof current } = {},
+    extra: Partial<Pick<StepRecord, 'target' | 'afterScreenshotId' | 'output'>> & { before?: typeof current } = {},
   ): StepRecord => {
     const before = 'before' in extra ? extra.before : current;
     pending = null;
@@ -276,6 +306,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       afterScreenshotId: extra.afterScreenshotId ?? null,
       pageUrl: safeUrl(page.url(), secrets),
       ...(extra.target ? { target: extra.target } : {}),
+      ...(extra.output === undefined ? {} : { output: secrets.redact(extra.output) }),
     };
     steps.push(step);
     options.onEvent?.('step.completed', {
@@ -296,7 +327,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       ineffective = { key, count: ineffective.key === key ? ineffective.count + 1 : 1 };
     }
     const status =
-      step.result.status === 'ok' ? 'ok' : `${step.result.status} ${step.result.code}: ${step.result.message}`;
+      step.result.status === 'ok'
+        ? step.output
+          ? `ok: ${step.output}`
+          : 'ok'
+        : `${step.result.status} ${step.result.code}: ${step.result.message}`;
     history.push(
       truncateBytes(`${step.id} ${call.name} ${JSON.stringify(step.action.args)} -> ${status}`, HISTORY_LINE_BYTES),
     );
@@ -313,6 +348,20 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   } catch (error) {
     if (error instanceof InterruptError) return interrupted();
     if (error instanceof DeadlineError) return timeLimit('time limit reached during the first observation');
+    const block = harnessBlock();
+    if (block) {
+      const shown = await bounded(observe()).then(
+        () => true,
+        () => false,
+      );
+      record(
+        { name: 'navigate', args: { url: safeUrl(options.startUrl, secrets) } },
+        navStarted,
+        { status: 'error', code: 'navigation_blocked', message: `redirected to ${block.host}` },
+        shown ? { afterScreenshotId: current!.screenshotId, before: null } : { before: null },
+      );
+      return blockedByHarness(block);
+    }
     const prefix = error instanceof MaskError ? 'observation failed; provider calls suppressed: ' : '';
     return agentError('browser_error', prefix + secrets.redact(firstLine(error)));
   }
@@ -361,6 +410,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) return timeLimit('time limit reached');
       if (meter.exhausted) return costLimit('dollar limit reached');
+      const block = harnessBlock();
+      if (block) return blockedByHarness(block);
       if (escapedTo)
         return agentError(
           'browser_error',
@@ -393,10 +444,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           text,
           pngBase64: observation.capture.png.toString('base64'),
         },
-        tools: BUILTIN_TOOLS,
+        tools,
         maxOutputTokens,
       };
-      const outboundText = [instructions, ...history, text].join('\n');
+      const outboundText = [instructions, ...history, text, ...(customText ? [customText] : [])].join('\n');
       if (secrets.contains(outboundText))
         return agentError('browser_error', 'a registered secret appeared in outbound text; provider call suppressed');
 
@@ -458,6 +509,14 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         stepId: pad('s', steps.length),
         action: secrets.redact(call.name).slice(0, 64),
       });
+      if (Object.hasOwn(customTools, call.name)) {
+        const result = await bounded(
+          runCustomTool(call.name, customTools[call.name]!, call, secrets, actionTimeout(6), options.scrub),
+        );
+        if (result.status === 'ok') record(call, started, { status: 'ok' }, { output: result.output });
+        else record(call, started, result);
+        continue;
+      }
       const invalid = validateToolCall(call);
       if (invalid) {
         record(call, started, { status: 'rejected', code: 'invalid_tool', message: invalid });

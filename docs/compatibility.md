@@ -56,6 +56,8 @@ At each clean capture every element's box is recorded and the mutation log is re
 - Playwright context routes enforce this for first requests in every page and frame. They do not see redirect hops, so a CDP `Fetch` interceptor on the page applies the same rule to every hop in the page's own process. A test redirects both a `fetch` and a `goto` through the fixture's lab redirect.
 - Backstop: any response from a disallowed origin (for example, a redirect inside an out-of-process frame, which the page session does not intercept) ends the run before the next provider call.
 - Popups are closed. Start URLs with credentials or non-HTTP schemes are rejected. WebSockets are not intercepted.
+- A refused top-level navigation to a known identity-provider, CAPTCHA, or payment host ends the run as `blocked(kind)`, detected by the harness. This covers both guard layers: popups and script navigations through the route guard, and redirect hops (including a start-URL redirect from an expired login) through the CDP guard. Subframes are not counted. The host list and its limits are in [setup-and-login.md](setup-and-login.md).
+- Route `block`/`fulfill` rules run only after the allowlist check passes and are reported on every run. Like the route guard, they do not see redirect hops.
 
 ## Runtime
 

@@ -22,6 +22,7 @@ import { createProviders } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
 import { redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
+import { customToolDefinitions } from '../setup/tools.ts';
 import type { SetupResult } from '../setup/types.ts';
 import type { AgentEvent, AgentResult } from './agent.ts';
 import { CostMeter } from './cost.ts';
@@ -339,8 +340,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
           cleanups,
         });
         for (const [name, value] of Object.entries(setupResult.secrets ?? {})) secrets.bind(name, value);
-        if (Object.keys(setupResult.tools ?? {}).length > 0)
-          throw new Error('custom setup tools are not supported yet (Phase 5)');
+        customToolDefinitions(setupResult.tools);
         if (!URL.canParse(setupResult.startUrl)) throw new Error('setup returned an invalid startUrl');
       }
       startUrl = setupResult?.startUrl ?? startUrl;
@@ -384,6 +384,8 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
             layers: entry.layers,
             setup: entry.setup ? { path: relative(projectRoot, entry.setup), hash: setupHash } : null,
             storageState: setupResult?.storageState ? 'setup' : entry.storageState,
+            customTools: Object.keys(setupResult?.tools ?? {}),
+            routes: entry.routes,
             startUrl: safeUrl(startUrl, secrets),
             startUrlComplete: safeUrl(startUrl, secrets) === startUrl,
           },
@@ -408,6 +410,9 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         startUrl,
         allowedOrigins: entry.allowedOrigins,
         resourceOrigins: entry.resourceOrigins,
+        routes: entry.routes,
+        ...(setupResult?.tools ? { customTools: setupResult.tools } : {}),
+        scrub: (text) => scrubEnv(text, secrets, [...providerKeys, ...envRead]),
         secrets,
         limits: request.limits,
         maxWidth: entry.screenshots.maxWidth,

@@ -18,6 +18,8 @@ export interface StepRecord {
     tag: string;
   };
   result: { status: 'ok' } | { status: 'rejected' | 'error'; code: string; message: string };
+  /** Redacted text a custom tool returned to the model. */
+  output?: string;
   beforeScreenshotId: string | null;
   afterScreenshotId: string | null;
   pageUrl: string;

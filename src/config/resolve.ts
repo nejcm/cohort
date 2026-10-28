@@ -16,6 +16,7 @@ import {
   type Mode,
   type Persona,
   type ProjectConfig,
+  type RouteRule,
   type Suite,
   type SuiteEntry,
 } from './files.ts';
@@ -62,6 +63,7 @@ export interface ResolvedEntry {
   readonly storageState: string | null;
   readonly allowedOrigins: readonly string[];
   readonly resourceOrigins: readonly string[];
+  readonly routes: readonly RouteRule[];
   readonly screenshots: { readonly maxWidth: number; readonly maskSelectors: readonly string[] };
   readonly layers: {
     readonly modelFrom: Layer;
@@ -187,8 +189,6 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
   } else targets = [{ persona: ADHOC_PERSONA, entry: null }];
 
   const defaults = suite?.defaults ?? {};
-  if ((project.routes?.length ?? 0) > 0 || (defaults.routes?.length ?? 0) > 0)
-    throw new ConfigError('routes are not implemented yet (Phase 5); remove them to run');
 
   return targets.map(({ persona, entry }, entryIndex) => {
     const where = suite ? `.lab/suites/${suite.id}.yml entries[${entryIndex}]` : `persona ${persona.id}`;
@@ -270,6 +270,7 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
       storageState: defaults.storageState ?? persona.storageState ?? null,
       allowedOrigins: [...(project.allowedOrigins ?? []), ...(defaults.allowedOrigins ?? [])],
       resourceOrigins: [...(project.resourceOrigins ?? [])],
+      routes: [...(project.routes ?? []), ...(defaults.routes ?? [])],
       screenshots: {
         maxWidth: project.screenshots?.maxWidth ?? 1024,
         maskSelectors: project.screenshots?.maskSelectors ?? DEFAULT_MASKS,

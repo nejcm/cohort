@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { chromium } from 'playwright';
 import { run } from '../../src/cli.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
@@ -114,6 +115,19 @@ before(async () => {
     }),
   );
   await put('.lab/auth/corrupt.json', '{ nope');
+  await copyFile(join(repoRoot, 'examples/setup/fixture-auth.ts'), join(root, '.lab/setup/fixture-auth.ts'));
+  await suite('authcode', '  setup: ../setup/fixture-auth.ts\n  storageState: host\n  repeats: 2\n');
+  await suite('expired', `  url: ${fixture.url}/lab/account?scope=expired\n  storageState: host\n`);
+  await suite(
+    'routed',
+    `  url: ${fixture.url}/lab/routed\n  routes:\n    - match: "**/lab/routed"\n      action: fulfill\n      contentType: text/html\n      body: "<h1>Mocked vendor status</h1>"\n    - match: "**/analytics/**"\n      action: block\n`,
+  );
+  await put(
+    '.lab/setup/override.ts',
+    "export default async (ctx) => ({ startUrl: ctx.env('LAB_FIXTURE_ORIGIN') + '/', tools: { fill: { description: 'x', inputSchema: { type: 'object' }, execute: async () => ({}) } } });\n",
+  );
+  await suite('override', '  setup: ../setup/override.ts\n');
+  await suite('saved', `  url: ${fixture.url}/lab/state?scope=saved\n  storageState: saved-host\n`);
 });
 after(async () => {
   await fixture.close();
@@ -126,6 +140,7 @@ type LabOptions = {
   signal?: AbortSignal;
   providers?: object;
   openTrace?: (path: string) => Promise<number>;
+  login?: { headless: boolean; ready: () => Promise<void> };
 };
 
 const lab = (argv: string[], options: LabOptions = {}) => cli(['run', ...argv], options);
@@ -143,6 +158,7 @@ async function cli(argv: string[], options: LabOptions = {}): Promise<{ code: nu
       ...(options.fake === false ? {} : { providers: (options.providers ?? { openai: provider }) as never }),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.openTrace ? { openTrace: options.openTrace } : {}),
+      ...(options.login ? { login: options.login } : {}),
     },
   );
   let json: unknown = null;
@@ -615,4 +631,153 @@ test('a hanging setup ends at the time cap and a hanging cleanup is cut off', as
     ['cleanup_timeout'],
   );
   assert.ok(Date.now() - started < 6000);
+});
+
+test('a setup module signs in with storage state; its code tool rebinds just before use and stays out of text', async () => {
+  const probe = await chromium.launch();
+  let codeAt: { kind: 'point'; x: number; y: number };
+  let verifyAt: typeof codeAt;
+  try {
+    const { token } = (await (
+      await fetch(`${fixture.url}/lab/auth/session?scope=probe`, { method: 'POST' })
+    ).json()) as { token: string };
+    const page = await (
+      await probe.newContext({
+        viewport: { width: 800, height: 600 },
+        extraHTTPHeaders: { cookie: `lab_session=${token}` },
+      })
+    ).newPage();
+    await page.goto(`${fixture.url}/lab/account?scope=probe`);
+    const center = async (selector: string) => {
+      const box = (await page.locator(selector).boundingBox())!;
+      return { kind: 'point' as const, x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+    };
+    codeAt = await center('#code');
+    verifyAt = await center('button');
+  } finally {
+    await probe.close();
+  }
+  turn = (request) => {
+    const did = (name: string) => request.history.filter((line) => line.split(' ')[1] === name).length;
+    const observationId = request.observation.id;
+    if (did('request_code') < 2) return { name: 'request_code', args: {} };
+    if (did('fill') === 0) return { name: 'fill', args: { observationId, target: codeAt, value: '{{code}}' } };
+    if (did('click') === 0) return { name: 'click', args: { observationId, target: verifyAt } };
+    return { name: 'done', args: { step: lastStepId(request), summary: 'Code accepted.' } };
+  };
+  const sentBefore = provider.requests.length;
+  const { code, json } = await lab(['--suite', 'authcode', '--json']);
+  assert.equal(code, 0, JSON.stringify(json?.runs?.map((item: any) => item.outcome)));
+  const scopes = json.runs.map((item: any) => item.runId);
+  const issued = scopes.map((scope: string) => fixture.auth(scope));
+  for (const state of issued) assert.deepEqual([state.codes.length, state.verified, state.sessions], [2, 1, 0]);
+  assert.equal(new Set(issued.flatMap((state: any) => state.codes)).size, 4, 'each repetition has its own codes');
+
+  const sent = provider.requests.slice(sentBefore);
+  assert.ok(sent.every((request) => request.tools.some((tool) => tool.name === 'request_code')));
+  assert.ok(sent.some((request) => request.history.some((line) => line.includes('code: {{code}}'))));
+  const outbound = JSON.stringify(sent.map(({ observation, ...rest }) => ({ ...rest, text: observation.text })));
+  const first = json.runs[0];
+  const artifacts = await Promise.all(
+    ['steps.jsonl', 'replay.spec.ts', 'report.json', 'resolved-config.json'].map((name) =>
+      readFile(join(first.outDir, name), 'utf8'),
+    ),
+  );
+  for (const value of issued.flatMap((state: any) => state.codes))
+    for (const text of [outbound, ...artifacts]) assert.ok(!text.includes(value), `code ${value} leaked`);
+  const [steps, replay, , config] = artifacts;
+  assert.match(steps!, /"output":"A fresh code arrived; older codes no longer work.\\ncode: \{\{code\}\}"/u);
+  assert.match(replay!, /await customTool\("request_code", \{\}\);/u);
+  assert.deepEqual([JSON.parse(config!).storageState, JSON.parse(config!).customTools], ['setup', ['request_code']]);
+
+  if (!existsSync(join(root, 'node_modules')))
+    await symlink(join(repoRoot, 'node_modules'), join(root, 'node_modules'));
+  const known = new Set(fixture.authScopes());
+  const replayed = await cli(['replay', first.runId, '--json']);
+  assert.equal(replayed.json.replay.status, 'passed', replayed.out);
+  const fresh = fixture.authScopes().filter((scope) => !known.has(scope));
+  assert.equal(fresh.length, 1);
+  assert.deepEqual(fixture.auth(fresh[0]!), { sessions: 0, codes: fixture.auth(fresh[0]!).codes, verified: 1 });
+  assert.equal(fixture.auth(fresh[0]!).codes.length, 2, 'replay reacquires both codes through the tool');
+});
+
+test('a setup tool that would override a built-in fails the run as a setup error', async () => {
+  const { json } = await lab(['--suite', 'override', '--json']);
+  assert.deepEqual(
+    [json.runs[0].outcome.code, json.runs[0].outcome.reason],
+    ['setup_error', 'custom tool fill would override a built-in tool'],
+  );
+});
+
+test('known identity, captcha, and payment destinations end as harness-detected blockers with evidence', async () => {
+  let calls = 0;
+  turn = () => {
+    calls += 1;
+    return { name: 'goto', args: { url: '/lab/redirect?to=https://checkout.stripe.com/c/pay/fixture' } };
+  };
+  const expired = await lab(['--suite', 'expired', '--json']);
+  assert.equal(calls, 0, 'an expired login stops before any provider call');
+  const outcome = expired.json.runs[0].outcome;
+  assert.deepEqual([outcome.state, outcome.kind, outcome.detectedBy], ['blocked', 'oauth', 'harness']);
+  assert.match(outcome.reason, /accounts\.google\.com.*lab login/u);
+  assert.equal(outcome.evidence.length, 1);
+
+  const pay = await lab(['--persona', 'guest', '--url', `${fixture.url}/lab/payment`, '--json']);
+  assert.equal(calls, 1);
+  const paid = pay.json.runs[0].outcome;
+  assert.deepEqual([paid.state, paid.kind, paid.detectedBy], ['blocked', 'payment', 'harness']);
+
+  for (const auto of ['location', 'popup']) {
+    const sso = await lab(['--persona', 'guest', '--url', `${fixture.url}/lab/oauth?auto=${auto}`, '--json']);
+    const found = sso.json.runs[0].outcome;
+    assert.deepEqual([auto, found.state, found.kind, found.detectedBy], [auto, 'blocked', 'oauth', 'harness']);
+  }
+  assert.equal(calls, 1, 'scripted sign-in hops stop before any provider call');
+
+  for (const [path, kind] of [
+    ['/lab/captcha', 'captcha'],
+    ['/lab/email-code', 'email_code'],
+  ] as const) {
+    turn = (request) => ({
+      name: 'report_blocked',
+      args: { kind, step: lastStepId(request), reason: 'Needs a human.' },
+    });
+    const declared = (await lab(['--persona', 'guest', '--url', `${fixture.url}${path}`, '--json'])).json.runs[0]
+      .outcome;
+    assert.deepEqual([declared.state, declared.kind, declared.detectedBy], ['blocked', kind, 'agent']);
+  }
+});
+
+test('route mocks and blocks apply inside the allowlist and are reported on every run and replay', async () => {
+  turn = done;
+  const { code, json } = await lab(['--suite', 'routed', '--json']);
+  assert.equal(code, 0);
+  const issues = json.runs[0].issues.filter((issue: any) => issue.code.startsWith('route_'));
+  assert.deepEqual(
+    issues.map((issue: any) => [issue.code, issue.message.split(';')[0]]),
+    [
+      ['route_mocked', 'mocked (200) **/lab/routed: 1 request(s)'],
+      ['route_blocked', 'blocked **/analytics/**: 0 request(s)'],
+    ],
+  );
+  const screenshot = await readFile(join(json.runs[0].outDir, 'screenshots/shot-0000.png'));
+  assert.ok(screenshot.length > 0);
+  const replay = await readFile(join(json.runs[0].outDir, 'replay.spec.ts'), 'utf8');
+  assert.match(replay, /page\.route\("\*\*\/lab\/routed", \(route\) => route\.fulfill/u);
+});
+
+test('lab login saves a private named state that a suite uses without a setup module', async () => {
+  const bad = await cli(['login', '--url', `${fixture.url}/`, '--state', '../escape']);
+  assert.deepEqual([bad.code, bad.out], [2, 'Error: invalid storage state name: ../escape\n']);
+  const login = await cli(['login', '--url', `${fixture.url}/lab/state?scope=login`, '--state', 'saved-host'], {
+    login: { headless: true, ready: async () => {} },
+  });
+  assert.equal(login.code, 0, login.out);
+  assert.match(login.out, /saved \.lab\/auth\/saved-host\.json \(1 cookie\(s\), 1 origin\(s\)\)/u);
+  assert.ok(!login.out.includes('lab_visited=1'));
+  const saved = join(root, '.lab/auth/saved-host.json');
+  assert.equal((await stat(saved)).mode & 0o777, 0o600);
+  turn = done;
+  assert.equal((await lab(['--suite', 'saved'])).code, 0);
+  assert.equal(fixture.stateVisits().at(-1)!.cookie, 'lab_visited=1');
 });

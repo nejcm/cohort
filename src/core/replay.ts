@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +12,8 @@ import type { RunReport } from '../evidence/report.ts';
 import { createProviders } from '../providers/registry.ts';
 import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
 import { SecretStore } from '../setup/secrets.ts';
+import { customToolDefinitions, runCustomTool } from '../setup/tools.ts';
+import type { CustomTool } from '../setup/types.ts';
 
 interface ResolvedConfig {
   setup: { path: string } | null;
@@ -58,10 +62,13 @@ export async function replayRun(
       ...providerKeys,
       ...envRead,
       ...Object.entries(env).flatMap(([name, value]) =>
-        value && (name === 'LAB_START_URL' || name.startsWith('LAB_SECRET_')) ? [value] : [],
+        value && (name === 'LAB_START_URL' || name === 'LAB_TOOL_TOKEN' || name.startsWith('LAB_SECRET_'))
+          ? [value]
+          : [],
       ),
     ]);
   const capMs = config.request.limits.timeMs;
+  let bridge: { close: () => void } | null = null;
   try {
     let storageState: unknown =
       config.storageState && config.storageState !== 'setup'
@@ -88,6 +95,10 @@ export async function replayRun(
         }
         env.LAB_START_URL = result.startUrl;
         storageState = result.storageState ?? storageState;
+        if (Object.keys(result.tools ?? {}).length > 0) {
+          customToolDefinitions(result.tools);
+          bridge = await serveTools(result.tools!, secrets, scrub, Math.min(30_000, capMs), env);
+        }
       } catch (error) {
         const reason = options.signal?.aborted
           ? 'cancelled'
@@ -120,7 +131,53 @@ export async function replayRun(
     const updated = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));
     return { report: updated, output: scrub(output) };
   } finally {
+    bridge?.close();
     await runCleanups(cleanups, capMs, () => '');
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+// Loopback only, one random token, alive just for this replay: the script calls trusted tools as the run did.
+async function serveTools(
+  tools: Record<string, CustomTool>,
+  secrets: SecretStore,
+  scrub: (text: string) => string,
+  timeoutMs: number,
+  env: NodeJS.ProcessEnv,
+): Promise<{ close: () => void }> {
+  const token = randomBytes(24).toString('hex');
+  const server = createServer(async (request, response) => {
+    const reply = (status: number, body: object): void => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(body));
+    };
+    if (request.method !== 'POST' || request.headers.authorization !== `Bearer ${token}`)
+      return reply(403, { error: 'forbidden' });
+    let raw = '';
+    for await (const chunk of request) {
+      raw += String(chunk);
+      if (raw.length > 65_536) return reply(413, { error: 'request too large' });
+    }
+    let call: { name: string; args: Record<string, unknown> };
+    try {
+      call = JSON.parse(raw) as typeof call;
+    } catch {
+      return reply(400, { error: 'invalid JSON' });
+    }
+    if (typeof call?.name !== 'string' || !Object.hasOwn(tools, call.name))
+      return reply(404, { error: 'unknown tool' });
+    const result = await runCustomTool(call.name, tools[call.name]!, call, secrets, timeoutMs, scrub);
+    return result.status === 'ok'
+      ? reply(200, { bound: result.bound })
+      : reply(500, { error: `${result.code}: ${result.message}` });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  env.LAB_TOOL_BRIDGE = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  env.LAB_TOOL_TOKEN = token;
+  return {
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
 }

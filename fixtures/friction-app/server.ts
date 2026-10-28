@@ -1,3 +1,4 @@
+import { randomInt, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -15,6 +16,9 @@ export interface FixtureServer {
   submissions(scope: string): Submission[];
   /** Cookie headers seen by /lab/state, for context-isolation checks. */
   stateVisits(): { scope: string; cookie: string }[];
+  /** Synthetic auth: open sessions and every one-time code issued per scope. */
+  auth(scope: string): { sessions: number; codes: string[]; verified: number };
+  authScopes(): string[];
   close(): Promise<void>;
 }
 
@@ -45,6 +49,11 @@ ${body}
 </html>`;
 }
 
+function json(response: ServerResponse, body: object): void {
+  response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  response.end(JSON.stringify(body));
+}
+
 async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
   let body = '';
   for await (const chunk of request) {
@@ -60,6 +69,11 @@ export async function startFixture(
   const mutations = new Set(options.mutations ?? []);
   const store = new Map<string, Submission[]>();
   const visits: { scope: string; cookie: string }[] = [];
+  const sessions = new Map<string, string>();
+  const codes = new Map<string, string[]>();
+  const verified = new Map<string, number>();
+  const sessionScope = (request: IncomingMessage): string | undefined =>
+    sessions.get(/(?:^|;\s*)lab_session=([^;]+)/u.exec(request.headers.cookie ?? '')?.[1] ?? '');
 
   const requestForm = (scope: string, values: Partial<Submission>, errors: string[]): string => {
     const choices = ARRIVAL_TIMES.map(
@@ -258,16 +272,60 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
         return send(
           page(
             'Sign in',
-            `<h1>Sign in to manage your stay</h1><p><a class="primary" id="oauth" href="https://accounts.identity.invalid/authorize?client_id=fixture">Continue with Identity Provider</a></p>`,
+            `<h1>Sign in to manage your stay</h1><p><a class="primary" id="oauth" href="https://accounts.google.com/o/oauth2/v2/auth?client_id=fixture">Continue with Identity Provider</a></p>${
+              // Lab-only: ?auto=popup|location starts the sign-in hop without a click.
+              url.searchParams.has('auto')
+                ? `<script>addEventListener('load', () => ${url.searchParams.get('auto') === 'popup' ? 'window.open(oauth.href)' : 'location.assign(oauth.href)'});</script>`
+                : ''
+            }`,
           ),
         );
       case 'GET /lab/payment':
         return send(
           page(
             'Payment',
-            `<h1>Deposit required</h1><p>A refundable 50 EUR deposit is required before arrival details are shown.</p><label for="card">Card number</label><input id="card" autocomplete="cc-number"><p><button class="primary" type="button" onclick="document.getElementById('msg').textContent='Payments are unavailable in this environment.'">Pay deposit</button></p><p id="msg" class="error"></p>`,
+            `<h1>Deposit required</h1><p>A refundable 50 EUR deposit is required before arrival details are shown.</p><label for="card">Card number</label><input id="card" autocomplete="cc-number"><p><button class="primary" type="button" onclick="document.getElementById('msg').textContent='Payments are unavailable in this environment.'">Pay deposit</button></p><p id="msg" class="error"></p><p><a id="hosted" href="https://checkout.stripe.com/c/pay/fixture">Pay on the hosted checkout page</a></p>`,
           ),
         );
+      case 'POST /lab/auth/session': {
+        const token = randomUUID();
+        sessions.set(token, scope);
+        return json(response, { token });
+      }
+      case 'POST /lab/auth/logout':
+        for (const [token, owner] of sessions) if (owner === scope) sessions.delete(token);
+        return json(response, { ok: true });
+      case 'POST /lab/auth/code': {
+        const code = String(randomInt(100_000, 1_000_000));
+        codes.set(scope, [...(codes.get(scope) ?? []), code]);
+        return json(response, { code });
+      }
+      case 'GET /lab/account':
+        if (sessionScope(request) !== scope) {
+          response.writeHead(302, { location: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=fixture' });
+          return void response.end();
+        }
+        return send(
+          page(
+            'Account',
+            `<h1>Confirm it is you</h1><p>Enter the latest one-time code.</p><form method="post" action="/lab/account/verify${q}"><label for="code">Code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"><p><button class="primary" type="submit">Verify</button></p></form>`,
+          ),
+        );
+      case 'POST /lab/account/verify': {
+        const latest = codes.get(scope)?.at(-1);
+        const ok =
+          sessionScope(request) === scope && latest !== undefined && (await readForm(request)).get('code') === latest;
+        if (ok) verified.set(scope, (verified.get(scope) ?? 0) + 1);
+        return send(
+          page(
+            'Account',
+            ok
+              ? '<h1>Code accepted</h1><p>Your stay details are unlocked.</p>'
+              : '<h1>Code rejected</h1><p class="error">That code is not the latest one.</p>',
+          ),
+          ok ? 200 : 400,
+        );
+      }
       case 'GET /lab/loop':
         return send(
           page(
@@ -326,6 +384,12 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
     url: `http://${options.host ?? '127.0.0.1'}:${port}`,
     submissions: (scope) => store.get(scope) ?? [],
     stateVisits: () => [...visits],
+    auth: (scope) => ({
+      sessions: [...sessions.values()].filter((owner) => owner === scope).length,
+      codes: [...(codes.get(scope) ?? [])],
+      verified: verified.get(scope) ?? 0,
+    }),
+    authScopes: () => [...new Set([...codes.keys(), ...sessions.values()])],
     close: () =>
       new Promise((resolve, reject) => {
         server.closeAllConnections();

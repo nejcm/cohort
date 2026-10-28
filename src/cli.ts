@@ -5,7 +5,9 @@ import { lstat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { parseArgs } from 'node:util';
-import { checkProject, ConfigError, loadProjectConfig } from './config/files.ts';
+import { createInterface } from 'node:readline/promises';
+import { chromium, type Page } from 'playwright';
+import { checkProject, ConfigError, loadProjectConfig, saveStorageState } from './config/files.ts';
 import {
   DEFAULT_MASKS,
   resolveSubmission,
@@ -37,6 +39,7 @@ const USAGE = `Usage: lab [options]
        lab report <run-or-batch-id> [--format json|md|html]
        lab replay <run-id> [--json]
        lab trace <run-id>
+       lab login --url <url> --state <name>
        lab persona validate
        lab ui [--port <n>] [--host <address>]
        lab persona generate --url <url> --description <text> [--out <file>] [--model <provider>/<id>]
@@ -58,6 +61,8 @@ interface Dependencies {
   providers?: Record<string, ProviderAdapter>;
   signal?: AbortSignal;
   openTrace?: (tracePath: string) => Promise<number>;
+  /** Replaces the manual step of `lab login`; tests drive a headless browser through it. */
+  login?: { headless: boolean; ready: (page: Page) => Promise<void> };
 }
 
 type Write = (text: string) => void;
@@ -82,6 +87,7 @@ const RUN_OPTIONS = {
   out: { type: 'string' },
   host: { type: 'string' },
   port: { type: 'string' },
+  state: { type: 'string' },
 } as const;
 
 const GENERATE_DOLLARS = 0.5;
@@ -125,6 +131,12 @@ export async function run(
   const [command, id, ...extra] = positionals;
   if (command === 'run' && id === undefined) return runCommand(values, write, deps);
   if (command === 'ui' && id === undefined) return uiCommand(values, write, deps);
+  if (command === 'login' && id === undefined)
+    return loginCommand(values, write, deps).catch((error: unknown) => {
+      if (!(error instanceof ConfigError)) throw error;
+      write(`Error: ${error.message}\n`);
+      return 2;
+    });
   if ((command === 'report' || command === 'replay' || command === 'trace') && id !== undefined && extra.length === 0) {
     try {
       if (command === 'report') return await reportCommand(id, values.format ?? 'md', write, deps);
@@ -278,6 +290,43 @@ async function uiCommand(
     deps.signal?.addEventListener('abort', () => resolve(), { once: true });
   });
   await dashboard.close();
+  return 0;
+}
+
+function waitForEnter(page: Page): Promise<void> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  return Promise.race([
+    prompt.question('Log in in the browser window, then press Enter here to save the session. ').then(() => {}),
+    new Promise<never>((_, reject) =>
+      page.once('close', () => reject(new ConfigError('the browser window closed before the session was saved'))),
+    ),
+  ]).finally(() => prompt.close());
+}
+
+async function loginCommand(
+  values: Record<string, string | boolean | undefined>,
+  write: Write,
+  deps: Dependencies,
+): Promise<number> {
+  const { url, state } = values as Record<string, string | undefined>;
+  if (!url || !state) throw new ConfigError('login requires --url and --state');
+  if (!/^https?:\/\//u.test(url) || !URL.canParse(url)) throw new ConfigError('--url must be an http or https URL');
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/u.test(state)) throw new ConfigError(`invalid storage state name: ${state}`);
+  const browser = await chromium.launch({ headless: deps.login?.headless ?? false });
+  let saved: { cookies: unknown[]; origins: unknown[] };
+  try {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await context.newPage();
+    await page.goto(url);
+    await (deps.login?.ready ?? waitForEnter)(page);
+    saved = await context.storageState();
+  } finally {
+    await browser.close();
+  }
+  await saveStorageState(deps.cwd ?? process.cwd(), state, saved);
+  write(
+    `saved .lab/auth/${state}.json (${saved.cookies.length} cookie(s), ${saved.origins.length} origin(s)). It is a credential: keep .lab/auth out of git. Reference it with storageState: ${state}\n`,
+  );
   return 0;
 }
 

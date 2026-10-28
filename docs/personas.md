@@ -52,7 +52,10 @@ A suite has `schemaVersion: 1`, an `id` that matches the file name, a `name`, op
 - `note`
 - `limits`
 - `allowedOrigins`
+- `routes` (combined after the project's routes)
 - `storageState`
+
+Setup modules, custom tools, `storageState`, and `routes` are covered in [setup-and-login.md](setup-and-login.md). A guest suite example is in `examples/suites/fixture-guest.yml`.
 
 Every repetition of an entry runs before the next entry starts.
 

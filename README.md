@@ -6,7 +6,7 @@ AI synthetic users that operate your web app like real people. You give a person
 
 ## Status
 
-Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–4 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, persona validation and generation, and the `lab ui` dashboard. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–5 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, persona validation and generation, the `lab ui` dashboard, setup modules with custom tools, `lab login`, route mocks, and blocker detection. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
 
 ## Prerequisites
 
@@ -52,7 +52,10 @@ Each batch writes a summary to `.lab/runs/<batch-id>/report.{json,md,html}`. It 
 lab report <run-or-batch-id> [--format json|md|html]  # print or re-render a report
 lab replay <run-id>   # rerun replay.spec.ts with no model; needs @playwright/test in the project
 lab trace <run-id>    # open trace.zip locally with playwright show-trace
+lab login --url <url> --state <name>  # log in by hand in a headed browser; saves .lab/auth/<name>.json
 ```
+
+Setup modules, custom tools (fresh one-time codes and similar), saved logins, route mocks, and how blockers are detected: [docs/setup-and-login.md](docs/setup-and-login.md).
 
 ```sh
 lab persona validate                                   # check every persona and suite, reporting all problems
@@ -64,7 +67,7 @@ How to write personas and suites, how prompt layers combine, and the generator g
 
 `lab replay` prepares bindings in this order:
 
-1. If the run used a setup module, it runs that module again.
+1. If the run used a setup module, it runs that module again. The module's custom tools are served to the script over a loopback bridge, so codes are acquired fresh.
 2. Otherwise it uses `LAB_START_URL` from the environment.
 3. Failing that, it uses the recorded start URL, but only when that URL was not reduced to origin and path.
 

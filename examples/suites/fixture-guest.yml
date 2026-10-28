@@ -1,0 +1,23 @@
+schemaVersion: 1
+id: fixture-guest
+name: Fixture guest journey
+
+defaults:
+  setup: ../setup/fixture.ts
+  repeats: 3
+  note: Use only the fixture session prepared for this run.
+  limits:
+    steps: 40
+    timeMs: 600000
+    dollars: 2.00
+  allowedOrigins: []
+  routes: []
+
+entries:
+  - persona: mobile-first-guest
+    goal: Find the property's check-in instructions.
+    note: You have just arrived.
+
+  - persona: mobile-first-guest
+    goal: Find how to contact the host.
+    note: You cannot find the keys.

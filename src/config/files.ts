@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { parse } from 'yaml';
 import { validate, type JsonSchema } from '../core/schema.ts';
@@ -17,7 +17,7 @@ export interface Limits {
 
 export type Mode = 'vision' | 'text';
 
-interface RouteRule {
+export interface RouteRule {
   match: string;
   action: 'block' | 'fulfill';
   status?: number;
@@ -470,4 +470,25 @@ export async function loadStorageState(projectRoot: string, name: string): Promi
     throw new ConfigError(`storage state ${name}: invalid JSON`);
   }
   return checked<Record<string, unknown>>(storageStateSchema, value, `storage state ${name}`);
+}
+
+/** Writes `.lab/auth/<name>.json` owner-only and atomically; refuses symlinked directories. */
+export async function saveStorageState(projectRoot: string, name: string, state: unknown): Promise<string> {
+  if (!new RegExp(ID, 'u').test(name)) throw new ConfigError(`invalid storage state name: ${name}`);
+  checked(storageStateSchema, state, `storage state ${name}`);
+  const dir = join(projectRoot, '.lab', 'auth');
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  for (const path of [join(projectRoot, '.lab'), dir])
+    if ((await lstat(path)).isSymbolicLink())
+      throw new ConfigError(`symlink not allowed: ${relative(projectRoot, path)}`);
+  const path = join(dir, `${name}.json`);
+  const temp = `${path}.tmp-${randomBytes(4).toString('hex')}`;
+  try {
+    await writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    await rename(temp, path);
+  } catch (error) {
+    await rm(temp, { force: true });
+    throw error;
+  }
+  return path;
 }

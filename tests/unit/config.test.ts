@@ -319,13 +319,11 @@ test('config files reject unknown versions, unknown fields, and unsafe or invali
     );
     const project = await loadProjectConfig(bad);
     await write('.lab/personas/p.md', persona('p', ''));
-    await assert.rejects(
-      resolveSubmission(
-        { selector: { kind: 'persona', id: 'p' }, url: 'http://a.test/' },
-        { projectRoot: bad, project, catalog, providers: allKeys },
-      ),
-      /routes are not implemented/u,
+    const [resolved] = await resolveSubmission(
+      { selector: { kind: 'persona', id: 'p' }, url: 'http://a.test/' },
+      { projectRoot: bad, project, catalog, providers: allKeys },
     );
+    assert.deepEqual(resolved!.routes, [{ match: '**', action: 'block' }]);
 
     const cases: [string, RegExp][] = [
       [persona('p', '', ''), /body is empty/u],
@@ -412,7 +410,7 @@ test('authoring diagnostics name the file, line, entry, and known alternatives',
   }
 });
 
-test('the shipped persona examples validate unchanged; the docs carry the generator guidance verbatim', async () => {
+test('the shipped persona and guest suite examples validate unchanged; the docs carry the generator guidance verbatim', async () => {
   const project = await mkdtemp(join(tmpdir(), 'lab-examples-'));
   try {
     const examples = new URL('../../examples/personas/', import.meta.url).pathname;
@@ -420,7 +418,12 @@ test('the shipped persona examples validate unchanged; the docs carry the genera
     assert.deepEqual(names, ['first-time-host.md', 'mobile-first-guest.md', 'returning-desktop-user.md']);
     await mkdir(join(project, '.lab/personas'), { recursive: true });
     for (const name of names) await copyFile(join(examples, name), join(project, '.lab/personas', name));
-    assert.deepEqual(await checkProject(project), { personas: 3, suites: 0, problems: [] });
+    await mkdir(join(project, '.lab/suites'), { recursive: true });
+    await mkdir(join(project, '.lab/setup'), { recursive: true });
+    const shipped = new URL('../../examples/', import.meta.url).pathname;
+    await copyFile(join(shipped, 'suites/fixture-guest.yml'), join(project, '.lab/suites/fixture-guest.yml'));
+    await copyFile(join(shipped, 'setup/fixture.ts'), join(project, '.lab/setup/fixture.ts'));
+    assert.deepEqual(await checkProject(project), { personas: 3, suites: 1, problems: [] });
     const docs = await readFile(new URL('../../docs/personas.md', import.meta.url), 'utf8');
     assert.ok(docs.includes(`> ${PERSONA_GUIDANCE}`));
   } finally {
