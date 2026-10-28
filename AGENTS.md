@@ -8,6 +8,7 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 - Secrets never reach prompts, LLM transcripts, screenshots, generated scripts, logs, or API responses. Native traces are private evidence that may contain secrets; never publish or commit them. Keys come from the environment only.
 - Runtime stays Node 24; the published package is compiled JavaScript and must not need Bun. Use Node built-ins first (HTTP, fs, hashing, `parseArgs`, `node:test`, `node:sqlite`).
 - Runtime dependencies are Playwright and a maintained YAML parser only; no provider SDKs. Add a dependency only for a concrete need.
+- The dashboard (`ui/`) uses Svelte 5 and Vite as build-only dev dependencies; `bun run build` compiles it into `dist/ui`, which `lab ui` serves under a strict CSP (no inline scripts or styles, no `style=` attributes or Svelte transitions).
 - Keep runtime dependencies small; follow the existing package manager, formatter, linter, and test runner.
 - Never commit secrets, local environment files, `.lab/auth`, `.lab/runs`, or real user data.
 

@@ -105,7 +105,7 @@ At each clean capture every element's box is recorded and the mutation log is re
 - Not verified: the quality of personas from a live model, and whether one landing page gives enough context. Both need live keys.
 - The token bound used to reserve the generator budget is the same unmeasured, conservative one the agent uses.
 
-## Dashboard API (Phase 4)
+## Dashboard (Phase 4)
 
 - Verified with a scripted model and raw HTTP clients:
   - 401 without the bearer token, including when the token is in the query.
@@ -120,7 +120,18 @@ At each clean capture every element's box is recorded and the mutation log is re
   - The key value never appears in responses, events, the index, or bundle files other than the trace.
 - `/api/runs/:id/screenshots/shot-NNNN` serves the screenshots of a run still in progress, because the manifest exists only after finalize.
 - Cancelling in the window between dequeue and `run.started` records the run as finished with an interrupted outcome, not as `cancelled`.
-- The browser screens and the CSP check of the built Svelte output are not done yet.
+- The UI was tested with Playwright Chromium against the Vite build. The tests cover:
+  - no CSP violations and no inline code;
+  - the token leaves the URL;
+  - keyboard-only use of the run dialog and its pickers, the screenshot timeline, cancel, and save;
+  - providers without a key are hidden, and non-vision models are disabled in vision mode;
+  - estimate and unknown-cost displays;
+  - an edit conflict keeps the user's text;
+  - persona names are rendered as text, not HTML;
+  - ad-hoc save to a suite.
+  Other browsers were not tested.
+- Run limits show only after the run finishes, because they come from `resolved-config.json`.
+- Svelte components have no type checking: `svelte-check` was not added. The logic they rely on lives in typechecked `ui/*.ts` files.
 
 ## Not verified (needs live keys or external targets)
 

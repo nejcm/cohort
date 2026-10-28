@@ -6,7 +6,7 @@ AI synthetic users that operate your web app like real people. You give a person
 
 ## Status
 
-Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–3 and the Phase 4 dashboard API are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, persona validation and generation, and the `lab ui` HTTP/SSE API. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–4 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, persona validation and generation, and the `lab ui` dashboard. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
 
 ## Prerequisites
 
@@ -79,7 +79,17 @@ lab ui [--port <n>]           # loopback only; prints http://127.0.0.1:<port>/#t
 lab ui --host <address>       # explicit exposure; prints a warning first
 ```
 
-The dashboard API is complete: run queue, cancel, live events over SSE, artifact downloads, and revision-checked persona and suite editing. The browser screens are not built yet, so the page answers 503 until they ship. Every API call needs the per-launch token as `Authorization: Bearer`. Requests with a foreign `Host` or `Origin` are refused. Setup references in personas and suites are read-only through the API. Runs are indexed in `.lab/index.sqlite` (gitignored). A restart marks unfinished runs `interrupted` and never resumes them.
+The dashboard covers:
+
+- run history;
+- the run dialog (persona, tag, suite or ad-hoc dispatch, with model and effort pickers and a cost estimate, or "cost unknown" when prices are missing);
+- a live run view with steps, screenshot timeline, claims, cost and cancel;
+- authenticated report, replay and trace downloads;
+- persona and suite editors;
+- persona generation;
+- saving an ad-hoc run to a suite.
+
+Edits are checked against the file's revision: a file changed on disk is never overwritten, and your text stays in the editor. Every API call needs the per-launch token as `Authorization: Bearer`. Requests with a foreign `Host` or `Origin` are refused. Setup references in personas and suites are read-only through the API. Runs are indexed in `.lab/index.sqlite` (gitignored). A restart marks unfinished runs `interrupted` and never resumes them.
 
 ## Environment variables
 
