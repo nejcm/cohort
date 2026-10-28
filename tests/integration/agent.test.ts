@@ -228,6 +228,25 @@ test('time cap stops the run after a slow provider call', async () => {
   assert.equal((result.outcome as { limit?: string }).limit, 'time', JSON.stringify(result.outcome));
 });
 
+test('a deadline timer that fires before Date.now() reaches the deadline is still a time limit', async () => {
+  const realNow = Date.now;
+  try {
+    const { result } = await run(
+      '/',
+      () => async (request) => {
+        // Libuv timers can run ahead of Date.now(); lag the wall clock once the call's timers are armed.
+        setImmediate(() => (Date.now = () => realNow() - 5_000));
+        await delay(600);
+        return wait(request, 0);
+      },
+      { limits: { steps: 40, timeMs: 300, dollars: 2 } },
+    );
+    assert.equal((result.outcome as { limit?: string }).limit, 'time', JSON.stringify(result.outcome));
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test('cost cap refuses a call whose reservation does not fit', async () => {
   const { result, provider } = await run('/', () => done, { prices: { input: 1000, output: 1000, cachedInput: 0 } });
   assert.equal((result.outcome as { limit?: string }).limit, 'cost');
