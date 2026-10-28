@@ -2,25 +2,43 @@
   "name": "synthetic-customer-lab",
   "version": "0.0.0",
   "description": "AI synthetic users that operate your web app and leave an inspectable Playwright trail.",
+  "keywords": [],
   "license": "Apache-2.0",
   "bin": {
     "lab": "dist/cli.js"
+  },
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "test": "tests"
   },
   "files": [
     "dist"
   ],
   "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/unit/",
+    "test": "node --test tests/unit/ tests/integration/",
     "knip": "knip",
     "verify": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run knip"
   },
+  "dependencies": {
+    "playwright": "1.64.1",
+    "yaml": "2.9.1"
+  },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@types/node": "24.19.2",
     "knip": "6.43.0",
     "oxfmt": "0.74.0",

@@ -1,11 +1,13 @@
 {
-  "include": ["src", "tests"],
+  "include": ["src", "tests", "fixtures", "examples"],
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "types": ["node"],
+    "resolveJsonModule": true,
+    "paths": { "synthetic-customer-lab": ["./src/index.ts"] },
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

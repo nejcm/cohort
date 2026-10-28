@@ -1,12 +1,12 @@
 # Synthetic Customer Lab
 
-> Working title. Pre-alpha: only the CLI skeleton exists.
+> Working title. Pre-alpha: Phase 0 spike code only; no usable CLI commands yet.
 
 AI synthetic users that operate your web app like real people. You give a persona a goal, the agent drives a real browser from screenshots, and every action is recorded as an inspectable Playwright trail plus a replayable script. Open source, self-hosted, bring your own LLM keys.
 
 ## Status
 
-Planning is done; implementation follows [PLAN.md](.plans/PLAN.md), starting with Phase 0 (agent, replay, cost, and secret-boundary spikes). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+Implementation follows [PLAN.md](.plans/PLAN.md). Phase 0 offline spikes (fixture app, both `fetch` provider adapters, catalog, target resolution, masking, cost caps, replay) run against a scripted fake model; live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
 
 ## Prerequisites
 
@@ -17,6 +17,7 @@ Planning is done; implementation follows [PLAN.md](.plans/PLAN.md), starting wit
 
 ```sh
 bun install --frozen-lockfile
+bunx playwright install chromium
 cp .env.example .env.local   # add the provider keys you want; never commit real values
 ```
 
@@ -26,7 +27,7 @@ cp .env.example .env.local   # add the provider keys you want; never commit real
 | --- | --- |
 | `bun run verify` | typecheck, lint, format check, tests, unused-code check |
 | `bun run build` | compile to `dist/` |
-| `bun run test` | unit tests (`node --test`) |
+| `bun run test` | unit and Chromium integration tests (`node --test`, fake model, no network to providers) |
 
 ## Environment variables
 
@@ -34,6 +35,10 @@ cp .env.example .env.local   # add the provider keys you want; never commit real
 | --- | --- |
 | `OPENAI_API_KEY` | Enables OpenAI models in the model picker |
 | `ANTHROPIC_API_KEY` | Enables Anthropic models in the model picker |
+
+## Evidence warning
+
+Run directories (`.lab/runs`) hold native Playwright traces, which record unmasked DOM snapshots and may contain secrets. Keep them private; never publish or commit them. Screenshots sent to models, `steps.jsonl`, and generated replay scripts are masked or use `{{placeholder}}` bindings.
 
 ## License
 

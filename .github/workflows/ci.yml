@@ -25,4 +25,5 @@ jobs:
         with:
           node-version-file: .node-version
       - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
       - run: bun run verify

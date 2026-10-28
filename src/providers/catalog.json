@@ -1,0 +1,16 @@
+{
+  "version": "phase-0-unverified",
+  "models": [
+    {
+      "id": "claude-sonnet-5-5",
+      "provider": "anthropic",
+      "label": "Claude Sonnet 5.5 (candidate, not live-verified)",
+      "visionCapable": null,
+      "supportedEffortLevels": [],
+      "defaultEffort": null,
+      "pricesPerMTok": { "input": null, "output": null, "cachedInput": null },
+      "pricingVerifiedAt": null,
+      "untested": true
+    }
+  ]
+}

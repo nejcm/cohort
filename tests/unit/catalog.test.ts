@@ -1,0 +1,107 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import {
+  CatalogError,
+  loadCatalog,
+  resolveModel,
+  validateCatalog,
+  type ModelCatalogEntry,
+} from '../../src/providers/catalog.ts';
+import shipped from '../../src/providers/catalog.json' with { type: 'json' };
+
+const tested = (overrides: Partial<ModelCatalogEntry> = {}): ModelCatalogEntry => ({
+  id: 'model-a',
+  provider: 'openai',
+  label: 'Model A',
+  visionCapable: true,
+  supportedEffortLevels: ['low', 'medium'],
+  defaultEffort: 'low',
+  pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 },
+  pricingVerifiedAt: '2026-10-01',
+  untested: false,
+  ...overrides,
+});
+
+test('shipped catalog validates and stays disabled until verified live', () => {
+  const catalog = validateCatalog(shipped, 'catalog.json');
+  for (const entry of catalog.models) {
+    assert.equal(entry.untested, true);
+    assert.throws(() => resolveModel(catalog, `${entry.provider}/${entry.id}`, { mode: 'vision' }), /disabled/u);
+  }
+});
+
+const issues = (entry: unknown): string => {
+  try {
+    validateCatalog({ version: 'v', models: [entry] }, 'x');
+    return '';
+  } catch (error) {
+    return String(error);
+  }
+};
+
+test('catalog validation reports every bad field', () => {
+  assert.equal(issues(tested()), '');
+  assert.match(issues({ ...tested(), extra: 1 }), /extra: unknown field/u);
+  assert.match(issues(tested({ provider: 'acme' })), /unknown provider/u);
+  assert.match(issues(tested({ id: 'has space' })), /without spaces/u);
+  assert.match(issues(tested({ supportedEffortLevels: ['max' as 'low'] })), /unique efforts/u);
+  assert.match(issues(tested({ defaultEffort: 'high' })), /one of supportedEffortLevels/u);
+  assert.match(issues(tested({ visionCapable: null })), /tested entries need/u);
+  assert.match(issues(tested({ pricesPerMTok: { input: -1, output: 1, cachedInput: 0 } })), /nonnegative/u);
+  assert.match(issues(tested({ pricingVerifiedAt: null })), /verification date/u);
+  assert.match(issues(tested({ contextLimitTokens: 1.5 })), /positive integer/u);
+  assert.throws(
+    () => validateCatalog({ version: 'v', models: [tested(), tested()] }, 'x'),
+    /duplicate openai\/model-a/u,
+  );
+});
+
+test('resolveModel applies defaults, rejects unsupported effort, and hashes the snapshot', () => {
+  const catalog = validateCatalog(
+    { version: 'v1', models: [tested(), tested({ id: 'blind', visionCapable: false })] },
+    'x',
+  );
+  const resolved = resolveModel(catalog, 'openai/model-a', { mode: 'vision' });
+  assert.equal(resolved.effort, 'low');
+  assert.match(resolved.catalog.hash, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(resolveModel(catalog, 'openai/model-a', { mode: 'vision' }).catalog.hash, resolved.catalog.hash);
+  assert.throws(() => resolveModel(catalog, 'openai/model-a', { effort: 'high', mode: 'vision' }), /not supported/u);
+  assert.throws(() => resolveModel(catalog, 'openai/blind', { mode: 'vision' }), /not vision-capable/u);
+  assert.equal(resolveModel(catalog, 'openai/blind', { mode: 'text' }).model, 'blind');
+  assert.throws(() => resolveModel(catalog, 'model-a', { mode: 'vision' }), /<provider>\/<id>/u);
+  assert.throws(() => resolveModel(catalog, 'openai/nope', { mode: 'vision' }), CatalogError);
+});
+
+test('project models.yml overrides and extends the shipped catalog', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-catalog-'));
+  try {
+    assert.equal((await loadCatalog(root)).version, shipped.version);
+    await mkdir(join(root, '.lab'));
+    await writeFile(
+      join(root, '.lab', 'models.yml'),
+      `version: local-1
+models:
+  - id: model-a
+    provider: openai
+    label: Model A
+    visionCapable: true
+    supportedEffortLevels: [low, medium]
+    defaultEffort: medium
+    pricesPerMTok: { input: 1, output: 4, cachedInput: null }
+    pricingVerifiedAt: "2026-10-01"
+    untested: false
+`,
+    );
+    const catalog = await loadCatalog(root);
+    assert.equal(catalog.version, `${shipped.version}+local-1`);
+    assert.equal(catalog.models.length, shipped.models.length + 1);
+    assert.equal(resolveModel(catalog, 'openai/model-a', { mode: 'vision' }).effort, 'medium');
+    await writeFile(join(root, '.lab', 'models.yml'), 'version: bad\nmodels: [{ id: x }]\n');
+    await assert.rejects(loadCatalog(root), /\.lab\/models\.yml\.models\[0\]\.provider: required/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

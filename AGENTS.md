@@ -33,4 +33,5 @@ TypeScript uses `NodeNext` with explicit `.ts` relative imports (rewritten on bu
 - Add or update tests for behavior changes and keep PLAN.md and docs accurate.
 - Run the narrowest relevant checks, then `bun run verify` when practical.
 - Do not weaken checks to make a change pass; record intentional exceptions beside the config and here.
+  - knip `ignoreDependencies: ["@playwright/test"]`: no source imports it; tests run generated replay specs through its CLI.
 - Do not call live LLM providers in CI or default tests; use a scripted fake model.
