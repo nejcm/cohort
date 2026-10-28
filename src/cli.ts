@@ -1,16 +1,34 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { lstat, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError, loadProjectConfig } from './config/files.ts';
 import { resolveSubmission, validateSubmission, type ResolvedEntry, type RunSubmission } from './config/resolve.ts';
 import { runBatch, type BatchResult } from './core/batch.ts';
 import { estimateCostUsd } from './core/cost.ts';
+import { replayRun } from './core/replay.ts';
+import { BundleError, bundleDir, readSteps } from './evidence/bundle.ts';
+import {
+  rateText,
+  renderBatchHtml,
+  renderBatchMarkdown,
+  renderRunHtml,
+  renderRunMarkdown,
+  type BatchReport,
+  type RunReport,
+} from './evidence/report.ts';
 import { CatalogError, loadCatalog } from './providers/catalog.ts';
 import { createProviders } from './providers/registry.ts';
 import type { ProviderAdapter } from './providers/types.ts';
 
 const USAGE = `Usage: lab [options]
        lab run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
+       lab report <run-or-batch-id> [--format json|md|html]
+       lab replay <run-id> [--json]
+       lab trace <run-id>
 
 Options:
   -h, --help     Show this help
@@ -27,6 +45,7 @@ interface Dependencies {
   env?: NodeJS.ProcessEnv;
   providers?: Record<string, ProviderAdapter>;
   signal?: AbortSignal;
+  openTrace?: (tracePath: string) => Promise<number>;
 }
 
 type Write = (text: string) => void;
@@ -46,6 +65,7 @@ const RUN_OPTIONS = {
   dollars: { type: 'string' },
   'allow-untested': { type: 'boolean' },
   json: { type: 'boolean' },
+  format: { type: 'string' },
 } as const;
 
 function readVersion(): string {
@@ -84,11 +104,70 @@ export async function run(
     write(USAGE);
     return 0;
   }
-  if (positionals[0] !== 'run' || positionals.length > 1) {
-    write(`Unknown command: ${positionals.join(' ')}\n\n${USAGE}`);
-    return 2;
+  const [command, id, ...extra] = positionals;
+  if (command === 'run' && id === undefined) return runCommand(values, write, deps);
+  if ((command === 'report' || command === 'replay' || command === 'trace') && id !== undefined && extra.length === 0) {
+    try {
+      if (command === 'report') return await reportCommand(id, values.format ?? 'md', write, deps);
+      if (command === 'replay') return await replayCommand(id, values.json === true, write, deps);
+      return await traceCommand(id, deps);
+    } catch (error) {
+      if (!(error instanceof BundleError || error instanceof ConfigError)) throw error;
+      write(values.json ? `${JSON.stringify({ error: error.message })}\n` : `Error: ${error.message}\n`);
+      return 2;
+    }
   }
-  return runCommand(values, write, deps);
+  write(`Unknown command: ${positionals.join(' ')}\n\n${USAGE}`);
+  return 2;
+}
+
+async function reportCommand(id: string, format: string, write: Write, deps: Dependencies): Promise<number> {
+  if (!['json', 'md', 'html'].includes(format)) throw new BundleError('--format must be json, md, or html');
+  const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
+  const text = await readFile(join(dir, 'report.json'), 'utf8').catch(() => {
+    throw new BundleError(`${id} has no report.json`);
+  });
+  if (format === 'json') write(text);
+  else if (kind === 'batch') {
+    const report = JSON.parse(text) as BatchReport;
+    write(format === 'md' ? renderBatchMarkdown(report) : renderBatchHtml(report));
+  } else {
+    const report = JSON.parse(text) as RunReport;
+    const steps = await readSteps(dir);
+    write(format === 'md' ? renderRunMarkdown(report, steps) : renderRunHtml(report, steps));
+  }
+  return 0;
+}
+
+async function replayCommand(id: string, json: boolean, write: Write, deps: Dependencies): Promise<number> {
+  const { report, output } = await replayRun(deps.cwd ?? process.cwd(), id, {
+    env: deps.env ?? process.env,
+    ...(deps.signal ? { signal: deps.signal } : {}),
+  });
+  const passed = report.replay.status === 'passed';
+  write(
+    json
+      ? `${JSON.stringify({ runId: id, replay: report.replay })}\n`
+      : `${output.trimEnd()}\nreplay ${id}: ${report.replay.status}\n`,
+  );
+  return passed ? 0 : 1;
+}
+
+function showTrace(tracePath: string): Promise<number> {
+  const cli = join(dirname(createRequire(import.meta.url).resolve('playwright/package.json')), 'cli.js');
+  return new Promise((resolve) => {
+    spawn(process.execPath, [cli, 'show-trace', tracePath], { stdio: 'inherit' }).on('exit', (code) =>
+      resolve(code ?? 1),
+    );
+  });
+}
+
+async function traceCommand(id: string, deps: Dependencies): Promise<number> {
+  const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
+  if (kind !== 'run') throw new BundleError('lab trace takes a run ID, not a batch ID');
+  const tracePath = join(dir, 'trace.zip');
+  if (!(await lstat(tracePath).catch(() => null))?.isFile()) throw new BundleError(`${id} has no trace.zip`);
+  return (deps.openTrace ?? showTrace)(tracePath);
 }
 
 function submissionFrom(values: Record<string, string | boolean | undefined>): RunSubmission {
@@ -222,6 +301,8 @@ async function runCommand(
         maxBatchUsd: plan.maxBatchUsd,
         runs: batch.runs,
         skipped: batch.skipped,
+        summary: batch.summary,
+        reportDir: batch.reportDir,
         exitCode,
       })}\n`,
     );
@@ -232,6 +313,12 @@ async function runCommand(
       write(`${item.runId}: ${item.outcome.state}${detail}: ${item.outcome.reason}\n`);
     }
     if (batch.skipped > 0) write(`${batch.skipped} run(s) not started: cancelled\n`);
+    for (const group of batch.summary.groups)
+      write(
+        `${group.personaId} ${group.provider}/${group.model} ${group.effort}: completion ${rateText(group.completion)}, blocked ${Object.values(group.blocked.byKind).reduce((a, b) => a + b, 0)}, user cancellations ${group.userCancellations}, cost $${group.costUsd.total.toFixed(4)}${group.costUsd.unknownRuns > 0 ? ` + ${group.costUsd.unknownRuns} unknown` : ''}\n`,
+      );
+    for (const warning of batch.summary.warnings) write(`warning: ${warning}\n`);
+    write(`report: ${join(batch.reportDir, 'report.html')}\n`);
   }
   return exitCode;
 }

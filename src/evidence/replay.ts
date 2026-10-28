@@ -52,6 +52,13 @@ function statement(step: StepRecord, hasTouch: boolean): string | null {
   }
 }
 
+/** Step IDs whose recorded arguments cannot be replayed faithfully. */
+export function replayGaps(steps: readonly StepRecord[]): string[] {
+  return steps
+    .filter((step) => step.result.status === 'ok' && statement(step, false)?.startsWith('throw '))
+    .map((step) => step.id);
+}
+
 /** Generates a standalone Playwright test from recorded steps; secrets stay as placeholders bound from the environment. */
 export function generateReplay(session: ReplaySession, steps: readonly StepRecord[]): string {
   const body: string[] = [];
@@ -80,7 +87,13 @@ function bind(template: string): string {
   return template.replace(/\\{\\{([a-z][a-z0-9_]*)\\}\\}/g, (_, name: string) => binding(\`LAB_SECRET_\${name.toUpperCase()}\`));
 }
 
-test.use({ viewport, hasTouch: ${session.hasTouch}, locale: ${j(session.locale)}, timezoneId: ${j(session.timezone)} });
+test.use({
+  viewport,
+  hasTouch: ${session.hasTouch},
+  locale: ${j(session.locale)},
+  timezoneId: ${j(session.timezone)},
+  ...(process.env.LAB_STORAGE_STATE ? { storageState: process.env.LAB_STORAGE_STATE } : {}),
+});
 
 test(${j(`replay ${session.runId}`)}, async ({ page }) => {
 ${body.join('\n')}

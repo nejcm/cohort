@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type BrowserContextOptions, type Page } from 'playwright';
-import { generateReplay } from '../evidence/replay.ts';
+import { generateReplay, replayGaps } from '../evidence/replay.ts';
 import { stepsJsonl } from '../evidence/steps.ts';
 import { runAgent, type AgentOptions, type AgentResult } from './agent.ts';
 
@@ -17,6 +17,9 @@ export interface RunOnceOptions extends Omit<AgentOptions, 'page' | 'hasTouch' |
 export interface RunOnceResult extends AgentResult {
   tracePath: string | null;
   replayPath: string;
+  /** Recorded steps the generated script cannot replay faithfully. */
+  replayGaps: string[];
+  browserVersion: string;
 }
 
 // One fresh browser and context per run, trace started before the first navigation.
@@ -86,7 +89,13 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       ),
       { mode: 0o600 },
     );
-    return { ...result, tracePath: traced, replayPath };
+    return {
+      ...result,
+      tracePath: traced,
+      replayPath,
+      replayGaps: replayGaps(result.steps),
+      browserVersion: browser.version(),
+    };
   } finally {
     await browser.close();
   }

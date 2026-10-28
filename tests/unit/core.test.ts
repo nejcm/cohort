@@ -168,7 +168,10 @@ test('generated replay binds secrets from the environment and skips failed steps
   assert.match(script, /keyboard\.press\("Enter"\)/u);
   assert.ok(!script.includes('s0005'));
   assert.ok(!script.includes('screenshot'), 'replay must not write unmasked images');
-  assert.match(script, /locale: "sl-SI", timezoneId: "Europe\/Ljubljana"/u);
+  assert.match(
+    script,
+    /locale: "sl-SI",\n  timezoneId: "Europe\/Ljubljana",\n  \.\.\.\(process.env.LAB_STORAGE_STATE/u,
+  );
 });
 
 test('a priced call whose cached rate is unknown keeps its reservation', () => {

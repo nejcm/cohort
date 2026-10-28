@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -9,6 +10,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { run } from '../../src/cli.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
+import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
@@ -117,13 +119,20 @@ after(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function lab(
-  argv: string[],
-  options: { env?: NodeJS.ProcessEnv; fake?: boolean; signal?: AbortSignal; providers?: object } = {},
-): Promise<{ code: number; out: string; json: any }> {
+type LabOptions = {
+  env?: NodeJS.ProcessEnv;
+  fake?: boolean;
+  signal?: AbortSignal;
+  providers?: object;
+  openTrace?: (path: string) => Promise<number>;
+};
+
+const lab = (argv: string[], options: LabOptions = {}) => cli(['run', ...argv], options);
+
+async function cli(argv: string[], options: LabOptions = {}): Promise<{ code: number; out: string; json: any }> {
   let out = '';
   const code = await run(
-    ['run', ...argv],
+    argv,
     (text) => {
       out += text;
     },
@@ -132,6 +141,7 @@ async function lab(
       env: options.env ?? { OPENAI_API_KEY: 'test-key', LAB_FIXTURE_ORIGIN: fixture.url },
       ...(options.fake === false ? {} : { providers: (options.providers ?? { openai: provider }) as never }),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.openTrace ? { openTrace: options.openTrace } : {}),
     },
   );
   let json: unknown = null;
@@ -161,6 +171,113 @@ test('a suite run repeats with one frozen request, fresh artifacts, and exit 0',
   const sent = provider.requests.slice(sentBefore);
   assert.equal(sent.length, 2);
   assert.ok(sent.every((request) => request.model === 'test-model' && request.effort === 'low'));
+});
+
+async function walk(dir: string, prefix = ''): Promise<string[]> {
+  const found: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true }))
+    if (entry.isDirectory()) found.push(...(await walk(join(dir, entry.name), `${prefix}${entry.name}/`)));
+    else found.push(`${prefix}${entry.name}`);
+  return found.toSorted();
+}
+
+test('runs finalize into a manifest-inventoried bundle with reports, claims, and a batch summary', async () => {
+  let runNo = 0;
+  turn = (request) => {
+    const last = lastStepId(request);
+    if (last === 's0000') runNo += 1;
+    const id = request.observation.id;
+    if (runNo === 1 && last === 's0000')
+      return { name: 'scroll', args: { observationId: id, target: null, deltaX: 0, deltaY: 200 } };
+    if (runNo === 1 && last === 's0001')
+      return {
+        name: 'report_friction',
+        args: { step: 's0001', reason: 'The <b>page</b> [x](javascript:alert(1)) was confusing' },
+      };
+    return done(request, 0);
+  };
+  const { code, json } = await lab(['--suite', 'healthy', '--json']);
+  assert.equal(code, 0);
+  const [first, second] = json.runs;
+  assert.deepEqual(json.summary.groups[0].completion, { numerator: 2, denominator: 2, rate: 1 });
+
+  for (const item of json.runs) {
+    const manifest = JSON.parse(await readFile(join(item.outDir, 'manifest.json'), 'utf8'));
+    const files = (await walk(item.outDir)).filter((path) => path !== 'manifest.json');
+    assert.deepEqual(manifest.artifacts.map((artifact: { path: string }) => artifact.path).toSorted(), files);
+    assert.equal(manifest.artifacts.find((artifact: any) => artifact.path === 'trace.zip').sensitivity, 'private_raw');
+    assert.equal(manifest.runtime.playwright, '1.64.1');
+    assert.match(manifest.runtime.chromium, /^\d+\./u);
+    assert.equal(
+      manifest.configuration.resolvedConfigHash,
+      `sha256:${createHash('sha256')
+        .update(await readFile(join(item.outDir, 'resolved-config.json')))
+        .digest('hex')}`,
+    );
+    assert.match(manifest.configuration.personaHash, /^sha256:/u);
+    const report = JSON.parse(await readFile(join(item.outDir, 'report.json'), 'utf8'));
+    const steps = (await readFile(join(item.outDir, 'steps.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    for (const claim of report.friction) {
+      assert.equal(validateClaim(claim, item.runId, steps), null);
+      for (const ref of claim.evidence) await stat(join(item.outDir, 'screenshots', `${ref.screenshotId}.png`));
+    }
+    assert.equal(report.replay.status, 'not_attempted');
+    assert.equal(report.usage.accounting, 'estimated');
+    assert.match(await readFile(join(item.outDir, 'report.md'), 'utf8'), /trace\.zip is private raw evidence/u);
+  }
+  const report = JSON.parse(await readFile(join(first.outDir, 'report.json'), 'utf8'));
+  assert.deepEqual([report.steps, report.browserActions], [3, 1]);
+  assert.deepEqual(
+    report.friction.map((claim: any) => claim.kind),
+    ['opinion', 'steps_above_minimum'],
+  );
+  assert.deepEqual(report.friction[1].measurement, {
+    actualActions: 1,
+    minimumActions: 0,
+    excessActions: 1,
+    basis: 'observed_success_minimum',
+    baselineRunId: second.runId,
+  });
+  const page = await readFile(join(first.outDir, 'report.html'), 'utf8');
+  assert.ok(!page.includes('<b>page'));
+  assert.match(page, /&lt;b&gt;page&lt;\/b&gt;/u);
+  assert.match(await readFile(join(first.outDir, 'report.md'), 'utf8'), /\\\[x\\\]\(javascript/u);
+
+  const batch = JSON.parse(await readFile(join(json.reportDir, 'report.json'), 'utf8'));
+  assert.equal(batch.batchId, json.batchId);
+  assert.match((await cli(['report', json.batchId, '--format', 'md'])).out, /Completion rate \| 100% \(2\/2\)/u);
+  assert.equal((await cli(['report', first.runId, '--format', 'json'])).json, null);
+  assert.equal(JSON.parse((await cli(['report', first.runId, '--format', 'json'])).out).runId, first.runId);
+  assert.match((await cli(['report', first.runId, '--format', 'html'])).out, /^<!doctype html>/u);
+  for (const bad of ['../../etc', 'run_x', `${first.runId}/..`])
+    assert.equal((await cli(['report', bad])).code, 2, bad);
+
+  const opened: string[] = [];
+  const openTrace = async (path: string) => opened.push(path) && 0;
+  assert.equal((await cli(['trace', first.runId], { openTrace })).code, 0);
+  assert.deepEqual(opened, [join(first.outDir, 'trace.zip')]);
+  assert.equal((await cli(['trace', json.batchId], { openTrace })).code, 2);
+
+  await symlink(join(repoRoot, 'node_modules'), join(root, 'node_modules'));
+  const bundled = await walk(first.outDir);
+  const replayed = await cli(['replay', first.runId, '--json']);
+  assert.equal(replayed.code, 0, replayed.out);
+  assert.equal(replayed.json.replay.status, 'passed');
+  const refreshed = JSON.parse(await readFile(join(first.outDir, 'manifest.json'), 'utf8'));
+  assert.equal(JSON.parse(await readFile(join(first.outDir, 'report.json'), 'utf8')).replay.status, 'passed');
+  assert.deepEqual(
+    refreshed.artifacts.map((artifact: { path: string }) => artifact.path).toSorted(),
+    (await walk(first.outDir)).filter((path) => path !== 'manifest.json'),
+  );
+  assert.deepEqual(
+    await walk(first.outDir),
+    bundled,
+    'replay writes nothing into the bundle but its refreshed reports',
+  );
+  assert.match((await cli(['replay', json.batchId])).out, /takes a run ID/u);
 });
 
 test('each repeat gets a fresh browser context; named storage state is loaded', async () => {
@@ -261,6 +378,8 @@ test('setup secrets stay out of resolved config and cleanup-failure issues; a fa
   );
   assert.match(item.issues[0].message, /cleanup failed for \{\{email\}\}/u);
   assert.doesNotMatch(JSON.stringify(json), new RegExp(CANARY, 'u'));
+  for (const name of ['report.json', 'report.md', 'report.html', 'manifest.json'])
+    assert.doesNotMatch(await readFile(join(item.outDir, name), 'utf8'), new RegExp(CANARY, 'u'), name);
 
   // A run note holding the setup secret reaches persisted task and request fields only as its placeholder.
   const noted = await lab(['--suite', 'secret', '--note', `Sign in as ${CANARY}.`, '--json']);
@@ -277,6 +396,13 @@ test('setup secrets stay out of resolved config and cleanup-failure issues; a fa
     [broken.json.runs[0].outcome.code, broken.json.runs[0].outcome.reason],
     ['setup_error', 'setup exploded'],
   );
+  const failedReport = JSON.parse(await readFile(join(broken.json.runs[0].outDir, 'report.json'), 'utf8'));
+  assert.deepEqual(
+    [failedReport.outcome.evidence, failedReport.issues.map((issue: any) => [issue.code, issue.evidenceUnavailable])],
+    [[], [['evidence_unavailable', true]]],
+  );
+  assert.equal(failedReport.replay.status, 'unsupported');
+  assert.match(await readFile(join(broken.json.runs[0].outDir, 'report.md'), 'utf8'), /No screenshot evidence/u);
 });
 
 test('the OAuth fault page cannot leave the allowlist; the agent reports the blocker', async () => {
@@ -367,12 +493,12 @@ test('setup errors never echo environment values or provider keys', async () => 
 });
 
 test('a CLI process with nothing else pending still reports hanging setup, module load, and cleanup', async () => {
-  const cli = join(repoRoot, 'src/cli.ts');
+  const entry = join(repoRoot, 'src/cli.ts');
   const outcomes = await Promise.all(
     ['hang', 'hangload', 'stuckfail'].map(async (id) => {
       const child = await promisify(execFile)(
         process.execPath,
-        [cli, 'run', '--suite', id, '--time-ms', '1000', '--json'],
+        [entry, 'run', '--suite', id, '--time-ms', '1000', '--json'],
         {
           cwd: root,
           env: { PATH: process.env.PATH, OPENAI_API_KEY: 'test-key' },

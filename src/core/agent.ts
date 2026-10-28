@@ -97,7 +97,7 @@ class InterruptError extends Error {
 }
 
 // Arguments minus the observation ID, so the same click on successive unchanged screenshots matches.
-function fingerprint(call: ToolCall): string {
+export function fingerprint(call: ToolCall): string {
   const { observationId: _, ...rest } = call.args;
   return `${call.name} ${canonical(rest)}`;
 }

@@ -1,0 +1,204 @@
+import { fingerprint } from '../core/agent.ts';
+import type { EvidenceRef } from '../core/outcomes.ts';
+import { validate, type JsonSchema } from '../core/schema.ts';
+import type { StepRecord } from './steps.ts';
+
+type Measured<Kind extends string, Measurement> = { source: 'harness'; kind: Kind; measurement: Measurement };
+
+export type FrictionClaim = {
+  schemaVersion: 1;
+  id: string;
+  runId: string;
+  statement: string;
+  evidence: [EvidenceRef, ...EvidenceRef[]];
+} & (
+  | Measured<
+      'steps_above_minimum',
+      {
+        actualActions: number;
+        minimumActions: number;
+        excessActions: number;
+        basis: 'observed_success_minimum' | 'declared_fixture';
+        baselineRunId: string | null;
+      }
+    >
+  | Measured<'backtrack', { fromStepId: string; toStepId: string; count: number }>
+  | Measured<'repeated_action', { actionFingerprint: string; count: number; windowSteps: number }>
+  | Measured<'visible_error', { text: string; detector: 'visible_alert' | 'visible_validation_message' }>
+  | Measured<'long_pause', { durationMs: number; thresholdMs: number; basis: 'page_wait' }>
+  | { source: 'agent'; kind: 'opinion'; opinion: { reportingStepId: string; reason: string } }
+);
+
+export const BROWSER_ACTIONS: ReadonlySet<string> = new Set(['click', 'fill', 'press', 'scroll', 'goto', 'wait']);
+const LONG_PAUSE_MS = 5000;
+const REPEAT_WINDOW = 5;
+
+const stepId = { type: 'string', pattern: '^s[0-9]{4,}$' } as const;
+const count = { type: 'integer', minimum: 0 } as const;
+const text = { type: 'string', minLength: 1, maxLength: 2000 } as const;
+const evidenceRef: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['stepId', 'screenshotId'],
+  properties: { stepId, screenshotId: { type: 'string', pattern: '^shot-[0-9]{4,}$' } },
+};
+const object = (properties: Record<string, JsonSchema>): JsonSchema => ({
+  type: 'object',
+  additionalProperties: false,
+  required: Object.keys(properties),
+  properties,
+});
+const claim = (source: string, kind: string, detail: string, schema: JsonSchema): JsonSchema =>
+  object({
+    schemaVersion: { const: 1 },
+    id: { type: 'string', pattern: '^c[0-9]{4,}$' },
+    runId: { type: 'string', minLength: 1 },
+    statement: text,
+    evidence: { type: 'array', minItems: 1, items: evidenceRef },
+    source: { const: source },
+    kind: { const: kind },
+    [detail]: schema,
+  });
+const claimSchema: JsonSchema = {
+  oneOf: [
+    claim(
+      'harness',
+      'steps_above_minimum',
+      'measurement',
+      object({
+        actualActions: count,
+        minimumActions: count,
+        excessActions: { type: 'integer', minimum: 1 },
+        basis: { enum: ['observed_success_minimum', 'declared_fixture'] },
+        baselineRunId: { oneOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] },
+      }),
+    ),
+    claim('harness', 'backtrack', 'measurement', object({ fromStepId: stepId, toStepId: stepId, count })),
+    claim(
+      'harness',
+      'repeated_action',
+      'measurement',
+      object({ actionFingerprint: text, count: { type: 'integer', minimum: 2 }, windowSteps: count }),
+    ),
+    claim(
+      'harness',
+      'visible_error',
+      'measurement',
+      object({ text, detector: { enum: ['visible_alert', 'visible_validation_message'] } }),
+    ),
+    claim(
+      'harness',
+      'long_pause',
+      'measurement',
+      object({ durationMs: count, thresholdMs: count, basis: { const: 'page_wait' } }),
+    ),
+    claim('agent', 'opinion', 'opinion', object({ reportingStepId: stepId, reason: text })),
+  ],
+};
+
+export const claimId = (index: number): string => `c${String(index).padStart(4, '0')}`;
+
+function evidenceOf(step: StepRecord | undefined): EvidenceRef[] {
+  const screenshotId = step?.afterScreenshotId ?? step?.beforeScreenshotId;
+  return step && screenshotId ? [{ stepId: step.id, screenshotId }] : [];
+}
+
+type Draft = FrictionClaim extends infer Claim
+  ? Claim extends FrictionClaim
+    ? Omit<Claim, 'schemaVersion' | 'id' | 'runId' | 'evidence'> & { evidence: EvidenceRef[] }
+    : never
+  : never;
+
+/** Harness measurements and agent opinions observable from one run's steps. */
+export function deriveClaims(runId: string, steps: readonly StepRecord[]): FrictionClaim[] {
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  const drafts: Draft[] = [];
+  const actions = steps.filter((step) => BROWSER_ACTIONS.has(step.action.name) && step.result.status === 'ok');
+
+  for (const step of steps)
+    if (step.action.name === 'report_friction' && step.result.status === 'ok') {
+      const reason = String(step.action.args.reason);
+      drafts.push({
+        source: 'agent',
+        kind: 'opinion',
+        statement: `Agent opinion: ${reason}`,
+        opinion: { reportingStepId: step.id, reason },
+        evidence: evidenceOf(byId.get(String(step.action.args.step))),
+      });
+    }
+
+  for (const step of actions)
+    if (step.action.name !== 'wait' && step.durationMs >= LONG_PAUSE_MS)
+      drafts.push({
+        source: 'harness',
+        kind: 'long_pause',
+        statement: `The page took ${(step.durationMs / 1000).toFixed(1)} s to settle after ${step.action.name} at ${step.id}.`,
+        measurement: { durationMs: step.durationMs, thresholdMs: LONG_PAUSE_MS, basis: 'page_wait' },
+        evidence: evidenceOf(step),
+      });
+
+  const repeats = new Map<string, StepRecord[]>();
+  for (const [index, step] of actions.entries()) {
+    const key = fingerprint(step.action);
+    const window = actions.slice(Math.max(0, index - REPEAT_WINDOW + 1), index + 1);
+    const same = window.filter((candidate) => fingerprint(candidate.action) === key);
+    if (same.length >= 2 && same.length > (repeats.get(key)?.length ?? 0)) repeats.set(key, same);
+  }
+  for (const [key, same] of repeats)
+    drafts.push({
+      source: 'harness',
+      kind: 'repeated_action',
+      statement: `The same ${same[0]!.action.name} was performed ${same.length} times within ${REPEAT_WINDOW} browser actions.`,
+      measurement: { actionFingerprint: key, count: same.length, windowSteps: REPEAT_WINDOW },
+      evidence: same.flatMap(evidenceOf),
+    });
+
+  const firstSeen = new Map<string, StepRecord>();
+  const returns = new Map<string, number>();
+  let previousUrl: string | null = null;
+  for (const step of steps) {
+    if (step.result.status !== 'ok' || !step.afterScreenshotId) continue;
+    const url = step.pageUrl;
+    const first = firstSeen.get(url);
+    if (first && previousUrl !== null && previousUrl !== url) {
+      const times = (returns.get(url) ?? 0) + 1;
+      returns.set(url, times);
+      drafts.push({
+        source: 'harness',
+        kind: 'backtrack',
+        statement: `${step.id} returned to ${url}, first shown at ${first.id} (return ${times}).`,
+        measurement: { fromStepId: step.id, toStepId: first.id, count: times },
+        evidence: [...evidenceOf(first), ...evidenceOf(step)],
+      });
+    }
+    if (!first) firstSeen.set(url, step);
+    previousUrl = url;
+  }
+
+  return drafts
+    .filter((draft) => draft.evidence.length > 0)
+    .map((draft, index) => ({ schemaVersion: 1, id: claimId(index), runId, ...draft }) as FrictionClaim);
+}
+
+/** Rejects unknown fields, missing evidence, cross-run references, and unknown steps or screenshots. */
+export function validateClaim(value: unknown, runId: string, steps: readonly StepRecord[]): string | null {
+  const shape = validate(claimSchema, value, 'claim');
+  if (shape) return shape;
+  const item = value as FrictionClaim;
+  if (item.runId !== runId) return `claim ${item.id}: belongs to run ${item.runId}`;
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  for (const ref of item.evidence) {
+    const step = byId.get(ref.stepId);
+    if (!step) return `claim ${item.id}: unknown step ${ref.stepId}`;
+    if (step.beforeScreenshotId !== ref.screenshotId && step.afterScreenshotId !== ref.screenshotId)
+      return `claim ${item.id}: screenshot ${ref.screenshotId} is not part of step ${ref.stepId}`;
+  }
+  const cited =
+    item.kind === 'opinion'
+      ? [item.opinion.reportingStepId]
+      : item.kind === 'backtrack'
+        ? [item.measurement.fromStepId, item.measurement.toStepId]
+        : [];
+  const missing = cited.find((id) => !byId.has(id));
+  return missing ? `claim ${item.id}: unknown step ${missing}` : null;
+}

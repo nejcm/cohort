@@ -6,7 +6,7 @@ AI synthetic users that operate your web app like real people. You give a person
 
 ## Status
 
-Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0 and 1 (fixture app, both `fetch` provider adapters, catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, replay, basic `lab run`) are tested against a scripted fake model; live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–2 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, and `lab replay`/`lab report`/`lab trace`. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
 
 ## Prerequisites
 
@@ -40,6 +40,28 @@ lab run --suite <id>              # ordered suite entries
 lab run --url <url> --note <goal> # ad-hoc first-time user
 ```
 
+Each run writes `.lab/runs/<run-id>/`. The run directory holds:
+
+- `trace.zip`, `steps.jsonl`, `screenshots/`, and `replay.spec.ts`;
+- `resolved-config.json` and `report.json` (canonical), with `report.md` and `report.html` rendered from it;
+- `manifest.json`, written last and atomically, which inventories every other file.
+
+Each batch writes a summary to `.lab/runs/<batch-id>/report.{json,md,html}`. It gives completion rate with numerator and denominator, blocked runs by kind and detector, user cancellations, agent errors, limits, and costs.
+
+```sh
+lab report <run-or-batch-id> [--format json|md|html]  # print or re-render a report
+lab replay <run-id>   # rerun replay.spec.ts with no model; needs @playwright/test in the project
+lab trace <run-id>    # open trace.zip locally with playwright show-trace
+```
+
+`lab replay` prepares bindings in this order:
+
+1. If the run used a setup module, it runs that module again.
+2. Otherwise it uses `LAB_START_URL` from the environment.
+3. Failing that, it uses the recorded start URL, but only when that URL was not reduced to origin and path.
+
+The result is recorded as `passed` or `failed` in the run report.
+
 Overrides: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--url`, `--note`. Untested catalog entries need `--allow-untested`. `--json` prints one JSON result. Exit codes: `0` all runs completed, `1` any other outcome or cancellation, `2` invalid invocation or configuration.
 
 ## Environment variables
@@ -51,7 +73,7 @@ Overrides: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--step
 
 ## Evidence warning
 
-Run directories (`.lab/runs`) hold native Playwright traces, which record unmasked DOM snapshots and may contain secrets. Keep them private; never publish or commit them. Screenshots sent to models, `steps.jsonl`, and generated replay scripts are masked or use `{{placeholder}}` bindings.
+Run directories (`.lab/runs`) hold native Playwright traces, which record unmasked DOM snapshots and may contain secrets. Keep them private; never publish or commit them. Screenshots sent to models, `steps.jsonl`, and generated replay scripts are masked or use `{{placeholder}}` bindings. Reports and screenshots may still show sensitive content; treat every artifact as sensitive until reviewed.
 
 ## License
 

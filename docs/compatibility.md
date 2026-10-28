@@ -79,6 +79,23 @@ At each clean capture every element's box is recorded and the mutation log is re
 - Loop detection: three consecutive identical actions (name and key-order-independent arguments, ignoring the observation ID) end as `agent_error(loop)` when none changed the masked screenshot or URL, or each was rejected. Report tools that are accepted reset the count, as does any action that changes the screen. Playwright hides the caret in screenshots, so a blinking caret does not count as a change. Animated pages may hide a real loop until the step cap.
 - `lab run` prints a cost range before running. It assumes 6k input and 300 output tokens per call, from 2 calls up to the step cap, capped at the dollar limit. Without prices it prints "cost unknown; dollar cap unenforceable".
 
+## Trail and reports (Phase 2)
+
+- Every run that starts gets `report.json`, `report.md`, and `report.html`, then `manifest.json`. That includes runs that fail during setup: their outcome has no evidence and their report carries an `evidence_unavailable` issue. Each file is written to a temp name and renamed. The manifest is written last, so a run directory without `manifest.json` was not finalized.
+- The manifest inventories regular files only. Symlinks and other non-regular entries are not followed, and are reported as `artifact_rejected`. It records configuration hashes (persona, resolved config, setup, catalog) and runtime versions (Node, Playwright, Chromium). It does not hash each artifact (deferred to Add-on 2), so it is not a tamper guarantee.
+- `lab report`, `lab replay`, and `lab trace` accept only generated IDs (`run_YYYYMMDD_HHMMSS_xxxxxx`, `batch_…`). The path from `.lab` down to the run must be plain directories, not symlinks.
+- Friction claims are validated before they are written. Validation rejects unknown fields, empty evidence, references to another run, unknown steps, and screenshots that are not part of the cited step or missing on disk. Rejected claims become `invalid_claim` issues.
+- The harness derives these claims:
+  - `long_pause`: a browser action, excluding `wait`, whose action plus page settling took at least 5 s; provider time is not included.
+  - `repeated_action`: the same action at least twice within 5 browser actions.
+  - `backtrack`: a return to an earlier origin and path.
+  - `steps_above_minimum`: computed per comparison group against the run with the fewest successful browser actions in the same batch; labeled "Above observed batch minimum".
+- Agent `report_friction` calls become claims labeled "Agent opinion".
+- Not implemented: `visible_error` detection (the schema accepts it, nothing emits it) and declared fixture baselines.
+- Report text is redacted with the run's secret store; the manifest holds only IDs, hashes, versions, and file metadata. HTML reports escape all text, set a restrictive Content-Security-Policy, and link only to harness screenshot IDs. Markdown escapes link, emphasis, HTML, and table syntax.
+- Replay status starts as `not_attempted`. It is `unsupported` when setup failed before the browser ran, or when a step's arguments were redacted (`replay_unsupported` issue). `lab replay` sets `passed` or `failed`, then refreshes the reports and manifest. Playwright output goes to a temp directory, and printed output has binding values replaced with `[binding]`.
+- Replay bindings: `LAB_START_URL`, `LAB_SECRET_<NAME>`, and `LAB_STORAGE_STATE` (a path to a storage-state file). `lab replay` writes named or setup-provided storage state to a private temp file and deletes it afterwards. Setup cleanups run after the replay.
+
 ## Not verified (needs live keys or external targets)
 
 - The provider wire formats were checked only against fake HTTP servers: Anthropic `output_config.effort`, `tool_choice: auto` with `disable_parallel_tool_use`, and OpenAI Responses `reasoning.effort`.

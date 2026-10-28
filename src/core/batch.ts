@@ -1,15 +1,30 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 import type { BrowserContextOptions } from 'playwright';
 import { loadStorageState, sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
+import { refreshRun, writeBatchReports, writeRunReports } from '../evidence/bundle.ts';
+import { claimId, deriveClaims, validateClaim, type FrictionClaim } from '../evidence/friction.ts';
+import { inventory, writeManifest } from '../evidence/manifest.ts';
+import {
+  accountingOf,
+  browserActionCount,
+  buildBatchReport,
+  comparisonKey,
+  type BatchReport,
+  type ReplayStatus,
+  type RunReport,
+} from '../evidence/report.ts';
+import type { StepRecord } from '../evidence/steps.ts';
 import { createProviders } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { loadSetupModule } from '../setup/load.ts';
 import { redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
 import type { SetupResult } from '../setup/types.ts';
 import type { AgentResult } from './agent.ts';
+import { CostMeter } from './cost.ts';
 import { runOnce } from './engine.ts';
 import type { Outcome } from './outcomes.ts';
 
@@ -29,7 +44,22 @@ export interface BatchResult {
   runs: BatchRun[];
   /** Runs never started because the batch was cancelled. */
   skipped: number;
+  summary: BatchReport;
+  reportDir: string;
 }
+
+interface Trail {
+  startedAt: number;
+  steps: StepRecord[];
+  secrets: SecretStore;
+  replay: ReplayStatus;
+  browserVersion: string | null;
+  setupHash: string | null;
+  resolvedConfigHash: string | null;
+}
+
+const TOOL_VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
+const PLAYWRIGHT_VERSION = (createRequire(import.meta.url)('playwright/package.json') as { version: string }).version;
 
 interface BatchOptions {
   projectRoot: string;
@@ -82,22 +112,181 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   const states = await loadNamedStates(projectRoot, entries);
   const batchId = newId('batch');
   const runs: BatchRun[] = [];
+  const reports: RunReport[] = [];
   const total = entries.reduce((sum, entry) => sum + entry.request.repeats, 0);
   for (const entry of entries)
     for (let repeat = 0; repeat < entry.request.repeats; repeat += 1) {
-      if (signal?.aborted) return { batchId, runs, skipped: total - runs.length };
-      runs.push(await runEntry(entry, repeat));
+      if (signal?.aborted) break;
+      const run = await runEntry(entry, repeat);
+      runs.push(run.run);
+      if (run.report) reports.push(run.report);
     }
-  return { batchId, runs, skipped: 0 };
+  await addAboveMinimumClaims(runs, reports);
+  const skipped = total - runs.length;
+  const summary = buildBatchReport(batchId, reports, skipped);
+  const reportDir = join(projectRoot, '.lab', 'runs', batchId);
+  await mkdir(reportDir, { recursive: true, mode: 0o700 });
+  await writeBatchReports(reportDir, summary);
+  return { batchId, runs, skipped, summary, reportDir };
 
-  async function runEntry(entry: ResolvedEntry, repeat: number): Promise<BatchRun> {
-    const { request, persona } = entry;
-    const startedAt = Date.now();
+  async function runEntry(entry: ResolvedEntry, repeat: number): Promise<{ run: BatchRun; report: RunReport | null }> {
     const runId = newId('run');
     const outDir = join(projectRoot, '.lab', 'runs', runId);
     await mkdir(outDir, { recursive: true, mode: 0o700 });
-    options.onRunStart?.({ runId, entryIndex: entry.entryIndex, repeat, personaId: persona.id });
-    const secrets = new SecretStore();
+    options.onRunStart?.({ runId, entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
+    const trail: Trail = {
+      startedAt: Date.now(),
+      steps: [],
+      secrets: new SecretStore(),
+      replay: 'unsupported',
+      browserVersion: null,
+      setupHash: null,
+      resolvedConfigHash: null,
+    };
+    const run = await execute(entry, repeat, runId, outDir, trail);
+    try {
+      return { run, report: await finalize(entry, run, trail) };
+    } catch (error) {
+      const reason = `artifact finalization failed: ${trail.secrets.redact(firstLine(String((error as Error)?.message ?? error)))}`;
+      run.issues.push({ code: 'artifact_error', message: reason.slice(0, 200) });
+      return {
+        run: { ...run, outcome: { state: 'agent_error', code: 'artifact_error', reason, evidence: [] } },
+        report: null,
+      };
+    }
+  }
+
+  async function finalize(entry: ResolvedEntry, run: BatchRun, trail: Trail): Promise<RunReport> {
+    const { request } = entry;
+    const { artifacts, rejected } = await inventory(run.outDir);
+    for (const path of rejected)
+      run.issues.push({ code: 'artifact_rejected', message: `${path} is not a regular file and was not inventoried` });
+    const shots = new Set(artifacts.map((artifact) => artifact.path));
+    const present = (claim: { evidence: { screenshotId: string }[] }): boolean =>
+      claim.evidence.every((ref) => shots.has(`screenshots/${ref.screenshotId}.png`));
+    if (!present(run.outcome))
+      run.issues.push({ code: 'evidence_missing', message: 'an outcome screenshot is missing from the bundle' });
+    const friction: FrictionClaim[] = [];
+    for (const claim of deriveClaims(run.runId, trail.steps)) {
+      const invalid =
+        validateClaim(claim, run.runId, trail.steps) ??
+        (present(claim) ? null : `claim ${claim.id}: screenshot missing`);
+      if (invalid) run.issues.push({ code: 'invalid_claim', message: invalid.slice(0, 200) });
+      else friction.push(claim);
+    }
+    const usage = run.usage;
+    const capEnforcement =
+      usage?.capEnforcement ?? new CostMeter(request.limits.dollars, request.catalog.entry.pricesPerMTok).enforcement;
+    const costs = {
+      providerReportedCostUsd: usage?.providerReportedCostUsd ?? null,
+      estimatedCostUsd: usage?.estimatedCostUsd ?? null,
+    };
+    const report = redactValue(
+      {
+        schemaVersion: 1,
+        runId: run.runId,
+        batchId,
+        personaId: entry.persona.id,
+        goal: entry.layers.goal ?? entry.layers.suiteNote ?? entry.layers.runNote ?? '',
+        mode: request.mode,
+        provider: request.provider,
+        requestedModel: request.model,
+        effort: request.effort,
+        catalog: request.catalog,
+        returnedModel: usage?.returnedModel ?? null,
+        startedAt: new Date(trail.startedAt).toISOString(),
+        durationMs: Date.now() - trail.startedAt,
+        steps: Math.max(0, trail.steps.length - 1),
+        browserActions: browserActionCount(trail.steps),
+        outcome: run.outcome,
+        friction,
+        usage: {
+          inputTokens: usage?.inputTokens ?? 0,
+          outputTokens: usage?.outputTokens ?? 0,
+          cachedInputTokens: usage?.cachedInputTokens ?? null,
+          imageInputTokens: null,
+          ...costs,
+          reservedUnsettledCostUsd: usage?.reservedUnsettledCostUsd ?? null,
+          pricingVerifiedAt: request.catalog.entry.pricingVerifiedAt,
+          accounting: accountingOf(costs),
+          capEnforcement,
+        },
+        replay: { path: 'replay.spec.ts', status: trail.replay },
+        issues: run.issues.map((issue) => ({ ...issue, evidenceUnavailable: issue.code === 'evidence_unavailable' })),
+        manifestPath: 'manifest.json',
+      } satisfies RunReport,
+      trail.secrets,
+    ) as RunReport;
+    await writeRunReports(run.outDir, report, trail.steps);
+    await writeManifest(run.outDir, {
+      runId: run.runId,
+      batchId,
+      createdAt: report.startedAt,
+      toolVersion: TOOL_VERSION,
+      runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: trail.browserVersion },
+      configuration: {
+        personaId: entry.persona.id,
+        personaHash: entry.persona.hash,
+        suiteId: entry.suiteId,
+        resolvedConfigHash: trail.resolvedConfigHash,
+        setupHash: trail.setupHash,
+        mode: request.mode,
+        provider: request.provider,
+        model: request.model,
+        effort: request.effort,
+        catalog: request.catalog,
+      },
+    });
+    return report;
+  }
+
+  // Needs every repetition of a comparison, so it runs once the batch ends and refreshes the affected bundles.
+  async function addAboveMinimumClaims(batchRuns: BatchRun[], finished: RunReport[]): Promise<void> {
+    const groups = new Map<string, RunReport[]>();
+    for (const report of finished)
+      if (report.outcome.state === 'completed')
+        groups.set(comparisonKey(report), [...(groups.get(comparisonKey(report)) ?? []), report]);
+    for (const group of groups.values()) {
+      const baseline = group.reduce((best, report) => (report.browserActions < best.browserActions ? report : best));
+      for (const report of group) {
+        const excess = report.browserActions - baseline.browserActions;
+        const [first, ...rest] = report.outcome.evidence;
+        if (excess <= 0 || !first) continue;
+        const run = batchRuns.find((candidate) => candidate.runId === report.runId)!;
+        const claim: FrictionClaim = {
+          schemaVersion: 1,
+          id: claimId(report.friction.length),
+          runId: report.runId,
+          statement: `${report.browserActions} browser actions, ${excess} above the observed batch minimum of ${baseline.browserActions} (${baseline.runId}).`,
+          evidence: [first, ...rest],
+          source: 'harness',
+          kind: 'steps_above_minimum',
+          measurement: {
+            actualActions: report.browserActions,
+            minimumActions: baseline.browserActions,
+            excessActions: excess,
+            basis: 'observed_success_minimum',
+            baselineRunId: baseline.runId,
+          },
+        };
+        const updated = await refreshRun(run.outDir, (current) => ({
+          ...current,
+          friction: [...current.friction, claim],
+        }));
+        finished[finished.indexOf(report)] = updated;
+      }
+    }
+  }
+
+  async function execute(
+    entry: ResolvedEntry,
+    repeat: number,
+    runId: string,
+    outDir: string,
+    trail: Trail,
+  ): Promise<BatchRun> {
+    const { request, persona } = entry;
+    const { startedAt, secrets } = trail;
     const issues: AgentResult['issues'] = [];
     const cleanups: (() => Promise<void>)[] = [];
     const base = { runId, entryIndex: entry.entryIndex, repeat, personaId: persona.id, outDir };
@@ -130,6 +319,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     try {
       if (entry.setup) {
         setupHash = sha256(await readFile(entry.setup));
+        trail.setupHash = setupHash;
         setupResult = await settleWithin<SetupResult>(
           loadSetupModule(projectRoot, entry.setup).then((setup) =>
             setup({
@@ -179,32 +369,31 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     }
     deadline.clear();
     try {
-      await writeFile(
-        join(outDir, 'resolved-config.json'),
-        `${JSON.stringify(
-          redactValue(
-            {
-              schemaVersion: 1,
-              runId,
-              batchId,
-              repeat,
-              request: request.url ? { ...request, url: safeUrl(request.url, secrets) } : request,
-              persona,
-              suiteId: entry.suiteId,
-              entryIndex: entry.entryIndex,
-              task: entry.task,
-              layers: entry.layers,
-              setup: entry.setup ? { path: relative(projectRoot, entry.setup), hash: setupHash } : null,
-              storageState: setupResult?.storageState ? 'setup' : entry.storageState,
-              startUrl: safeUrl(startUrl, secrets),
-            },
-            secrets,
-          ),
-          null,
-          2,
-        )}\n`,
-        { mode: 0o600 },
-      );
+      const resolvedConfig = `${JSON.stringify(
+        redactValue(
+          {
+            schemaVersion: 1,
+            runId,
+            batchId,
+            repeat,
+            request: request.url ? { ...request, url: safeUrl(request.url, secrets) } : request,
+            persona,
+            suiteId: entry.suiteId,
+            entryIndex: entry.entryIndex,
+            task: entry.task,
+            layers: entry.layers,
+            setup: entry.setup ? { path: relative(projectRoot, entry.setup), hash: setupHash } : null,
+            storageState: setupResult?.storageState ? 'setup' : entry.storageState,
+            startUrl: safeUrl(startUrl, secrets),
+            startUrlComplete: safeUrl(startUrl, secrets) === startUrl,
+          },
+          secrets,
+        ),
+        null,
+        2,
+      )}\n`;
+      await writeFile(join(outDir, 'resolved-config.json'), resolvedConfig, { mode: 0o600 });
+      trail.resolvedConfigHash = sha256(resolvedConfig);
       const storageState: BrowserContextOptions['storageState'] =
         setupResult?.storageState ?? (entry.storageState ? (states.get(entry.storageState) as never) : undefined);
       const result = await runOnce({
@@ -230,6 +419,11 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         ...(signal ? { signal } : {}),
       });
       issues.push(...result.issues);
+      trail.steps = result.steps;
+      trail.browserVersion = result.browserVersion;
+      trail.replay = result.replayGaps.length > 0 ? 'unsupported' : 'not_attempted';
+      if (result.replayGaps.length > 0)
+        issues.push({ code: 'replay_unsupported', message: `steps ${result.replayGaps.join(', ')} cannot replay` });
       return { ...base, outcome: result.outcome, usage: result.usage, issues };
     } catch (error) {
       return agentError('browser_error', error);
