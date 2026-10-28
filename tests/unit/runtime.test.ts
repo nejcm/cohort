@@ -55,6 +55,20 @@ test('rejects setup modules outside .lab/setup, through symlinks, or without a d
   await assert.rejects(loadSetupModule(root, join(setupDir(), 'data.json')), /\.ts, \.js, or \.mjs/u);
 });
 
+test('rejects a symlinked .lab directory even when its setup module looks contained', async () => {
+  const outside = await mkdtemp(join(tmpdir(), 'lab-outside-'));
+  const project = await mkdtemp(join(tmpdir(), 'lab-project-'));
+  try {
+    await mkdir(join(outside, 'setup'));
+    await writeFile(join(outside, 'setup', 'evil.ts'), 'export default () => ({ startUrl: "x" });\n');
+    await symlink(outside, join(project, '.lab'));
+    await assert.rejects(loadSetupModule(project, join(project, '.lab', 'setup', 'evil.ts')), /symlink/u);
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
 test('node:sqlite works in a child Node process; its warning is recorded', async (t) => {
   const script = `const { DatabaseSync } = require('node:sqlite');
 const db = new DatabaseSync(':memory:');

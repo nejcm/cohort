@@ -211,8 +211,22 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
 <p id="mirror">Not signed in</p>
 <label for="otp">One-time code</label><input id="otp" inputmode="numeric" autocomplete="one-time-code">
 <p>Token: <span id="echo"></span></p>
+<p id="split"><span id="split-a"></span><span id="split-b"></span></p>
+<label for="reference">Reference</label><input id="reference">
+<div id="shadow-echo"></div>
+<iframe id="frame-echo" title="Echo frame" style="height: 60px" srcdoc="<p id='t' style='margin:0'></p><script>document.getElementById('t').textContent = decodeURIComponent(parent.location.hash.slice(1));</script>"></iframe>
+<p><button id="continue"></button></p>
 <p>Nothing secret here.</p>
-<script>document.getElementById('echo').textContent = decodeURIComponent(location.hash.slice(1));</script>`,
+<script>
+  const token = decodeURIComponent(location.hash.slice(1));
+  document.getElementById('echo').textContent = token;
+  document.getElementById('split-a').textContent = token.slice(0, 4);
+  document.getElementById('split-b').textContent = token.slice(4);
+  document.getElementById('reference').placeholder = token;
+  document.getElementById('shadow-echo').attachShadow({ mode: 'open' }).innerHTML = '<b></b>';
+  document.getElementById('shadow-echo').shadowRoot.querySelector('b').textContent = token;
+  document.getElementById('continue').textContent = 'Continue as ' + token;
+</script>`,
           ),
         );
       default:

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, test } from 'node:test';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type Locator, type Page } from 'playwright';
 import { MASK_RGB } from '../../src/browser/observations.ts';
 import { runAgent, type AgentOptions } from '../../src/core/agent.ts';
 import { ProviderError, type DecideRequest } from '../../src/providers/types.ts';
@@ -33,7 +33,7 @@ after(async () => {
 });
 
 async function run(path: string, turns: (page: Page) => Turn | Turn[], overrides: Partial<AgentOptions> = {}) {
-  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  const page = await browser.newPage({ viewport: { width: 800, height: 1000 } });
   const secrets = new SecretStore();
   secrets.bind('email', EMAIL);
   secrets.bind('token', TOKEN);
@@ -78,24 +78,41 @@ async function maskedAt(page: Page, request: DecideRequest, selector: string, in
   const box = await page.locator(selector).boundingBox();
   assert.ok(box, selector);
   const png = decodePng(Buffer.from(request.observation.pngBase64, 'base64'));
-  assert.equal(png.width, 800);
   const pixel = png.pixel(Math.round(box.x + box.width * inset), Math.round(box.y + box.height / 2));
   return pixel.every((channel, index) => channel === MASK_RGB[index]);
 }
 
-test('masks secrets in email and one-time-code inputs, DOM echoes, and fragment echoes in the PNGs sent to the provider', async () => {
+// Every pixel of the rendered box must be mask-coloured, not just a sample.
+async function fullyMasked(locator: Locator, request: DecideRequest): Promise<boolean> {
+  const box = await locator.boundingBox();
+  assert.ok(box && box.width > 0 && box.height > 0);
+  const png = decodePng(Buffer.from(request.observation.pngBase64, 'base64'));
+  assert.equal(png.width, 800);
+  for (let y = Math.ceil(box.y); y < Math.floor(box.y + box.height); y += 1)
+    for (let x = Math.ceil(box.x); x < Math.floor(box.x + box.width); x += 1)
+      if (!png.pixel(x, y).every((channel, index) => channel === MASK_RGB[index])) return false;
+  return true;
+}
+
+test('masks secrets in inputs, placeholders, split text, shadow roots, frames, and fragment echoes in sent PNGs', async () => {
   const checks: Record<string, boolean> = {};
   const { result, provider } = await run(`/lab/canary#${TOKEN}`, (page) => [
     async (request) => {
-      checks.fragmentEcho = await maskedAt(page, request, '#echo', 0.5);
+      const region = (locator: Locator) => fullyMasked(locator, request);
+      checks.fragmentEcho = await region(page.locator('#echo'));
+      checks.splitText = await region(page.locator('#split'));
+      checks.placeholder = await region(page.locator('#reference'));
+      checks.shadowRoot = await region(page.locator('#shadow-echo b'));
+      checks.frame = await region(page.frameLocator('#frame-echo').locator('#t'));
+      checks.namedButton = await region(page.locator('#continue'));
       return act('fill', { target: await pointOf(page, page.getByLabel('Email'), request), value: '{{email}}' })(
         request,
         0,
       );
     },
     async (request) => {
-      checks.filledInput = await maskedAt(page, request, '#email', 0.1);
-      checks.mirroredText = await maskedAt(page, request, '#mirror', 0.05);
+      checks.filledInput = await fullyMasked(page.locator('#email'), request);
+      checks.mirroredText = await fullyMasked(page.locator('#mirror'), request);
       checks.ordinaryText = !(await maskedAt(page, request, 'text=Nothing secret here.', 0.1));
       return act('fill', { target: await pointOf(page, page.getByLabel('One-time code'), request), value: '{{totp}}' })(
         request,
@@ -103,13 +120,19 @@ test('masks secrets in email and one-time-code inputs, DOM echoes, and fragment 
       );
     },
     async (request) => {
-      checks.filledTotp = await maskedAt(page, request, '#otp', 0.05);
-      return done(request, 2);
+      checks.filledTotp = await fullyMasked(page.locator('#otp'), request);
+      return act('click', { target: await pointOf(page, page.locator('#continue'), request) })(request, 2);
     },
+    done,
   ]);
   assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
   assert.deepEqual(checks, {
     fragmentEcho: true,
+    splitText: true,
+    placeholder: true,
+    shadowRoot: true,
+    frame: true,
+    namedButton: true,
     filledInput: true,
     mirroredText: true,
     ordinaryText: true,
@@ -121,6 +144,9 @@ test('masks secrets in email and one-time-code inputs, DOM echoes, and fragment 
   assert.ok(![EMAIL, TOKEN, TOTP].some((secret) => outbound.includes(secret)));
   assert.ok(!outbound.includes('#'), 'fragment reached outbound text');
   assert.match(outbound, /\{\{email\}\}/u);
+  const click = result.steps.find((step) => step.action.name === 'click');
+  assert.deepEqual(click?.target?.locator, { frames: [], target: { by: 'id', id: 'continue' } });
+  assert.ok(!JSON.stringify(result.steps).includes(TOKEN), 'secret-bearing locator persisted');
 });
 
 test('an unsafe capture fails closed and suppresses every provider call', async () => {
@@ -256,4 +282,62 @@ test('goto enforces the origin allowlist and rejects secrets', async () => {
   const codes = result.steps.slice(1, -1).map((step) => (step.result.status === 'ok' ? 'ok' : step.result.code));
   assert.deepEqual(codes, ['navigation_denied', 'secret_in_goto', 'secret_in_goto', 'navigation_denied', 'ok']);
   assert.ok(!JSON.stringify(result.steps).includes(TOKEN));
+});
+
+test('a capture that fails after a failed action ends the run before another provider call', async () => {
+  const { result, provider } = await run(`/lab/canary#${TOKEN}`, (page) => [
+    async (request) => {
+      // A secret that keeps moving makes every rescan disagree with the masks just captured.
+      await page.evaluate(() => {
+        const echo = document.getElementById('echo')!;
+        setInterval(() => (echo.style.marginLeft = `${Math.floor(Math.random() * 300)}px`), 0);
+      });
+      return act('fill', { target: await pointOf(page, page.locator('#continue'), request), value: 'x' })(request, 0);
+    },
+    done,
+  ]);
+  assert.equal(result.outcome.state, 'agent_error', JSON.stringify(result.outcome));
+  assert.match(JSON.stringify(result.outcome), /provider calls suppressed/u);
+  assert.equal(provider.requests.length, 1);
+  assert.equal(result.steps.at(-1)?.result.status, 'error');
+});
+
+test('a done that arrives after the deadline is a time limit, not a completion', async () => {
+  const { result } = await run(
+    '/',
+    () => async (request) => {
+      await delay(400);
+      return done(request, 0);
+    },
+    { limits: { steps: 40, timeMs: 300, dollars: 2 } },
+  );
+  assert.equal((result.outcome as { limit?: string }).limit, 'time', JSON.stringify(result.outcome));
+});
+
+test('a browser failure mid-action keeps the trail and ends as agent_error', async () => {
+  const { result } = await run('/', (page) => [
+    wait,
+    async (request) => {
+      await page.close();
+      return act('press', { key: 'Enter' })(request, 1);
+    },
+  ]);
+  assert.equal(result.outcome.state, 'agent_error');
+  assert.equal(result.steps.length, 2);
+});
+
+test('history stays within its text budget', async () => {
+  const { provider } = await run('/', () => [
+    ...Array.from({ length: 10 }, (): Turn => () => ({ name: 'wait', args: { ms: 100, junk: 'x'.repeat(4000) } })),
+    done,
+  ]);
+  for (const request of provider.requests) assert.ok(request.history.join('\n').length <= 8000);
+});
+
+test('start URLs with embedded credentials are rejected before navigation', async () => {
+  const { result, provider } = await run('/', () => done, {
+    startUrl: fixture.url.replace('http://', 'http://user:pass@'),
+  });
+  assert.equal(result.outcome.state, 'agent_error');
+  assert.equal(provider.requests.length, 0);
 });

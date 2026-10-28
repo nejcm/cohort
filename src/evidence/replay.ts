@@ -81,9 +81,7 @@ test.use({ viewport, hasTouch: ${session.hasTouch}, locale: ${j(session.locale)}
 
 test(${j(`replay ${session.runId}`)}, async ({ page }) => {
 ${body.join('\n')}
-  await test.step('final evidence checkpoint', async () => {
-    await page.screenshot({ path: test.info().outputPath('final.png') });
-  });
+  await page.waitForLoadState('networkidle');
 });
 `;
 }

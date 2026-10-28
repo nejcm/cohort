@@ -121,9 +121,9 @@ for (const effort of EFFORTS) {
       assert.ok(JSON.stringify(seen?.body.input).includes('data:image/png;base64,iVBORw0KGgo='));
       assert.ok(!JSON.stringify(seen?.body).includes(KEY));
       assert.deepEqual(decision.calls, [{ name: 'wait', args: { ms: 100 } }]);
-      assert.equal(decision.usage.inputTokens, 1000);
-      assert.equal(decision.usage.cachedInputTokens, 800);
-      assert.equal(decision.usage.outputTokens, 20);
+      assert.equal(decision.usage?.inputTokens, 1000);
+      assert.equal(decision.usage?.cachedInputTokens, 800);
+      assert.equal(decision.usage?.outputTokens, 20);
       assert.equal(decision.requestId, 'req_o1');
     } finally {
       await server.close();
@@ -202,4 +202,26 @@ test('transport failure is retryable and possibly billed', async () => {
     assert.equal(error.possiblyBilled, true);
     return true;
   });
+});
+
+test('missing or invalid usage counts yield null usage so the reservation stays unsettled', async () => {
+  const replies: [string, unknown][] = [
+    ['anthropic', { content: [{ type: 'tool_use', name: 'wait', input: { ms: 100 } }] }],
+    ['anthropic', { content: [], usage: { input_tokens: 10, output_tokens: -1 } }],
+    ['openai', { output: [{ type: 'function_call', name: 'wait', arguments: '{"ms":100}' }] }],
+    ['openai', { output: [], usage: { input_tokens: '10', output_tokens: 2 } }],
+  ];
+  for (const [name, body] of replies) {
+    const server = await fakeServer(() => ({ body }));
+    try {
+      const make = adapters.find(([id]) => id === name)![1];
+      assert.equal(
+        (await make(server.url).decide(request('low'), signal())).usage,
+        null,
+        `${name} ${JSON.stringify(body)}`,
+      );
+    } finally {
+      await server.close();
+    }
+  }
 });

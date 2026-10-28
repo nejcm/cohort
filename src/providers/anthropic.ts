@@ -3,6 +3,7 @@ import {
   parseArguments,
   postJson,
   ProviderError,
+  tokenCount,
   userText,
   type AdapterOptions,
   type ProviderAdapter,
@@ -54,20 +55,27 @@ export function createAnthropicAdapter(options: AdapterOptions = {}): ProviderAd
         signal,
       );
       const content = Array.isArray(json.content) ? (json.content as Record<string, unknown>[]) : [];
-      const usage = (json.usage ?? {}) as Record<string, number | undefined>;
-      const cacheRead = usage.cache_read_input_tokens ?? 0;
+      const usage = (json.usage ?? {}) as Record<string, unknown>;
+      const inputCount = tokenCount(usage.input_tokens);
+      const outputCount = tokenCount(usage.output_tokens);
+      const cacheRead = usage.cache_read_input_tokens === undefined ? 0 : tokenCount(usage.cache_read_input_tokens);
+      const cacheWrite =
+        usage.cache_creation_input_tokens === undefined ? 0 : tokenCount(usage.cache_creation_input_tokens);
+      const counted = inputCount !== null && outputCount !== null && cacheRead !== null && cacheWrite !== null;
       return {
         calls: content
           .filter((block) => block.type === 'tool_use')
           .map((block) => ({ name: String(block.name), args: parseArguments(block.input) })),
-        usage: {
-          inputTokens: (usage.input_tokens ?? 0) + cacheRead + (usage.cache_creation_input_tokens ?? 0),
-          outputTokens: usage.output_tokens ?? 0,
-          cachedInputTokens: usage.cache_read_input_tokens === undefined ? null : cacheRead,
-          imageInputTokens: null,
-          reportedCostUsd: null,
-          source: 'provider',
-        },
+        usage: counted
+          ? {
+              inputTokens: inputCount + cacheRead + cacheWrite,
+              outputTokens: outputCount,
+              cachedInputTokens: usage.cache_read_input_tokens === undefined ? null : cacheRead,
+              imageInputTokens: null,
+              reportedCostUsd: null,
+              source: 'provider',
+            }
+          : null,
         returnedModel: typeof json.model === 'string' ? json.model : null,
         requestId: headers.get('request-id') ?? undefined,
       };

@@ -216,8 +216,13 @@ function candidates(info: ReturnType<typeof describe>): LocatorStep[] {
   return steps;
 }
 
-async function uniqueStep(scope: Scope, element: ElementHandle): Promise<LocatorStep | null> {
+async function uniqueStep(
+  scope: Scope,
+  element: ElementHandle,
+  unsafe: (text: string) => boolean,
+): Promise<LocatorStep | null> {
   for (const step of candidates(await element.evaluate(describe))) {
+    if (unsafe(JSON.stringify(step))) continue;
     const locator = stepLocator(scope, step);
     if ((await locator.count()) === 1 && (await locator.evaluate((found, wanted) => found === wanted, element)))
       return step;
@@ -225,8 +230,12 @@ async function uniqueStep(scope: Scope, element: ElementHandle): Promise<Locator
   return null;
 }
 
-// Hit-tests a CSS viewport point through open shadow roots and frames and returns a verified unique locator for it.
-export async function resolvePoint(page: Page, point: Point): Promise<Resolution> {
+// Hit-tests a CSS viewport point through open shadow roots and frames and returns a verified unique locator for it, skipping candidates `unsafe` flags (e.g. secrets).
+export async function resolvePoint(
+  page: Page,
+  point: Point,
+  unsafe: (text: string) => boolean = () => false,
+): Promise<Resolution> {
   let frame: Frame = page.mainFrame();
   let scope: Scope = page;
   let local = point;
@@ -240,7 +249,7 @@ export async function resolvePoint(page: Page, point: Point): Promise<Resolution
     if (info.tag === 'iframe' || info.tag === 'frame') {
       if (info.transformed) return { ok: false, reason: 'transformed_frame' };
       const child = await hit.contentFrame();
-      const step: LocatorStep | null = child && (await uniqueStep(scope, hit));
+      const step: LocatorStep | null = child && (await uniqueStep(scope, hit, unsafe));
       if (!child || !step) return { ok: false, reason: 'unresolvable_frame' };
       frames.push(step);
       scope = stepLocator(scope, step).contentFrame();
@@ -249,7 +258,7 @@ export async function resolvePoint(page: Page, point: Point): Promise<Resolution
       continue;
     }
     const target = (await hit.evaluateHandle(toInteractive)).asElement();
-    const step: LocatorStep | null = target && (await uniqueStep(scope, target));
+    const step: LocatorStep | null = target && (await uniqueStep(scope, target, unsafe));
     if (!target || !step) return { ok: false, reason: 'no_unique_locator' };
     const locator = stepLocator(scope, step);
     const box = await locator.boundingBox();

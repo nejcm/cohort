@@ -6,7 +6,7 @@ import { BUILTIN_TOOLS, validateToolCall } from '../../src/core/tools.ts';
 import { generateReplay } from '../../src/evidence/replay.ts';
 import type { StepRecord } from '../../src/evidence/steps.ts';
 import type { Usage } from '../../src/providers/types.ts';
-import { safeUrl, SecretStore } from '../../src/setup/secrets.ts';
+import { redactValue, safeUrl, SecretStore } from '../../src/setup/secrets.ts';
 
 const usage = (inputTokens: number, outputTokens: number, extra: Partial<Usage> = {}): Usage => ({
   inputTokens,
@@ -167,5 +167,33 @@ test('generated replay binds secrets from the environment and skips failed steps
   assert.match(script, /\.click\(\{ position: \{"x":4,"y":5\.5\} \}\)/u);
   assert.match(script, /keyboard\.press\("Enter"\)/u);
   assert.ok(!script.includes('s0005'));
+  assert.ok(!script.includes('screenshot'), 'replay must not write unmasked images');
   assert.match(script, /locale: "sl-SI", timezoneId: "Europe\/Ljubljana"/u);
+});
+
+test('a priced call whose cached rate is unknown keeps its reservation', () => {
+  const meter = new CostMeter(1, { input: 1, output: 1, cachedInput: null });
+  const reserved = meter.reserve(1000, 100)!;
+  meter.settle(reserved, usage(1000, 100, { cachedInputTokens: 500 }));
+  assert.equal(meter.unsettledUsd, reserved);
+  assert.equal(meter.spentUsd, reserved);
+});
+
+test('rebinding a secret keeps redacting and masking the old value', () => {
+  const secrets = new SecretStore();
+  secrets.bind('totp', '111111');
+  secrets.bind('totp', '222222');
+  assert.equal(secrets.substitute('{{totp}}'), '222222');
+  assert.deepEqual(secrets.values, ['111111', '222222']);
+  assert.equal(secrets.redact('old 111111'), 'old {{totp}}');
+});
+
+test('structured redaction handles numeric secrets without breaking JSON', () => {
+  const secrets = new SecretStore();
+  secrets.bind('code', '1234');
+  assert.deepEqual(redactValue({ ms: 1234, target: { x: 12345, y: 7 }, note: 'pin 1234' }, secrets), {
+    ms: '{{code}}',
+    target: { x: '{{code}}5', y: 7 },
+    note: 'pin {{code}}',
+  });
 });

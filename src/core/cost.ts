@@ -53,7 +53,10 @@ export class CostMeter {
       this.unsettledUsd += reserved;
       return;
     }
-    this.settledUsd += estimateCostUsd(usage, this.prices) ?? 0;
+    const estimate = estimateCostUsd(usage, this.prices);
+    // A priced call whose cost cannot be computed keeps its reservation rather than counting as free.
+    if (estimate === null && this.enforcement === 'priced_reservations') this.unsettledUsd += reserved;
+    else this.settledUsd += estimate ?? 0;
     if (usage.reportedCostUsd !== null) {
       this.reportedSeen = true;
       this.reportedUsd += usage.reportedCostUsd;

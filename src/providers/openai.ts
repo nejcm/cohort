@@ -3,6 +3,7 @@ import {
   parseArguments,
   postJson,
   ProviderError,
+  tokenCount,
   userText,
   type AdapterOptions,
   type ProviderAdapter,
@@ -56,23 +57,27 @@ export function createOpenAIAdapter(options: AdapterOptions = {}): ProviderAdapt
       );
       const output = Array.isArray(json.output) ? (json.output as Record<string, unknown>[]) : [];
       const usage = (json.usage ?? {}) as {
-        input_tokens?: number;
-        output_tokens?: number;
-        input_tokens_details?: { cached_tokens?: number };
+        input_tokens?: unknown;
+        output_tokens?: unknown;
+        input_tokens_details?: { cached_tokens?: unknown };
       };
-      const cached = usage.input_tokens_details?.cached_tokens;
+      const inputCount = tokenCount(usage.input_tokens);
+      const outputCount = tokenCount(usage.output_tokens);
       return {
         calls: output
           .filter((item) => item.type === 'function_call')
           .map((item) => ({ name: String(item.name), args: parseArguments(item.arguments) })),
-        usage: {
-          inputTokens: usage.input_tokens ?? 0,
-          outputTokens: usage.output_tokens ?? 0,
-          cachedInputTokens: cached ?? null,
-          imageInputTokens: null,
-          reportedCostUsd: null,
-          source: 'provider',
-        },
+        usage:
+          inputCount === null || outputCount === null
+            ? null
+            : {
+                inputTokens: inputCount,
+                outputTokens: outputCount,
+                cachedInputTokens: tokenCount(usage.input_tokens_details?.cached_tokens),
+                imageInputTokens: null,
+                reportedCostUsd: null,
+                source: 'provider',
+              },
         returnedModel: typeof json.model === 'string' ? json.model : null,
         requestId: headers.get('x-request-id') ?? undefined,
       };

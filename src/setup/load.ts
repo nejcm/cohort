@@ -15,9 +15,9 @@ export async function loadSetupModule(projectRoot: string, modulePath: string): 
     throw new SetupLoadError(`setup module must be inside .lab/setup/: ${modulePath}`);
   if (!['.ts', '.js', '.mjs'].includes(extname(modulePath)))
     throw new SetupLoadError(`setup module must be .ts, .js, or .mjs: ${modulePath}`);
-  let current = setupDir;
-  for (const part of ['', ...rel.split(sep)]) {
-    current = part ? join(current, part) : current;
+  let current = projectRoot;
+  for (const part of ['.lab', 'setup', ...rel.split(sep)]) {
+    current = join(current, part);
     if ((await lstat(current)).isSymbolicLink()) throw new SetupLoadError(`symlink in setup path: ${current}`);
   }
   const real = await realpath(modulePath);

@@ -105,3 +105,15 @@ models:
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('resolved snapshots do not change when the source catalog is mutated', () => {
+  const catalog = validateCatalog({ version: 'v1', models: [tested()] }, 'x');
+  const resolved = resolveModel(catalog, 'openai/model-a', { mode: 'vision' });
+  catalog.models[0]!.pricesPerMTok.input = 99;
+  catalog.models[0]!.supportedEffortLevels.push('high');
+  assert.equal(resolved.catalog.entry.pricesPerMTok.input, 1);
+  assert.deepEqual(resolved.catalog.entry.supportedEffortLevels, ['low', 'medium']);
+  assert.throws(() => {
+    (resolved.catalog.entry.pricesPerMTok as { input: number }).input = 5;
+  }, TypeError);
+});

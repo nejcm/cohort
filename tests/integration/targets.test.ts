@@ -67,7 +67,7 @@ test('resolves and replays an open shadow root inside a frame', async () => {
   );
 });
 
-test('cross-origin (out-of-process) frame resolves and replays', async () => {
+test('cross-origin frame on another site resolves and replays', async () => {
   const frame = page.frameLocator('#cross');
   await resolveAndReplay(
     frame.getByRole('button', { name: 'Framed action' }),

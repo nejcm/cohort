@@ -38,16 +38,13 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
     await context.route('**/*', (route) => {
       const request = route.request();
       const origin = new URL(request.url()).origin;
-      if (
-        request.isNavigationRequest() &&
-        request.frame() === request.frame().page().mainFrame() &&
-        !allowed.has(origin)
-      )
-        return route.abort('blockedbyclient');
+      // shortcut: subresources (images, scripts, fetch) are not origin-restricted; add `resourceOrigins` per §8 when configured.
+      if (request.isNavigationRequest() && !allowed.has(origin)) return route.abort('blockedbyclient');
       return route.fallback();
     });
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await context.newPage();
+    context.on('page', (popup) => void popup.close());
     options.onPage?.(page);
     let result: AgentResult;
     try {

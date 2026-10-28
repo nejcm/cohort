@@ -33,7 +33,8 @@ export interface DecideRequest {
 
 export interface Decision {
   calls: ToolCall[];
-  usage: Usage;
+  /** Null when the response lacks valid token counts; the call's reservation then stays unsettled. */
+  usage: Usage | null;
   returnedModel: string | null;
   requestId?: string;
 }
@@ -132,6 +133,10 @@ export function parseArguments(raw: unknown): Record<string, unknown> {
       possiblyBilled: true,
     });
   return value as Record<string, unknown>;
+}
+
+export function tokenCount(value: unknown): number | null {
+  return Number.isInteger(value) && (value as number) >= 0 ? (value as number) : null;
 }
 
 export function effortOrThrow(effort: string): Effort {

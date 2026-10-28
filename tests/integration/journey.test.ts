@@ -117,3 +117,44 @@ test('fake-model guest journey completes on a phone, then its generated script r
   assert.match(stdout, /1 passed/u);
   assert.deepEqual(fixture.submissions('replay'), [{ name: 'Ana Novak', arrival: 'Afternoon', notes: '' }]);
 });
+
+test('runOnce blocks disallowed frame navigations and records a real trace', async () => {
+  const other = await startFixture({ host: 'localhost' });
+  let page: Page | undefined;
+  const loaded: Record<string, number> = {};
+  const framed = (selector: string) =>
+    page!.frameLocator(selector).getByRole('button', { name: 'Framed action' }).count();
+  try {
+    const provider = fakeProvider(async (request) => {
+      loaded.same = await framed('#same');
+      loaded.cross = await framed('#cross');
+      return { name: 'done', args: { step: lastStepId(request), summary: 'Checked.' } };
+    });
+    const outDir = join(dir, 'frames');
+    const result = await runOnce({
+      runId: 'run_test_002',
+      outDir,
+      provider,
+      model: 'fake-model',
+      effort: 'low',
+      prices: { input: 1, output: 4, cachedInput: 0.1 },
+      task: 'Look around.',
+      startUrl: `${fixture.url}/lab/targets?cross=${encodeURIComponent(`${other.url}/lab/frame`)}`,
+      allowedOrigins: [],
+      secrets: new SecretStore(),
+      limits: { steps: 5, timeMs: 30_000, dollars: 1 },
+      device: { viewport: { width: 800, height: 900 }, touch: false },
+      locale: 'en-US',
+      timezone: 'UTC',
+      onPage: (created: Page) => {
+        page = created;
+      },
+    });
+    assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+    assert.deepEqual(loaded, { same: 1, cross: 0 });
+    const trace = await readFile(result.tracePath);
+    assert.ok(trace.includes('trace.trace') && trace.includes('trace.network'), 'trace archive lacks trace entries');
+  } finally {
+    await other.close();
+  }
+});

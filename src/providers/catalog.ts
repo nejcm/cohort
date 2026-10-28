@@ -189,5 +189,8 @@ export function resolveModel(
   if (!entry.supportedEffortLevels.includes(effort))
     throw new CatalogError(`effort ${effort} is not supported by ${qualified}`);
   const hash = `sha256:${createHash('sha256').update(canonical(catalog)).digest('hex')}`;
-  return { provider, model, effort, catalog: { version: catalog.version, hash, entry } };
+  const snapshot = structuredClone(entry);
+  Object.freeze(snapshot.pricesPerMTok);
+  Object.freeze(snapshot.supportedEffortLevels);
+  return { provider, model, effort, catalog: { version: catalog.version, hash, entry: Object.freeze(snapshot) } };
 }

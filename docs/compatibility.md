@@ -12,7 +12,7 @@ Each row passes `tests/integration/targets.test.ts`: the hit point resolves to a
 | Nested open shadow roots | Supported |
 | Same-origin iframe with border and padding | Supported |
 | Open shadow root inside a frame | Supported |
-| Cross-origin iframe (`127.0.0.1` page, `localhost` frame) | Supported |
+| Cross-origin iframe (`127.0.0.1` page, `localhost` frame) | Supported. Out-of-process isolation is assumed from Chromium site isolation, not asserted. |
 | Closed shadow root | Unsupported: `agent_error(unsupported_target)`, reason `closed_shadow_root` (heuristic: an empty custom element) |
 | `<canvas>` | Unsupported: reason `canvas` |
 | Frame inside a CSS-transformed ancestor | Unsupported: reason `transformed_frame` |
@@ -32,16 +32,28 @@ Text perception mode is not implemented yet, so "both modes" is unverified.
 
 ## Secret boundary
 
-- Before every capture, magenta (`rgb(255, 0, 255)`) overlays cover `maskSelectors`, `[data-lab-masked]` fields, inputs whose value contains a secret, and text nodes containing a secret. Overlays are also injected into open shadow roots and frames, but the pixel tests cover the top document only. The test decodes the PNG and checks the pixels for filled email and one-time-code fields, a DOM mirror of the email, and a fragment-token echo.
-- If a mask cannot be applied, or a secret appears in the outbound text, the provider call is suppressed and the run ends `agent_error(browser_error)`.
+- Before every capture, magenta (`rgb(255, 0, 255)`) overlays are drawn in every frame and open shadow root. They cover:
+  - `maskSelectors` and `[data-lab-masked]` fields;
+  - elements whose value or rendered attribute (`placeholder`, `value`, `alt`, `title`, `aria-label`) contains a secret;
+  - the deepest element whose text contains a whole secret, which also catches secrets split across spans.
+- Tests decode the PNG and require every pixel of the rendered box to be masked for filled email and one-time-code fields, a DOM mirror, a fragment echo, split text, a placeholder, an open shadow root, a srcdoc frame, and a button label.
+- After capture the page is rescanned. If the mask regions or the frame list changed, the image is discarded and capture is retried up to three times; after that it fails closed. A change that appears and disappears between the two scans is not detected.
+- If a mask cannot be applied, a capture times out, or a secret appears in the outbound text, no further provider call is made and the run ends `agent_error(browser_error)`. This holds after failed actions too.
+- Locator candidates containing a registered secret are skipped, so `steps.jsonl` and replay scripts never contain one. If every candidate is unsafe, the target is unsupported.
+- Generated replays do not save screenshots, because replay fills real secret values.
+- Every value ever bound to a secret name stays masked and redacted for the whole run, even after rebinding.
 - Observation text and step URLs keep only origin and path, never queries or fragments.
 - Native traces (`trace.zip`) hold unmasked DOM snapshots. They are private evidence: never publish or commit them.
+
+## Navigation guard
+
+`runOnce` aborts main-frame and subframe navigations, including form posts, to origins outside the allowlist. It closes popups and rejects start URLs with credentials or non-HTTP schemes. Subresources (images, scripts, fetch) are not restricted, and Playwright routes do not see redirect hops.
 
 ## Runtime
 
 - Setup modules load natively with type stripping. Relative imports must use explicit `.ts` extensions. Modules must live inside `.lab/setup/` and the path must not contain symlinks.
 - `node:sqlite` works in a child Node process. Node v26.8.2 printed no warning; check the Node 24 warning on CI.
-- Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`.
+- Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`. It ends by waiting for network idle.
 
 ## Not verified (needs live keys or external targets)
 

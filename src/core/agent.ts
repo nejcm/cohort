@@ -6,7 +6,7 @@ import { resolvePoint, screenshotToCss } from '../browser/targets.ts';
 import type { StepRecord } from '../evidence/steps.ts';
 import type { Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
-import { safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
+import { redactValue, safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
 import { CostMeter, type CapEnforcement } from './cost.ts';
 import type { AgentErrorCode, EvidenceRef, Outcome } from './outcomes.ts';
 import { BUILTIN_TOOLS, validateToolCall, type ToolCall } from './tools.ts';
@@ -57,6 +57,9 @@ export interface AgentResult {
 }
 
 const HISTORY_ITEMS = 8;
+// About 2k tokens of history at a conservative 4 characters per token.
+const HISTORY_CHARS = 8000;
+const HISTORY_LINE_CHARS = 1000;
 const ACTION_TIMEOUT_MS = 5000;
 
 const SAFETY_INSTRUCTIONS = `You are a synthetic user trying to accomplish a task in a web application.
@@ -113,6 +116,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     issues.push({ code: 'file_chooser_cancelled', message: 'file uploads are not supported' }),
   );
 
+  const actionTimeout = (factor = 1): number =>
+    Math.max(1, Math.min(ACTION_TIMEOUT_MS * factor, deadline - Date.now()));
   const captureWithRetry = async (attempt = 0): Promise<Capture> => {
     try {
       return await captureMasked(page, {
@@ -123,7 +128,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     } catch (error) {
       // An action can start a navigation after load-state settles; capture again once the new document is ready.
       if (attempt >= 2 || !/context was destroyed|navigat/iu.test(String(error))) throw error;
-      await page.waitForLoadState('domcontentloaded', { timeout: ACTION_TIMEOUT_MS }).catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: actionTimeout() }).catch(() => {});
       return captureWithRetry(attempt + 1);
     }
   };
@@ -152,7 +157,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     return { outcome, steps, usage, issues };
   };
   const agentError = (code: AgentErrorCode, reason: string): AgentResult =>
-    finish({ state: 'agent_error', code, reason, evidence: lastEvidence() });
+    finish({ state: 'agent_error', code, reason: secrets.redact(reason), evidence: lastEvidence() });
 
   const record = (
     call: ToolCall,
@@ -172,7 +177,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       observationId: before?.id ?? 'o0000',
       action: {
         name: call.name,
-        args: JSON.parse(secrets.redact(JSON.stringify(call.args))) as Record<string, unknown>,
+        args: redactValue(call.args, secrets) as Record<string, unknown>,
       },
       result: result.status === 'ok' ? result : { ...result, message: secrets.redact(result.message).slice(0, 500) },
       beforeScreenshotId: before?.screenshotId ?? null,
@@ -183,12 +188,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     steps.push(step);
     const status =
       step.result.status === 'ok' ? 'ok' : `${step.result.status} ${step.result.code}: ${step.result.message}`;
-    history.push(`${step.id} ${call.name} ${JSON.stringify(step.action.args)} -> ${status}`);
-    if (history.length > HISTORY_ITEMS) history.shift();
+    history.push(
+      `${step.id} ${call.name} ${JSON.stringify(step.action.args)} -> ${status}`.slice(0, HISTORY_LINE_CHARS),
+    );
+    while (history.length > HISTORY_ITEMS || history.join('\n').length > HISTORY_CHARS) history.shift();
     return step;
   };
 
   const navStarted = Date.now();
+  const startDenied = allowedDestination(new URL(options.startUrl), allowed);
+  if (startDenied) return agentError('browser_error', `start URL rejected: ${startDenied}`);
   try {
     await page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) });
     await observe();
@@ -206,241 +215,274 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     },
   );
 
-  for (;;) {
-    const attempts = steps.length - 1;
-    if (attempts >= limits.steps)
-      return finish({
-        state: 'limit_reached',
-        limit: 'steps',
-        reason: 'step limit reached',
-        observed: attempts,
-        maximum: limits.steps,
-        evidence: lastEvidence(),
-      });
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0)
-      return finish({
-        state: 'limit_reached',
-        limit: 'time',
-        reason: 'time limit reached',
-        observed: Date.now() - startedAt,
-        maximum: limits.timeMs,
-        evidence: lastEvidence(),
-      });
-    if (meter.exhausted)
-      return finish({
-        state: 'limit_reached',
-        limit: 'cost',
-        reason: 'dollar limit reached',
-        observed: meter.spentUsd,
-        maximum: limits.dollars,
-        evidence: lastEvidence(),
-      });
+  try {
+    return await loop();
+  } catch (error) {
+    return agentError('browser_error', `browser operation failed: ${firstLine(error)}`);
+  }
 
-    const observation = current!;
-    const lastStep = steps.at(-1)!;
-    const dollars =
-      meter.enforcement === 'step_time_only' ? 'cost unknown' : `$${(limits.dollars - meter.spentUsd).toFixed(2)} left`;
-    const text = [
-      `Observation ${observation.id}: screenshot ${observation.capture.width}x${observation.capture.height} px of ${safeUrl(page.url(), secrets)}.`,
-      `Latest step: ${lastStep.id}. Budget: ${limits.steps - attempts} steps, ${Math.floor(remainingMs / 1000)} s, ${dollars}.`,
-      secrets.names.length > 0
-        ? `Secret placeholders available for fill: ${secrets.names.map((name) => `{{${name}}}`).join(', ')}.`
-        : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    const request = {
-      model: options.model,
-      effort: options.effort,
-      instructions,
-      history: [...history],
-      observation: {
-        kind: 'vision' as const,
-        id: observation.id,
-        text,
-        pngBase64: observation.capture.png.toString('base64'),
-      },
-      tools: BUILTIN_TOOLS,
-      maxOutputTokens,
-    };
-    const outboundText = [instructions, ...history, text].join('\n');
-    if (secrets.contains(outboundText))
-      return agentError('browser_error', 'a registered secret appeared in outbound text; provider call suppressed');
-
-    // shortcut: unmeasured conservative token bound; replace with Phase 0 measured per-call components.
-    const inputBound =
-      Math.ceil(outboundText.length / 2) +
-      4000 +
-      Math.ceil((observation.capture.width * observation.capture.height) / 500);
-    let decision: Decision | null = null;
-    for (let attempt = 0; attempt < 2 && !decision; attempt += 1) {
-      const reserved = meter.reserve(inputBound, maxOutputTokens);
-      if (reserved === null)
+  async function loop(): Promise<AgentResult> {
+    for (;;) {
+      const attempts = steps.length - 1;
+      if (attempts >= limits.steps)
+        return finish({
+          state: 'limit_reached',
+          limit: 'steps',
+          reason: 'step limit reached',
+          observed: attempts,
+          maximum: limits.steps,
+          evidence: lastEvidence(),
+        });
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0)
+        return finish({
+          state: 'limit_reached',
+          limit: 'time',
+          reason: 'time limit reached',
+          observed: Date.now() - startedAt,
+          maximum: limits.timeMs,
+          evidence: lastEvidence(),
+        });
+      if (meter.exhausted)
         return finish({
           state: 'limit_reached',
           limit: 'cost',
-          reason: 'next provider call would exceed the dollar limit',
+          reason: 'dollar limit reached',
           observed: meter.spentUsd,
           maximum: limits.dollars,
           evidence: lastEvidence(),
         });
-      const timeLeft = deadline - Date.now();
-      usage.providerCalls += 1;
-      try {
-        decision = await options.provider.decide(request, { signal: AbortSignal.timeout(Math.max(1, timeLeft)) });
-        meter.settle(reserved, decision.usage);
-      } catch (error) {
-        meter.settle(error instanceof ProviderError && !error.possiblyBilled ? 0 : reserved, null);
-        if (Date.now() >= deadline)
+
+      const observation = current!;
+      const lastStep = steps.at(-1)!;
+      const dollars =
+        meter.enforcement === 'step_time_only'
+          ? 'cost unknown'
+          : `$${(limits.dollars - meter.spentUsd).toFixed(2)} left`;
+      const text = [
+        `Observation ${observation.id}: screenshot ${observation.capture.width}x${observation.capture.height} px of ${safeUrl(page.url(), secrets)}.`,
+        `Latest step: ${lastStep.id}. Budget: ${limits.steps - attempts} steps, ${Math.floor(remainingMs / 1000)} s, ${dollars}.`,
+        secrets.names.length > 0
+          ? `Secret placeholders available for fill: ${secrets.names.map((name) => `{{${name}}}`).join(', ')}.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const request = {
+        model: options.model,
+        effort: options.effort,
+        instructions,
+        history: [...history],
+        observation: {
+          kind: 'vision' as const,
+          id: observation.id,
+          text,
+          pngBase64: observation.capture.png.toString('base64'),
+        },
+        tools: BUILTIN_TOOLS,
+        maxOutputTokens,
+      };
+      const outboundText = [instructions, ...history, text].join('\n');
+      if (secrets.contains(outboundText))
+        return agentError('browser_error', 'a registered secret appeared in outbound text; provider call suppressed');
+
+      // shortcut: unmeasured conservative token bound; replace with Phase 0 measured per-call components.
+      const inputBound =
+        Math.ceil(outboundText.length / 2) +
+        4000 +
+        Math.ceil((observation.capture.width * observation.capture.height) / 500);
+      let decision: Decision | null = null;
+      for (let attempt = 0; attempt < 2 && !decision; attempt += 1) {
+        const reserved = meter.reserve(inputBound, maxOutputTokens);
+        if (reserved === null)
           return finish({
             state: 'limit_reached',
-            limit: 'time',
-            reason: 'time limit reached during a provider call',
-            observed: Date.now() - startedAt,
-            maximum: limits.timeMs,
+            limit: 'cost',
+            reason: 'next provider call would exceed the dollar limit',
+            observed: meter.spentUsd,
+            maximum: limits.dollars,
             evidence: lastEvidence(),
           });
-        if (!(error instanceof ProviderError) || !error.retryable || attempt === 1)
-          return agentError('provider_error', (error as Error).message);
-      }
-    }
-    if (!decision) return agentError('provider_error', 'no provider decision');
-    usage.inputTokens += decision.usage.inputTokens;
-    usage.outputTokens += decision.usage.outputTokens;
-    if (decision.usage.cachedInputTokens !== null)
-      usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + decision.usage.cachedInputTokens;
-    usage.returnedModel = decision.returnedModel ?? usage.returnedModel;
-
-    const started = Date.now();
-    if (decision.calls.length !== 1) {
-      record({ name: 'invalid', args: { calls: decision.calls.length } }, started, {
-        status: 'rejected',
-        code: 'invalid_tool',
-        message: 'exactly one tool call is required per turn',
-      });
-      continue;
-    }
-    const call = decision.calls[0]!;
-    const invalid = validateToolCall(call);
-    if (invalid) {
-      record(call, started, { status: 'rejected', code: 'invalid_tool', message: invalid });
-      continue;
-    }
-    const reject = (code: string, message: string): void => {
-      record(call, started, { status: 'rejected', code, message });
-    };
-    const args = call.args;
-
-    if (
-      call.name === 'report_friction' ||
-      call.name === 'report_blocked' ||
-      call.name === 'done' ||
-      call.name === 'give_up'
-    ) {
-      const cited = String(args.step);
-      const evidence = evidenceAt(cited);
-      if (evidence.length === 0) {
-        reject('invalid_step', `step ${cited} has no screenshot evidence in this run`);
-        continue;
-      }
-      const reason = secrets.redact(String(args.reason ?? args.summary));
-      record(call, started, { status: 'ok' });
-      if (call.name === 'report_friction') continue;
-      if (call.name === 'done') return finish({ state: 'completed', reason, evidence, verification: 'agent_reported' });
-      if (call.name === 'report_blocked')
-        return finish({ state: 'blocked', kind: args.kind as never, detectedBy: 'agent', reason, evidence });
-      return args.kind === 'journey_abandoned'
-        ? finish({ state: 'abandoned', reason, initiatedBy: 'agent', evidence })
-        : finish({ state: 'agent_error', code: 'loop', reason: `agent uncertain: ${reason}`, evidence });
-    }
-
-    let target: StepRecord['target'];
-    if ('observationId' in args && args.observationId !== observation.id) {
-      reject('stale_observation', `observation ${String(args.observationId)} is not current (${observation.id})`);
-      continue;
-    }
-    const point = (args as { target?: { kind: string; x: number; y: number } | null }).target;
-    if (point && point.kind !== 'point') {
-      reject('reference_in_vision_mode', 'vision mode accepts point targets only');
-      continue;
-    }
-    if (point) {
-      const css = screenshotToCss(point, observation.capture, observation.capture.viewport);
-      if (!css) {
-        reject('point_outside_screenshot', 'point lies outside the screenshot');
-        continue;
-      }
-      const resolved = await resolvePoint(page, css);
-      if (!resolved.ok) {
-        record(call, started, { status: 'error', code: 'unsupported_target', message: resolved.reason });
-        return agentError('unsupported_target', `cannot represent the target faithfully: ${resolved.reason}`);
-      }
-      target = {
-        locator: resolved.descriptor,
-        stability: resolved.stability,
-        screenshotPoint: { x: point.x, y: point.y },
-        position: resolved.position,
-        tag: resolved.tag,
-      };
-      try {
-        if (call.name === 'click') {
-          if (options.hasTouch) await resolved.locator.tap({ position: resolved.position, timeout: ACTION_TIMEOUT_MS });
-          else await resolved.locator.click({ position: resolved.position, timeout: ACTION_TIMEOUT_MS });
-        } else if (call.name === 'fill') {
-          const value = secrets.substitute(String(args.value));
-          if (resolved.tag === 'select')
-            await resolved.locator.selectOption({ label: value }, { timeout: ACTION_TIMEOUT_MS });
-          else await resolved.locator.fill(value, { timeout: ACTION_TIMEOUT_MS });
-          if (secrets.hasPlaceholder(String(args.value)))
-            await resolved.locator.evaluate((element) => element.setAttribute('data-lab-masked', ''));
-        } else {
-          await resolved.locator.hover({ position: resolved.position, timeout: ACTION_TIMEOUT_MS });
-          await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
+        const timeLeft = deadline - Date.now();
+        usage.providerCalls += 1;
+        try {
+          decision = await options.provider.decide(request, { signal: AbortSignal.timeout(Math.max(1, timeLeft)) });
+          meter.settle(reserved, decision.usage);
+        } catch (error) {
+          meter.settle(error instanceof ProviderError && !error.possiblyBilled ? 0 : reserved, null);
+          if (Date.now() >= deadline)
+            return finish({
+              state: 'limit_reached',
+              limit: 'time',
+              reason: 'time limit reached during a provider call',
+              observed: Date.now() - startedAt,
+              maximum: limits.timeMs,
+              evidence: lastEvidence(),
+            });
+          if (!(error instanceof ProviderError) || !error.retryable || attempt === 1)
+            return agentError('provider_error', (error as Error).message);
         }
-      } catch (error) {
-        if (error instanceof SecretError) {
-          reject('unknown_placeholder', error.message);
+      }
+      if (!decision) return agentError('provider_error', 'no provider decision');
+      if (decision.usage) {
+        usage.inputTokens += decision.usage.inputTokens;
+        usage.outputTokens += decision.usage.outputTokens;
+        if (decision.usage.cachedInputTokens !== null)
+          usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + decision.usage.cachedInputTokens;
+      }
+      usage.returnedModel = decision.returnedModel ?? usage.returnedModel;
+      if (Date.now() >= deadline)
+        return finish({
+          state: 'limit_reached',
+          limit: 'time',
+          reason: 'time limit reached before acting on the provider response',
+          observed: Date.now() - startedAt,
+          maximum: limits.timeMs,
+          evidence: lastEvidence(),
+        });
+
+      const started = Date.now();
+      if (decision.calls.length !== 1) {
+        record({ name: 'invalid', args: { calls: decision.calls.length } }, started, {
+          status: 'rejected',
+          code: 'invalid_tool',
+          message: 'exactly one tool call is required per turn',
+        });
+        continue;
+      }
+      const call = decision.calls[0]!;
+      const invalid = validateToolCall(call);
+      if (invalid) {
+        record(call, started, { status: 'rejected', code: 'invalid_tool', message: invalid });
+        continue;
+      }
+      const reject = (code: string, message: string): void => {
+        record(call, started, { status: 'rejected', code, message });
+      };
+      const args = call.args;
+
+      if (
+        call.name === 'report_friction' ||
+        call.name === 'report_blocked' ||
+        call.name === 'done' ||
+        call.name === 'give_up'
+      ) {
+        const cited = String(args.step);
+        const evidence = evidenceAt(cited);
+        if (evidence.length === 0) {
+          reject('invalid_step', `step ${cited} has no screenshot evidence in this run`);
           continue;
         }
-        await observeAfter(call, started, { status: 'error', code: 'tool_error', message: firstLine(error) }, target);
+        const reason = secrets.redact(String(args.reason ?? args.summary));
+        record(call, started, { status: 'ok' });
+        if (call.name === 'report_friction') continue;
+        if (call.name === 'done')
+          return finish({ state: 'completed', reason, evidence, verification: 'agent_reported' });
+        if (call.name === 'report_blocked')
+          return finish({ state: 'blocked', kind: args.kind as never, detectedBy: 'agent', reason, evidence });
+        return args.kind === 'journey_abandoned'
+          ? finish({ state: 'abandoned', reason, initiatedBy: 'agent', evidence })
+          : finish({ state: 'agent_error', code: 'loop', reason: `agent uncertain: ${reason}`, evidence });
+      }
+
+      let target: StepRecord['target'];
+      if ('observationId' in args && args.observationId !== observation.id) {
+        reject('stale_observation', `observation ${String(args.observationId)} is not current (${observation.id})`);
         continue;
       }
-    } else if (call.name === 'scroll') {
-      const viewport = observation.capture.viewport;
-      await page.mouse.move(viewport.width / 2, viewport.height / 2);
-      await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
-    } else if (call.name === 'press') {
-      await page.keyboard.press(String(args.key));
-    } else if (call.name === 'wait') {
-      await page.waitForTimeout(Number(args.ms));
-    } else if (call.name === 'goto') {
-      const raw = String(args.url);
-      if (secrets.hasPlaceholder(raw) || secrets.contains(raw)) {
-        reject('secret_in_goto', 'placeholders and secrets are not allowed in goto');
+      const point = (args as { target?: { kind: string; x: number; y: number } | null }).target;
+      if (point && point.kind !== 'point') {
+        reject('reference_in_vision_mode', 'vision mode accepts point targets only');
         continue;
       }
-      let url: URL;
-      try {
-        url = new URL(raw, page.url());
-      } catch {
-        reject('invalid_url', 'URL could not be parsed');
-        continue;
+      if (point) {
+        const css = screenshotToCss(point, observation.capture, observation.capture.viewport);
+        if (!css) {
+          reject('point_outside_screenshot', 'point lies outside the screenshot');
+          continue;
+        }
+        const resolved = await resolvePoint(page, css, (candidate) => secrets.contains(candidate));
+        if (!resolved.ok) {
+          record(call, started, { status: 'error', code: 'unsupported_target', message: resolved.reason });
+          return agentError('unsupported_target', `cannot represent the target faithfully: ${resolved.reason}`);
+        }
+        target = {
+          locator: resolved.descriptor,
+          stability: resolved.stability,
+          screenshotPoint: { x: point.x, y: point.y },
+          position: resolved.position,
+          tag: resolved.tag,
+        };
+        try {
+          if (call.name === 'click') {
+            if (options.hasTouch) await resolved.locator.tap({ position: resolved.position, timeout: actionTimeout() });
+            else await resolved.locator.click({ position: resolved.position, timeout: actionTimeout() });
+          } else if (call.name === 'fill') {
+            const value = secrets.substitute(String(args.value));
+            if (resolved.tag === 'select')
+              await resolved.locator.selectOption({ label: value }, { timeout: actionTimeout() });
+            else await resolved.locator.fill(value, { timeout: actionTimeout() });
+            if (secrets.hasPlaceholder(String(args.value)))
+              await resolved.locator.evaluate((element) => element.setAttribute('data-lab-masked', ''));
+          } else {
+            await resolved.locator.hover({ position: resolved.position, timeout: actionTimeout() });
+            await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
+          }
+        } catch (error) {
+          if (error instanceof SecretError) {
+            reject('unknown_placeholder', error.message);
+            continue;
+          }
+          const failure = await observeAfter(
+            call,
+            started,
+            { status: 'error', code: 'tool_error', message: firstLine(error) },
+            target,
+          );
+          if (failure) return failure;
+          continue;
+        }
+      } else if (call.name === 'scroll') {
+        const viewport = observation.capture.viewport;
+        await page.mouse.move(viewport.width / 2, viewport.height / 2);
+        await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
+      } else if (call.name === 'press') {
+        await page.keyboard.press(String(args.key));
+      } else if (call.name === 'wait') {
+        await page.waitForTimeout(Math.min(Number(args.ms), Math.max(0, deadline - Date.now())));
+      } else if (call.name === 'goto') {
+        const raw = String(args.url);
+        if (secrets.hasPlaceholder(raw) || secrets.contains(raw)) {
+          reject('secret_in_goto', 'placeholders and secrets are not allowed in goto');
+          continue;
+        }
+        let url: URL;
+        try {
+          url = new URL(raw, page.url());
+        } catch {
+          reject('invalid_url', 'URL could not be parsed');
+          continue;
+        }
+        const denied = allowedDestination(url, allowed);
+        if (denied) {
+          reject('navigation_denied', denied);
+          continue;
+        }
+        try {
+          await page.goto(url.href, { timeout: actionTimeout(2) });
+        } catch (error) {
+          const failure = await observeAfter(call, started, {
+            status: 'error',
+            code: 'tool_error',
+            message: firstLine(error),
+          });
+          if (failure) return failure;
+          continue;
+        }
       }
-      const denied = allowedDestination(url, allowed);
-      if (denied) {
-        reject('navigation_denied', denied);
-        continue;
-      }
-      try {
-        await page.goto(url.href, { timeout: ACTION_TIMEOUT_MS * 2 });
-      } catch (error) {
-        await observeAfter(call, started, { status: 'error', code: 'tool_error', message: firstLine(error) });
-        continue;
-      }
+      const failure = await observeAfter(call, started, { status: 'ok' }, target);
+      if (failure) return failure;
     }
-    const failure = await observeAfter(call, started, { status: 'ok' }, target);
-    if (failure) return failure;
   }
 
   async function observeAfter(
@@ -449,7 +491,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     result: StepRecord['result'],
     target?: StepRecord['target'],
   ): Promise<AgentResult | null> {
-    await page.waitForLoadState('domcontentloaded', { timeout: ACTION_TIMEOUT_MS }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded', { timeout: actionTimeout() }).catch(() => {});
     const before = current;
     try {
       await observe();
