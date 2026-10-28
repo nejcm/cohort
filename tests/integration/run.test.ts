@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { promisify } from 'node:util';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -254,6 +255,13 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   assert.match((await cli(['report', first.runId, '--format', 'html'])).out, /^<!doctype html>/u);
   for (const bad of ['../../etc', 'run_x', `${first.runId}/..`])
     assert.equal((await cli(['report', bad])).code, 2, bad);
+  const linked = join(root, '.lab/runs/run_20260101_000000_abcdef');
+  await mkdir(linked);
+  await writeFile(join(root, '.env.secret'), 'TOKEN=report-link-leak');
+  await symlink(join(root, '.env.secret'), join(linked, 'report.json'));
+  const viaLink = await cli(['report', 'run_20260101_000000_abcdef', '--format', 'json']);
+  assert.deepEqual([viaLink.code, viaLink.out], [2, 'Error: report.json is not a regular file\n']);
+  await rm(linked, { recursive: true });
 
   const opened: string[] = [];
   const openTrace = async (path: string) => opened.push(path) && 0;
@@ -278,6 +286,36 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
     'replay writes nothing into the bundle but its refreshed reports',
   );
   assert.match((await cli(['replay', json.batchId])).out, /takes a run ID/u);
+
+  const configPath = join(first.outDir, 'resolved-config.json');
+  const original = await readFile(configPath, 'utf8');
+  const replayWith = async (setup: string, leak: string) => {
+    const path = `.lab/setup/replay-${createHash('sha256').update(setup).digest('hex').slice(0, 8)}.ts`;
+    await put(path, setup);
+    const config = JSON.parse(original);
+    config.setup.path = path;
+    config.request.limits.timeMs = 300;
+    await writeFile(configPath, JSON.stringify(config));
+    const env = { OPENAI_API_KEY: 'sk-replay-provider-9', LAB_LEAK: leak, LAB_FIXTURE_ORIGIN: fixture.url };
+    const hung = new Promise<null>((resolve) => setTimeout(resolve, 5000, null).unref());
+    return Promise.race([cli(['replay', first.runId], { env }), hung]);
+  };
+  const leakSetup =
+    "export default async (ctx) => { throw new Error('bad ' + ctx.env('LAB_LEAK') + ' sk-replay-provider-9'); };\n";
+  assert.deepEqual(await replayWith(leakSetup, 'replay-canary-77'), {
+    code: 2,
+    out: 'Error: replay setup failed: bad [env] [env]\n',
+    json: null,
+  });
+  assert.match((await replayWith(leakSetup, '42'))!.out, /setup failed: error message withheld/u);
+  assert.match(
+    (await replayWith('export default () => new Promise(() => {});\n', 'x'))!.out,
+    /setup failed: it ran past the run time limit/u,
+  );
+  const stuck =
+    "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); throw new Error('nope'); };\n";
+  assert.match((await replayWith(stuck, 'x'))!.out, /setup failed: nope/u);
+  await writeFile(configPath, original);
 });
 
 test('each repeat gets a fresh browser context; named storage state is loaded', async () => {
@@ -403,6 +441,45 @@ test('setup secrets stay out of resolved config and cleanup-failure issues; a fa
   );
   assert.equal(failedReport.replay.status, 'unsupported');
   assert.match(await readFile(join(broken.json.runs[0].outDir, 'report.md'), 'utf8'), /No screenshot evidence/u);
+
+  const unreachable = await lab(['--persona', 'guest', '--url', 'http://127.0.0.1:9/', '--json']);
+  assert.equal(unreachable.json.runs[0].outcome.code, 'browser_error');
+  const unreachableReport = JSON.parse(await readFile(join(unreachable.json.runs[0].outDir, 'report.json'), 'utf8'));
+  assert.deepEqual(
+    [
+      unreachableReport.steps,
+      unreachableReport.replay.status,
+      unreachableReport.issues.map((issue: any) => issue.code),
+    ],
+    [0, 'unsupported', ['evidence_unavailable']],
+  );
+});
+
+test('a run whose bundle cannot be finalized still counts in batch metrics and cost', async () => {
+  let calls = 0;
+  turn = (request) => {
+    if (calls++ === 1) {
+      const runs = join(root, '.lab/runs');
+      const open = readdirSync(runs).filter(
+        (name) => name.startsWith('run_') && !existsSync(join(runs, name, 'report.json')),
+      );
+      assert.equal(open.length, 1);
+      mkdirSync(join(runs, open[0]!, 'report.json', 'blocker'), { recursive: true });
+    }
+    return done(request, 0);
+  };
+  const { json } = await lab(['--persona', 'guest', '--url', `${fixture.url}/`, '--repeats', '2', '--json']);
+  assert.deepEqual(
+    json.runs.map((item: any) => item.outcome.code ?? item.outcome.state),
+    ['completed', 'artifact_error'],
+  );
+  const [group] = json.summary.groups;
+  assert.deepEqual([group.runs.length, group.completion.numerator, group.completion.denominator], [2, 1, 2]);
+  assert.deepEqual(group.agentErrors, { artifact_error: 1 });
+  assert.equal(group.costUsd.unknownRuns, 0);
+  assert.ok(group.costUsd.total > 0);
+  const single = json.summary.groups[0].runs[0].costUsd;
+  assert.ok(Math.abs(group.costUsd.total - 2 * single) < 1e-9);
 });
 
 test('the OAuth fault page cannot leave the allowlist; the agent reports the blocker', async () => {

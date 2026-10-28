@@ -1,0 +1,1 @@
+{"schemaVersion":1,"runId":"run_20261028_123528_59a279","id":"s0000","sequence":0,"startedAt":"2026-10-28T12:35:28.473Z","elapsedMs":81,"durationMs":113,"observationId":"o0000","action":{"name":"navigate","args":{"url":"http://127.0.0.1:42689/"}},"result":{"status":"ok"},"beforeScreenshotId":null,"afterScreenshotId":"shot-0000","pageUrl":"http://127.0.0.1:42689/"}

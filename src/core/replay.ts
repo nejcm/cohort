@@ -1,19 +1,22 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadStorageState } from '../config/files.ts';
-import { BundleError, bundleDir, refreshRun } from '../evidence/bundle.ts';
+import { BundleError, bundleDir, readBundleFile, readBundleJson, refreshRun } from '../evidence/bundle.ts';
 import type { RunReport } from '../evidence/report.ts';
-import { loadSetupModule } from '../setup/load.ts';
+import { createProviders } from '../providers/registry.ts';
+import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
+import { SecretStore } from '../setup/secrets.ts';
 
 interface ResolvedConfig {
   setup: { path: string } | null;
   storageState: string | null;
   startUrl: string;
   startUrlComplete?: boolean;
+  request: { limits: { timeMs: number } };
 }
 
 interface ReplayOptions {
@@ -37,38 +40,64 @@ export async function replayRun(
 ): Promise<{ report: RunReport; output: string }> {
   const { kind, dir } = await bundleDir(projectRoot, runId);
   if (kind !== 'run') throw new BundleError('lab replay takes a run ID, not a batch ID');
-  const report = JSON.parse(await readFile(join(dir, 'report.json'), 'utf8')) as RunReport;
+  const report = await readBundleJson<RunReport>(dir, 'report.json');
   if (report.replay.status === 'unsupported')
     throw new BundleError(`run ${runId} has no faithful replay script; see its report issues`);
-  const config = JSON.parse(await readFile(join(dir, 'resolved-config.json'), 'utf8')) as ResolvedConfig;
+  const config = await readBundleJson<ResolvedConfig>(dir, 'resolved-config.json');
+  if ((await readBundleFile(dir, 'replay.spec.ts')) === null)
+    throw new BundleError(`run ${runId} has no replay.spec.ts`);
   const cli = playwrightTestCli(projectRoot);
   const scratch = await mkdtemp(join(tmpdir(), 'lab-replay-'));
   const env: NodeJS.ProcessEnv = { ...options.env };
-  const cleanups: (() => Promise<void>)[] = [];
-  const bound: string[] = [];
+  const cleanups: Cleanup[] = [];
+  const secrets = new SecretStore();
+  const envRead: string[] = [];
+  const providerKeys = Object.values(createProviders(options.env)).flatMap(({ keyEnv }) => options.env[keyEnv] ?? []);
+  const scrub = (text: string): string =>
+    scrubEnv(text, secrets, [
+      ...providerKeys,
+      ...envRead,
+      ...Object.entries(env).flatMap(([name, value]) =>
+        value && (name === 'LAB_START_URL' || name.startsWith('LAB_SECRET_')) ? [value] : [],
+      ),
+    ]);
+  const capMs = config.request.limits.timeMs;
   try {
     let storageState: unknown =
       config.storageState && config.storageState !== 'setup'
         ? await loadStorageState(projectRoot, config.storageState)
         : null;
     if (config.setup) {
-      const setup = await loadSetupModule(projectRoot, join(projectRoot, config.setup.path));
+      const deadline = heldTimeout(capMs);
+      const signal = options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
       const scopeId = `replay_${randomBytes(3).toString('hex')}`;
-      const result = await setup({
-        runId: scopeId,
-        scopeId,
-        projectRoot,
-        signal: options.signal ?? new AbortController().signal,
-        env(name) {
-          const value = options.env[name];
-          if (!value) throw new BundleError(`environment variable ${name} is not set`);
-          return value;
-        },
-        onCleanup: (handler) => void cleanups.push(handler),
-      });
-      env.LAB_START_URL = result.startUrl;
-      for (const [name, value] of Object.entries(result.secrets ?? {})) env[`LAB_SECRET_${name.toUpperCase()}`] = value;
-      storageState = result.storageState ?? storageState;
+      try {
+        const result = await runSetup({
+          projectRoot,
+          path: join(projectRoot, config.setup.path),
+          runId: scopeId,
+          scopeId,
+          env: options.env,
+          signal,
+          envRead,
+          cleanups,
+        });
+        for (const [name, value] of Object.entries(result.secrets ?? {})) {
+          secrets.bind(name, value);
+          env[`LAB_SECRET_${name.toUpperCase()}`] = value;
+        }
+        env.LAB_START_URL = result.startUrl;
+        storageState = result.storageState ?? storageState;
+      } catch (error) {
+        const reason = options.signal?.aborted
+          ? 'cancelled'
+          : deadline.signal.aborted
+            ? 'it ran past the run time limit'
+            : scrub(String((error as Error)?.message ?? error)).split('\n')[0]!;
+        throw new BundleError(`replay setup failed: ${reason}`);
+      } finally {
+        deadline.clear();
+      }
     } else if (!env.LAB_START_URL) {
       if (config.startUrlComplete !== true)
         throw new BundleError('the recorded start URL was reduced to origin and path; set LAB_START_URL');
@@ -78,8 +107,6 @@ export async function replayRun(
       env.LAB_STORAGE_STATE = join(scratch, 'state.json');
       await writeFile(env.LAB_STORAGE_STATE, JSON.stringify(storageState), { mode: 0o600 });
     }
-    for (const [name, value] of Object.entries(env))
-      if (value && value.length >= 4 && (name === 'LAB_START_URL' || name.startsWith('LAB_SECRET_'))) bound.push(value);
     const { code, output } = await new Promise<{ code: number; output: string }>((resolve) => {
       execFile(
         process.execPath,
@@ -89,14 +116,11 @@ export async function replayRun(
           resolve({ code: error ? Number((error as { code?: unknown }).code) || 1 : 0, output: `${stdout}${stderr}` }),
       );
     });
-    const scrubbed = bound
-      .toSorted((a, b) => b.length - a.length)
-      .reduce((text, value) => text.split(value).join('[binding]'), output);
     const status = code === 0 ? 'passed' : 'failed';
     const updated = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));
-    return { report: updated, output: scrubbed };
+    return { report: updated, output: scrub(output) };
   } finally {
-    for (const cleanup of cleanups.toReversed()) await cleanup().catch(() => {});
+    await runCleanups(cleanups, capMs, () => '');
     await rm(scratch, { recursive: true, force: true });
   }
 }

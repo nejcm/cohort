@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -10,7 +10,7 @@ import { resolveSubmission, validateSubmission, type ResolvedEntry, type RunSubm
 import { runBatch, type BatchResult } from './core/batch.ts';
 import { estimateCostUsd } from './core/cost.ts';
 import { replayRun } from './core/replay.ts';
-import { BundleError, bundleDir, readSteps } from './evidence/bundle.ts';
+import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
 import {
   rateText,
   renderBatchHtml,
@@ -124,9 +124,8 @@ export async function run(
 async function reportCommand(id: string, format: string, write: Write, deps: Dependencies): Promise<number> {
   if (!['json', 'md', 'html'].includes(format)) throw new BundleError('--format must be json, md, or html');
   const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
-  const text = await readFile(join(dir, 'report.json'), 'utf8').catch(() => {
-    throw new BundleError(`${id} has no report.json`);
-  });
+  const text = await readBundleFile(dir, 'report.json');
+  if (text === null) throw new BundleError(`${id} has no report.json`);
   if (format === 'json') write(text);
   else if (kind === 'batch') {
     const report = JSON.parse(text) as BatchReport;

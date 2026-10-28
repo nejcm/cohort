@@ -5,5 +5,5 @@
   "rules": {
     "import/no-cycle": "error"
   },
-  "ignorePatterns": ["dist", "coverage", ".lab/runs"]
+  "ignorePatterns": ["dist", "coverage", ".lab/runs", "docs/report-examples"]
 }

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "batchId": "batch_20261028_000000_000000",
+  "createdAt": "2026-10-28T12:35:29.063Z",
+  "groups": [
+    {
+      "personaId": "guest",
+      "goal": "Request a stay.",
+      "mode": "vision",
+      "provider": "openai",
+      "model": "example-model",
+      "effort": "low",
+      "catalogHash": "sha256:757955d685a1d7aaba4b5fbf8000ac0a3bc67fcfa0aaa83c47c9b94f4f5770dc",
+      "untested": false,
+      "runs": [
+        {
+          "runId": "run_20261028_123523_6a126b",
+          "outcome": "completed (agent_reported)",
+          "cost": "$0.0012",
+          "costUsd": 0.0012,
+          "reportPath": "run_20261028_123523_6a126b/report.json"
+        },
+        {
+          "runId": "run_20261028_123524_5f6c4a",
+          "outcome": "abandoned by the agent",
+          "cost": "$0.0012",
+          "costUsd": 0.0012,
+          "reportPath": "run_20261028_123524_5f6c4a/report.json"
+        },
+        {
+          "runId": "run_20261028_123525_20bb99",
+          "outcome": "blocked: oauth (agent-declared, unverified)",
+          "cost": "$0.0012",
+          "costUsd": 0.0012,
+          "reportPath": "run_20261028_123525_20bb99/report.json"
+        },
+        {
+          "runId": "run_20261028_123526_d570b3",
+          "outcome": "limit reached: steps (4 of 4; not a UX failure)",
+          "cost": "$0.0048",
+          "costUsd": 0.0048,
+          "reportPath": "run_20261028_123526_d570b3/report.json"
+        },
+        {
+          "runId": "run_20261028_123528_59a279",
+          "outcome": "cancelled by user (not an agent or UX failure)",
+          "cost": "$0.0000 (+$0.0103 unsettled)",
+          "costUsd": 0,
+          "reportPath": "run_20261028_123528_59a279/report.json"
+        },
+        {
+          "runId": "run_20261028_123528_5acf71",
+          "outcome": "agent error: browser_error (not a UX failure)",
+          "cost": "$0.0000",
+          "costUsd": 0,
+          "reportPath": "run_20261028_123528_5acf71/report.json"
+        }
+      ],
+      "completion": {
+        "numerator": 1,
+        "denominator": 4,
+        "rate": 0.25
+      },
+      "blocked": {
+        "byKind": {
+          "oauth": 1
+        },
+        "byDetector": {
+          "agent": 1
+        }
+      },
+      "userCancellations": 1,
+      "agentErrors": {
+        "browser_error": 1
+      },
+      "limits": {
+        "steps": 1
+      },
+      "abandoned": 1,
+      "costUsd": {
+        "total": 0.0084,
+        "unknownRuns": 0
+      }
+    }
+  ],
+  "notStarted": 0,
+  "totalCostUsd": 0.0084,
+  "unknownCostRuns": 0,
+  "warnings": [
+    "trace.zip is private raw evidence and may contain secrets (DOM snapshots, network traffic, URLs, browser state); never share or upload it. Screenshots and reports are redacted for registered secrets but may still show sensitive content. Treat every artifact as sensitive until reviewed.",
+    "Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport.",
+    "Blocked runs and user cancellations are excluded from the completion denominator; agent-declared blocks are unverified. Agent errors and limits count as non-completions but are not UX failures."
+  ]
+}

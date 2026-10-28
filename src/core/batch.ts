@@ -20,7 +20,7 @@ import {
 import type { StepRecord } from '../evidence/steps.ts';
 import { createProviders } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
-import { loadSetupModule } from '../setup/load.ts';
+import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
 import { redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
 import type { SetupResult } from '../setup/types.ts';
 import type { AgentResult } from './agent.ts';
@@ -73,25 +73,6 @@ interface BatchOptions {
 const stamp = (): string => new Date().toISOString().replace(/[-:]/gu, '').replace('T', '_').slice(0, 15);
 const newId = (prefix: string): string => `${prefix}_${stamp()}_${randomBytes(3).toString('hex')}`;
 const firstLine = (text: string): string => text.split('\n')[0]!;
-const MIN_SCRUB_LENGTH = 4;
-const CLEANUP_BUDGET_MS = 10_000;
-
-function settleWithin<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  return Promise.race([
-    work,
-    new Promise<never>((_, reject) => {
-      if (signal.aborted) reject(signal.reason);
-      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-    }),
-  ]);
-}
-
-// AbortSignal.timeout is unref'd: a hung setup with no other handle would end the process (exit 13) unreported.
-function heldTimeout(ms: number): { signal: AbortSignal; clear: () => void } {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new DOMException('timed out', 'TimeoutError')), ms);
-  return { signal: controller.signal, clear: () => clearTimeout(timer) };
-}
 
 // Missing or malformed named states fail before any run starts.
 async function loadNamedStates(projectRoot: string, entries: readonly ResolvedEntry[]) {
@@ -119,7 +100,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (signal?.aborted) break;
       const run = await runEntry(entry, repeat);
       runs.push(run.run);
-      if (run.report) reports.push(run.report);
+      reports.push(run.report);
     }
   await addAboveMinimumClaims(runs, reports);
   const skipped = total - runs.length;
@@ -129,7 +110,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   await writeBatchReports(reportDir, summary);
   return { batchId, runs, skipped, summary, reportDir };
 
-  async function runEntry(entry: ResolvedEntry, repeat: number): Promise<{ run: BatchRun; report: RunReport | null }> {
+  async function runEntry(entry: ResolvedEntry, repeat: number): Promise<{ run: BatchRun; report: RunReport }> {
     const runId = newId('run');
     const outDir = join(projectRoot, '.lab', 'runs', runId);
     await mkdir(outDir, { recursive: true, mode: 0o700 });
@@ -149,31 +130,16 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     } catch (error) {
       const reason = `artifact finalization failed: ${trail.secrets.redact(firstLine(String((error as Error)?.message ?? error)))}`;
       run.issues.push({ code: 'artifact_error', message: reason.slice(0, 200) });
-      return {
-        run: { ...run, outcome: { state: 'agent_error', code: 'artifact_error', reason, evidence: [] } },
-        report: null,
+      const failed: BatchRun = {
+        ...run,
+        outcome: { state: 'agent_error', code: 'artifact_error', reason, evidence: [] },
       };
+      return { run: failed, report: reportOf(entry, failed, trail, []) };
     }
   }
 
-  async function finalize(entry: ResolvedEntry, run: BatchRun, trail: Trail): Promise<RunReport> {
+  function reportOf(entry: ResolvedEntry, run: BatchRun, trail: Trail, friction: FrictionClaim[]): RunReport {
     const { request } = entry;
-    const { artifacts, rejected } = await inventory(run.outDir);
-    for (const path of rejected)
-      run.issues.push({ code: 'artifact_rejected', message: `${path} is not a regular file and was not inventoried` });
-    const shots = new Set(artifacts.map((artifact) => artifact.path));
-    const present = (claim: { evidence: { screenshotId: string }[] }): boolean =>
-      claim.evidence.every((ref) => shots.has(`screenshots/${ref.screenshotId}.png`));
-    if (!present(run.outcome))
-      run.issues.push({ code: 'evidence_missing', message: 'an outcome screenshot is missing from the bundle' });
-    const friction: FrictionClaim[] = [];
-    for (const claim of deriveClaims(run.runId, trail.steps)) {
-      const invalid =
-        validateClaim(claim, run.runId, trail.steps) ??
-        (present(claim) ? null : `claim ${claim.id}: screenshot missing`);
-      if (invalid) run.issues.push({ code: 'invalid_claim', message: invalid.slice(0, 200) });
-      else friction.push(claim);
-    }
     const usage = run.usage;
     const capEnforcement =
       usage?.capEnforcement ?? new CostMeter(request.limits.dollars, request.catalog.entry.pricesPerMTok).enforcement;
@@ -181,7 +147,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       providerReportedCostUsd: usage?.providerReportedCostUsd ?? null,
       estimatedCostUsd: usage?.estimatedCostUsd ?? null,
     };
-    const report = redactValue(
+    return redactValue(
       {
         schemaVersion: 1,
         runId: run.runId,
@@ -217,6 +183,27 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       } satisfies RunReport,
       trail.secrets,
     ) as RunReport;
+  }
+
+  async function finalize(entry: ResolvedEntry, run: BatchRun, trail: Trail): Promise<RunReport> {
+    const { request } = entry;
+    const { artifacts, rejected } = await inventory(run.outDir);
+    for (const path of rejected)
+      run.issues.push({ code: 'artifact_rejected', message: `${path} is not a regular file and was not inventoried` });
+    const shots = new Set(artifacts.map((artifact) => artifact.path));
+    const present = (claim: { evidence: { screenshotId: string }[] }): boolean =>
+      claim.evidence.every((ref) => shots.has(`screenshots/${ref.screenshotId}.png`));
+    if (!present(run.outcome))
+      run.issues.push({ code: 'evidence_missing', message: 'an outcome screenshot is missing from the bundle' });
+    const friction: FrictionClaim[] = [];
+    for (const claim of deriveClaims(run.runId, trail.steps)) {
+      const invalid =
+        validateClaim(claim, run.runId, trail.steps) ??
+        (present(claim) ? null : `claim ${claim.id}: screenshot missing`);
+      if (invalid) run.issues.push({ code: 'invalid_claim', message: invalid.slice(0, 200) });
+      else friction.push(claim);
+    }
+    const report = reportOf(entry, run, trail, friction);
     await writeRunReports(run.outDir, report, trail.steps);
     await writeManifest(run.outDir, {
       runId: run.runId,
@@ -288,26 +275,17 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     const { request, persona } = entry;
     const { startedAt, secrets } = trail;
     const issues: AgentResult['issues'] = [];
-    const cleanups: (() => Promise<void>)[] = [];
+    const cleanups: Cleanup[] = [];
     const base = { runId, entryIndex: entry.entryIndex, repeat, personaId: persona.id, outDir };
+    const unavailable = { code: 'evidence_unavailable', message: 'the run ended before any screenshot' };
     const failed = (outcome: Outcome): BatchRun => {
-      issues.push({ code: 'evidence_unavailable', message: 'the run ended before any screenshot' });
+      issues.push(unavailable);
       return { ...base, outcome, usage: null, issues };
     };
     const envRead: string[] = [];
     // Setup and cleanup errors may echo environment values that were never registered as secrets.
-    const scrub = (error: unknown): string => {
-      const values = [...providerKeys, ...envRead];
-      const text = secrets.redact(String((error as Error)?.message ?? error));
-      // Values too short to replace safely withhold the whole message instead.
-      if (values.some((value) => value.length < MIN_SCRUB_LENGTH && value.length > 0 && text.includes(value)))
-        return 'error message withheld: it may contain an environment value';
-      return firstLine(
-        values
-          .toSorted((a, b) => b.length - a.length)
-          .reduce((scrubbed, value) => scrubbed.split(value).join('[env]'), text),
-      );
-    };
+    const scrub = (error: unknown): string =>
+      firstLine(scrubEnv(String((error as Error)?.message ?? error), secrets, [...providerKeys, ...envRead]));
     const agentError = (code: 'setup_error' | 'browser_error', error: unknown): BatchRun =>
       failed({ state: 'agent_error', code, reason: scrub(error).slice(0, 500), evidence: [] });
 
@@ -320,24 +298,16 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (entry.setup) {
         setupHash = sha256(await readFile(entry.setup));
         trail.setupHash = setupHash;
-        setupResult = await settleWithin<SetupResult>(
-          loadSetupModule(projectRoot, entry.setup).then((setup) =>
-            setup({
-              runId,
-              scopeId: runId,
-              projectRoot,
-              signal: setupSignal,
-              env(name) {
-                const value = env[name];
-                if (!value) throw new Error(`environment variable ${name} is not set`);
-                envRead.push(value);
-                return value;
-              },
-              onCleanup: (handler) => void cleanups.push(handler),
-            }),
-          ),
-          setupSignal,
-        );
+        setupResult = await runSetup({
+          projectRoot,
+          path: entry.setup,
+          runId,
+          scopeId: runId,
+          env,
+          signal: setupSignal,
+          envRead,
+          cleanups,
+        });
         for (const [name, value] of Object.entries(setupResult.secrets ?? {})) secrets.bind(name, value);
         if (Object.keys(setupResult.tools ?? {}).length > 0)
           throw new Error('custom setup tools are not supported yet (Phase 5)');
@@ -347,7 +317,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (setupSignal.aborted) throw new Error('setup ran past its time or was cancelled');
     } catch (error) {
       deadline.clear();
-      await runCleanups();
+      await cleanUp();
       if (signal?.aborted)
         return failed({
           state: 'agent_error',
@@ -421,30 +391,19 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       issues.push(...result.issues);
       trail.steps = result.steps;
       trail.browserVersion = result.browserVersion;
-      trail.replay = result.replayGaps.length > 0 ? 'unsupported' : 'not_attempted';
+      trail.replay = result.replayGaps.length > 0 || result.steps.length === 0 ? 'unsupported' : 'not_attempted';
+      if (result.steps.length === 0) issues.push(unavailable);
       if (result.replayGaps.length > 0)
         issues.push({ code: 'replay_unsupported', message: `steps ${result.replayGaps.join(', ')} cannot replay` });
       return { ...base, outcome: result.outcome, usage: result.usage, issues };
     } catch (error) {
       return agentError('browser_error', error);
     } finally {
-      await runCleanups();
+      await cleanUp();
     }
 
-    async function runCleanups(): Promise<void> {
-      const { signal: budget, clear } = heldTimeout(Math.min(CLEANUP_BUDGET_MS, request.limits.timeMs));
-      for (const cleanup of cleanups.splice(0).toReversed()) {
-        if (budget.aborted) {
-          issues.push({ code: 'cleanup_timeout', message: 'cleanup skipped: the cleanup time budget is spent' });
-          continue;
-        }
-        await settleWithin(Promise.resolve().then(cleanup), budget).catch((error: unknown) =>
-          budget.aborted
-            ? issues.push({ code: 'cleanup_timeout', message: 'cleanup did not finish within its time budget' })
-            : issues.push({ code: 'cleanup_failed', message: scrub(error).slice(0, 200) }),
-        );
-      }
-      clear();
+    async function cleanUp(): Promise<void> {
+      issues.push(...(await runCleanups(cleanups, request.limits.timeMs, scrub)));
     }
   }
 }

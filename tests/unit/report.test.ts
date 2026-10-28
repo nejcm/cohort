@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import type { Outcome } from '../../src/core/outcomes.ts';
-import { BundleError, bundleDir } from '../../src/evidence/bundle.ts';
+import { BundleError, bundleDir, readBundleFile, readSteps, refreshRun } from '../../src/evidence/bundle.ts';
 import { deriveClaims, validateClaim } from '../../src/evidence/friction.ts';
 import { inventory, writeAtomic, writeManifest } from '../../src/evidence/manifest.ts';
 import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
@@ -280,15 +280,39 @@ test('the manifest inventories regular files only, skips temp files, and never l
   assert.ok(!(await readdir(run)).some((name) => name.startsWith('manifest.json.tmp-')));
 });
 
-test('an atomic write that fails leaves neither the target nor a temp file', async () => {
-  const target = join(dir, 'missing-dir', 'report.json');
-  await assert.rejects(writeAtomic(target, 'x'));
-  await writeAtomic(join(dir, 'ok.json'), 'one');
-  await writeAtomic(join(dir, 'ok.json'), 'two');
+test('an atomic write replaces the target by rename and leaves no temp file when it fails', async () => {
+  await assert.rejects(writeAtomic(join(dir, 'missing-dir', 'report.json'), 'x'));
+  const target = join(dir, 'ok.json');
+  await writeAtomic(target, 'one');
+  await link(target, join(dir, 'held.json'));
+  await writeAtomic(target, 'two');
   assert.deepEqual(
-    (await readdir(dir)).filter((name) => name.startsWith('ok.json')),
-    ['ok.json'],
+    [await readFile(join(dir, 'held.json'), 'utf8'), await readFile(target, 'utf8')],
+    ['one', 'two'],
+    'a reader of the old file never sees the new content written into it',
   );
+  const occupied = join(dir, 'blocked');
+  await mkdir(join(occupied, 'inner'), { recursive: true });
+  await assert.rejects(writeAtomic(occupied, 'x'));
+  assert.deepEqual(await readdir(occupied), ['inner']);
+  assert.deepEqual(
+    (await readdir(dir)).filter((name) => /^(ok\.json|blocked)/u.test(name)),
+    ['blocked', 'ok.json'],
+  );
+});
+
+test('bundle readers refuse symlinked artifact files and treat missing ones as absent', async () => {
+  const run = join(dir, 'linked-run');
+  await mkdir(run);
+  await writeFile(join(dir, 'secret.env'), 'TOKEN=leak');
+  for (const name of ['report.json', 'steps.jsonl']) await symlink(join(dir, 'secret.env'), join(run, name));
+  await assert.rejects(readBundleFile(run, 'report.json'), /not a regular file/u);
+  await assert.rejects(readSteps(run), BundleError);
+  await assert.rejects(
+    refreshRun(run, (current) => current),
+    BundleError,
+  );
+  assert.equal(await readBundleFile(run, 'missing.json'), null);
 });
 
 test('bundle lookup accepts only generated IDs and plain directories', async () => {

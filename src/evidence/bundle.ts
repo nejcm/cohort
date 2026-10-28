@@ -1,4 +1,5 @@
-import { lstat, readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeAtomic, writeManifest, type RunManifest } from './manifest.ts';
 import {
@@ -32,8 +33,30 @@ export async function bundleDir(projectRoot: string, id: string): Promise<{ kind
   return { kind, dir };
 }
 
+/** Reads a bundle file, or null when it is missing; a symlink or other non-regular entry is a BundleError. */
+export async function readBundleFile(dir: string, name: string): Promise<string | null> {
+  const flags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+  const handle = await open(join(dir, name), flags).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw new BundleError(`${name} is not a regular file`);
+  });
+  if (!handle) return null;
+  try {
+    if (!(await handle.stat()).isFile()) throw new BundleError(`${name} is not a regular file`);
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function readBundleJson<T>(dir: string, name: string): Promise<T> {
+  const text = await readBundleFile(dir, name);
+  if (text === null) throw new BundleError(`${name} is missing`);
+  return JSON.parse(text) as T;
+}
+
 export async function readSteps(dir: string): Promise<StepRecord[]> {
-  const text = await readFile(join(dir, 'steps.jsonl'), 'utf8').catch(() => '');
+  const text = (await readBundleFile(dir, 'steps.jsonl')) ?? '';
   return text
     .split('\n')
     .filter(Boolean)
@@ -54,8 +77,8 @@ export async function writeBatchReports(dir: string, report: BatchReport): Promi
 
 /** Rewrites a finalized run's reports from a changed report, then re-inventories it under a fresh manifest. */
 export async function refreshRun(dir: string, change: (report: RunReport) => RunReport): Promise<RunReport> {
-  const report = change(JSON.parse(await readFile(join(dir, 'report.json'), 'utf8')) as RunReport);
-  const previous = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8')) as RunManifest;
+  const report = change(await readBundleJson<RunReport>(dir, 'report.json'));
+  const previous = await readBundleJson<RunManifest>(dir, 'manifest.json');
   await writeRunReports(dir, report, await readSteps(dir));
   const { schemaVersion: _, finalizedAt: _f, sensitivity: _s, artifacts: _a, ...identity } = previous;
   await writeManifest(dir, identity);

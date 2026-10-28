@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/cli.ts", "src/index.ts", "tests/**/*.test.ts", "examples/setup/*.ts"],
+  "entry": ["src/cli.ts", "src/index.ts", "tests/**/*.test.ts", "examples/setup/*.ts", "examples/report-examples.ts"],
   "project": ["src/**/*.ts", "tests/**/*.ts", "fixtures/**/*.ts", "examples/**/*.ts"],
   "ignoreDependencies": ["@playwright/test"]
 }
