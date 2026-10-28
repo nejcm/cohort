@@ -3,6 +3,8 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
+import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { run } from '../../src/cli.ts';
@@ -67,8 +69,20 @@ before(async () => {
     "export default async (ctx) => { throw new Error('login failed for ' + ctx.env('LAB_TEST_PASSWORD') + ' with sk-inline-key-123'); };\n",
   );
   await suite('leaky', '  setup: ../setup/leaky.ts\n');
+  await put(
+    '.lab/setup/leaky-env.ts',
+    "export default async (ctx) => { throw new Error('bad ' + ctx.env('LAB_LEAK')); };\n",
+  );
+  await suite('leakyenv', '  setup: ../setup/leaky-env.ts\n');
   await put('.lab/setup/hang.ts', 'export default () => new Promise(() => {});\n');
   await suite('hang', '  setup: ../setup/hang.ts\n');
+  await put('.lab/setup/hang-load.ts', 'await new Promise(() => {});\nexport default () => ({});\n');
+  await suite('hangload', '  setup: ../setup/hang-load.ts\n');
+  await put(
+    '.lab/setup/stuck-fail.ts',
+    "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); throw new Error('nope'); };\n",
+  );
+  await suite('stuckfail', '  setup: ../setup/stuck-fail.ts\n');
   await put(
     '.lab/setup/stuck-cleanup.ts',
     "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); return { startUrl: ctx.env('LAB_FIXTURE_ORIGIN') + '/' }; };\n",
@@ -204,6 +218,20 @@ test('a missing provider key or broken named state fails preflight with exit 2 a
   const badShape = await lab(['--suite', 'badshape', '--json']);
   assert.equal(badShape.code, 2);
   assert.match(badShape.json.error, /storage state badshape\.cookies\[0\]: must be an object/u);
+  const cookie = { name: 'a', value: 'b', domain: 'x.test', path: '/' };
+  for (const [state, field] of [
+    [{ cookies: [{ ...cookie, partitionKey: null }], origins: [] }, 'cookies[0].partitionKey'],
+    [
+      { cookies: [], origins: [{ origin: 'https://x.test', localStorage: [], indexedDB: null }] },
+      'origins[0].indexedDB',
+    ],
+  ] as const) {
+    await put('.lab/auth/badshape.json', JSON.stringify(state));
+    const nulled = await lab(['--suite', 'badshape', '--json']);
+    assert.equal(nulled.code, 2);
+    assert.match(nulled.json.error, new RegExp(`badshape\\.${field.replace(/[.[\]]/gu, '\\$&')}:`, 'u'));
+  }
+  await put('.lab/auth/badshape.json', '{ "cookies": [null], "origins": [] }');
   assert.equal(await runCount(), runs);
 });
 
@@ -329,6 +357,40 @@ test('setup errors never echo environment values or provider keys', async () => 
   assert.equal(code, 1);
   assert.doesNotMatch(out, /pw-canary|sk-inline/u);
   assert.equal(json.runs[0].outcome.reason, 'login failed for [env] with [env]');
+  for (const [value, reason] of [
+    ['line-one-77\nline-two-88', 'bad [env]'],
+    ['42', 'error message withheld: it may contain an environment value'],
+  ]) {
+    const leak = await lab(['--suite', 'leakyenv', '--json'], { env: { LAB_LEAK: value } });
+    assert.equal(leak.json.runs[0].outcome.reason, reason);
+  }
+});
+
+test('a CLI process with nothing else pending still reports hanging setup, module load, and cleanup', async () => {
+  const cli = join(repoRoot, 'src/cli.ts');
+  const outcomes = await Promise.all(
+    ['hang', 'hangload', 'stuckfail'].map(async (id) => {
+      const child = await promisify(execFile)(
+        process.execPath,
+        [cli, 'run', '--suite', id, '--time-ms', '1000', '--json'],
+        {
+          cwd: root,
+          env: { PATH: process.env.PATH, OPENAI_API_KEY: 'test-key' },
+        },
+      ).catch((error: { code: number; stdout: string }) => error);
+      const { runs } = JSON.parse(child.stdout || '{"runs":[]}');
+      return [
+        (child as { code?: number }).code ?? 0,
+        runs[0]?.outcome.state,
+        runs[0]?.issues.map((issue: { code: string }) => issue.code),
+      ];
+    }),
+  );
+  assert.deepEqual(outcomes, [
+    [1, 'limit_reached', ['evidence_unavailable']],
+    [1, 'limit_reached', ['evidence_unavailable']],
+    [1, 'agent_error', ['cleanup_timeout', 'evidence_unavailable']],
+  ]);
 });
 
 test('a hanging setup ends at the time cap and a hanging cleanup is cut off', async () => {

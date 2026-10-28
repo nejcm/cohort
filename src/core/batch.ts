@@ -42,7 +42,8 @@ interface BatchOptions {
 
 const stamp = (): string => new Date().toISOString().replace(/[-:]/gu, '').replace('T', '_').slice(0, 15);
 const newId = (prefix: string): string => `${prefix}_${stamp()}_${randomBytes(3).toString('hex')}`;
-const firstLine = (error: unknown): string => String((error as Error)?.message ?? error).split('\n')[0]!;
+const firstLine = (text: string): string => text.split('\n')[0]!;
+const MIN_SCRUB_LENGTH = 4;
 const CLEANUP_BUDGET_MS = 10_000;
 
 function settleWithin<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -53,6 +54,13 @@ function settleWithin<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
     }),
   ]);
+}
+
+// AbortSignal.timeout is unref'd: a hung setup with no other handle would end the process (exit 13) unreported.
+function heldTimeout(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('timed out', 'TimeoutError')), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
 // Missing or malformed named states fail before any run starts.
@@ -99,37 +107,45 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     };
     const envRead: string[] = [];
     // Setup and cleanup errors may echo environment values that were never registered as secrets.
-    const scrub = (error: unknown): string =>
-      [...providerKeys, ...envRead]
-        .filter((value) => value.length >= 4)
-        .toSorted((a, b) => b.length - a.length)
-        .reduce((text, value) => text.split(value).join('[env]'), secrets.redact(firstLine(error)));
+    const scrub = (error: unknown): string => {
+      const values = [...providerKeys, ...envRead];
+      const text = secrets.redact(String((error as Error)?.message ?? error));
+      // Values too short to replace safely withhold the whole message instead.
+      if (values.some((value) => value.length < MIN_SCRUB_LENGTH && value.length > 0 && text.includes(value)))
+        return 'error message withheld: it may contain an environment value';
+      return firstLine(
+        values
+          .toSorted((a, b) => b.length - a.length)
+          .reduce((scrubbed, value) => scrubbed.split(value).join('[env]'), text),
+      );
+    };
     const agentError = (code: 'setup_error' | 'browser_error', error: unknown): BatchRun =>
       failed({ state: 'agent_error', code, reason: scrub(error).slice(0, 500), evidence: [] });
 
     let setupResult: SetupResult | null = null;
     let startUrl = request.url!;
     let setupHash: string | null = null;
-    const deadline = AbortSignal.timeout(request.limits.timeMs);
-    const setupSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const deadline = heldTimeout(request.limits.timeMs);
+    const setupSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
     try {
       if (entry.setup) {
         setupHash = sha256(await readFile(entry.setup));
-        const setup = await loadSetupModule(projectRoot, entry.setup);
-        setupResult = await settleWithin(
-          setup({
-            runId,
-            scopeId: runId,
-            projectRoot,
-            signal: setupSignal,
-            env(name) {
-              const value = env[name];
-              if (!value) throw new Error(`environment variable ${name} is not set`);
-              envRead.push(value);
-              return value;
-            },
-            onCleanup: (handler) => void cleanups.push(handler),
-          }),
+        setupResult = await settleWithin<SetupResult>(
+          loadSetupModule(projectRoot, entry.setup).then((setup) =>
+            setup({
+              runId,
+              scopeId: runId,
+              projectRoot,
+              signal: setupSignal,
+              env(name) {
+                const value = env[name];
+                if (!value) throw new Error(`environment variable ${name} is not set`);
+                envRead.push(value);
+                return value;
+              },
+              onCleanup: (handler) => void cleanups.push(handler),
+            }),
+          ),
           setupSignal,
         );
         for (const [name, value] of Object.entries(setupResult.secrets ?? {})) secrets.bind(name, value);
@@ -140,6 +156,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       startUrl = setupResult?.startUrl ?? startUrl;
       if (setupSignal.aborted) throw new Error('setup ran past its time or was cancelled');
     } catch (error) {
+      deadline.clear();
       await runCleanups();
       if (signal?.aborted)
         return failed({
@@ -149,7 +166,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
           reason: 'interrupted during setup',
           evidence: [],
         });
-      if (deadline.aborted)
+      if (deadline.signal.aborted)
         return failed({
           state: 'limit_reached',
           limit: 'time',
@@ -160,6 +177,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         });
       return agentError('setup_error', error);
     }
+    deadline.clear();
     try {
       await writeFile(
         join(outDir, 'resolved-config.json'),
@@ -220,7 +238,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     }
 
     async function runCleanups(): Promise<void> {
-      const budget = AbortSignal.timeout(Math.min(CLEANUP_BUDGET_MS, request.limits.timeMs));
+      const { signal: budget, clear } = heldTimeout(Math.min(CLEANUP_BUDGET_MS, request.limits.timeMs));
       for (const cleanup of cleanups.splice(0).toReversed()) {
         if (budget.aborted) {
           issues.push({ code: 'cleanup_timeout', message: 'cleanup skipped: the cleanup time budget is spent' });
@@ -232,6 +250,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
             : issues.push({ code: 'cleanup_failed', message: scrub(error).slice(0, 200) }),
         );
       }
+      clear();
     }
   }
 }

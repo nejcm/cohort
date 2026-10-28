@@ -272,7 +272,7 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
         return send(
           page(
             'Stuck',
-            `<h1>Arrival</h1><p><button class="primary" id="next" type="button">Next</button></p><p><button id="count" type="button" onclick="this.textContent = 'Clicked ' + (Number(this.dataset.n = Number(this.dataset.n ?? 0) + 1))">Count</button></p><p><a id="slow-headers" href="/lab/slow">Slow reply</a> <a id="slow-body" href="/lab/slow?stall=body">Slow body</a></p>`,
+            `<h1>Arrival</h1><p><button class="primary" id="next" type="button">Next</button></p><p><button id="count" type="button" onclick="this.textContent = 'Clicked ' + (Number(this.dataset.n = Number(this.dataset.n ?? 0) + 1))">Count</button></p><p><a id="slow-headers" href="/lab/slow">Slow reply</a> <a id="slow-body" href="/lab/slow?stall=body">Slow body</a> <a id="busy" href="/lab/busy">Busy page</a></p>`,
           ),
         );
       case 'GET /lab/injection':
@@ -291,6 +291,14 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
         await delay(url.searchParams.get('stall') === 'body' ? ms : 0);
         return void response.end('</body></html>');
       }
+      case 'GET /lab/busy':
+        // Blocks the page's main thread just after DOMContentLoaded, so the follow-up screenshot stays pending.
+        return send(
+          page(
+            'Busy',
+            `<h1>Busy</h1><script>addEventListener('DOMContentLoaded', () => setTimeout(() => { const end = Date.now() + 3000; while (Date.now() < end); }, 0));</script>`,
+          ),
+        );
       case 'GET /lab/state': {
         visits.push({ scope, cookie: request.headers.cookie ?? '' });
         response.setHeader('set-cookie', 'lab_visited=1; Path=/; SameSite=Lax');

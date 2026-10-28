@@ -559,7 +559,7 @@ test('an agent give_up is abandonment; an uncertain give_up is an agent error', 
 });
 
 for (const link of ['#slow-headers', '#slow-body'])
-  test(`cancellation while a click (${link}) or its follow-up capture is pending ends as interrupted`, async () => {
+  test(`cancellation while a click (${link}) is pending ends as interrupted`, async () => {
     const controller = new AbortController();
     let clickedAt = 0;
     const { result } = await run(
@@ -579,6 +579,28 @@ for (const link of ['#slow-headers', '#slow-body'])
     );
     assert.ok(Date.now() - clickedAt < 1200);
   });
+
+test('cancellation while the follow-up screenshot is pending ends as interrupted', async () => {
+  const controller = new AbortController();
+  let loadedAt = 0;
+  const { result } = await run(
+    '/lab/loop',
+    (page) => async (request) => {
+      page.once('domcontentloaded', () => {
+        loadedAt = Date.now();
+        setTimeout(() => controller.abort('user'), 300);
+      });
+      return clickOn(page, '#busy')(request, 0);
+    },
+    { signal: controller.signal },
+  );
+  assert.deepEqual(
+    [result.outcome.state, (result.outcome as { code?: string }).code],
+    ['agent_error', 'interrupted'],
+    JSON.stringify(result.outcome),
+  );
+  assert.ok(Date.now() - loadedAt < 1500);
+});
 
 test('loop detection ignores argument key order', async () => {
   const { result } = await run('/', () => [
