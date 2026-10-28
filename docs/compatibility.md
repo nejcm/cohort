@@ -1,4 +1,4 @@
-# Compatibility notes (Phases 0-1)
+# Compatibility notes
 
 Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, with a scripted fake model. Node 24 itself has not been run locally yet; CI pins `.node-version`.
 
@@ -104,6 +104,23 @@ At each clean capture every element's box is recorded and the mutation log is re
 - `lab persona generate` was tested only with a scripted model. The tests cover: redirects and scripted navigation off the landing page are refused before the target loads; cross-origin subresources and popups are blocked; a query or fragment value in `--url` never reaches the model or an error message, even when the page echoes it; masked elements stay out of both the screenshot and the page text; cancellation closes the browser during capture; an unpriced model warns before the call; injected page text cannot make an accepted persona set `setup`, `storageState`, `model`, `effort`, or `limits`; invalid output is never saved; `--out` never overwrites.
 - Not verified: the quality of personas from a live model, and whether one landing page gives enough context. Both need live keys.
 - The token bound used to reserve the generator budget is the same unmeasured, conservative one the agent uses.
+
+## Dashboard API (Phase 4)
+
+- Verified with a scripted model and raw HTTP clients:
+  - 401 without the bearer token, including when the token is in the query.
+  - 403 for a foreign `Origin`, a mutation with no `Origin`, or a cross-site `Sec-Fetch-Site`.
+  - 421 for a rebinding `Host` or the wrong port.
+  - No CORS headers are sent.
+  - SSE replays from `Last-Event-ID`.
+  - Queued and running runs can be cancelled; the queue is bounded at 100.
+  - Edits get a 409 on a stale revision and never overwrite external edits. Setup references cannot be added, changed or removed through the API.
+  - Artifacts are served by manifest ID only; traces download as sandboxed attachments.
+  - A restart marks orphans `interrupted`.
+  - The key value never appears in responses, events, the index, or bundle files other than the trace.
+- `/api/runs/:id/screenshots/shot-NNNN` serves the screenshots of a run still in progress, because the manifest exists only after finalize.
+- Cancelling in the window between dequeue and `run.started` records the run as finished with an interrupted outcome, not as `cancelled`.
+- The browser screens and the CSP check of the built Svelte output are not done yet.
 
 ## Not verified (needs live keys or external targets)
 

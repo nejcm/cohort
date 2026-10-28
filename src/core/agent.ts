@@ -41,7 +41,11 @@ export interface AgentOptions {
   signal?: AbortSignal;
   /** Epoch ms the time cap counts from; earlier than now when setup already ran. */
   startedAt?: number;
+  /** Live progress; payloads hold only IDs, tool names, statuses, and counts. */
+  onEvent?: (type: AgentEvent, payload: Record<string, unknown>) => void;
 }
+
+export type AgentEvent = 'observation.created' | 'step.started' | 'step.completed' | 'usage.updated';
 
 interface RunUsage {
   providerCalls: number;
@@ -196,6 +200,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     const screenshotId = pad('shot-', shots++);
     await writeFile(join(options.screenshotsDir, `${screenshotId}.png`), capture.png, { mode: 0o600 });
     current = { id: pad('o', observations++), capture, screenshotId, url: page.url() };
+    options.onEvent?.('observation.created', { observationId: current.id, screenshotId });
   };
 
   const evidenceAt = (stepId: string): EvidenceRef[] => {
@@ -273,6 +278,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       ...(extra.target ? { target: extra.target } : {}),
     };
     steps.push(step);
+    options.onEvent?.('step.completed', {
+      stepId: step.id,
+      action: secrets.redact(call.name).slice(0, 64),
+      status: step.result.status,
+      screenshotId: step.afterScreenshotId ?? step.beforeScreenshotId,
+    });
     const after = step.afterScreenshotId ? current : null;
     const progressed =
       step.result.status === 'ok' &&
@@ -420,6 +431,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + decision.usage.cachedInputTokens;
       }
       usage.returnedModel = decision.returnedModel ?? usage.returnedModel;
+      options.onEvent?.('usage.updated', {
+        providerCalls: usage.providerCalls,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        estimatedCostUsd: meter.enforcement === 'priced_reservations' ? meter.settledUsd : null,
+        providerReportedCostUsd: meter.enforcement === 'provider_reported_cost' ? meter.reportedUsd : null,
+      });
       if (signal?.aborted) return interrupted();
       if (Date.now() >= deadline) return timeLimit('time limit reached before acting on the provider response');
       // Reservations are estimates; a call that settled past the cap is not acted on.
@@ -436,6 +454,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       }
       const call = decision.calls[0]!;
       pending = { call, started };
+      options.onEvent?.('step.started', {
+        stepId: pad('s', steps.length),
+        action: secrets.redact(call.name).slice(0, 64),
+      });
       const invalid = validateToolCall(call);
       if (invalid) {
         record(call, started, { status: 'rejected', code: 'invalid_tool', message: invalid });

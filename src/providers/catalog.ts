@@ -157,6 +157,9 @@ export function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
+export const catalogHash = (catalog: ModelCatalog): string =>
+  `sha256:${createHash('sha256').update(canonical(catalog)).digest('hex')}`;
+
 export async function loadCatalog(projectRoot: string): Promise<ModelCatalog> {
   const base = validateCatalog(shipped, 'catalog.json');
   let text: string;
@@ -190,7 +193,7 @@ export function resolveModel(
   if (effort === null) throw new CatalogError(`no effort given and no default for ${qualified}`);
   if (!entry.supportedEffortLevels.includes(effort))
     throw new CatalogError(`effort ${effort} is not supported by ${qualified}`);
-  const hash = `sha256:${createHash('sha256').update(canonical(catalog)).digest('hex')}`;
+  const hash = catalogHash(catalog);
   const snapshot = structuredClone(entry);
   Object.freeze(snapshot.pricesPerMTok);
   Object.freeze(snapshot.supportedEffortLevels);

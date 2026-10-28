@@ -14,7 +14,7 @@ import {
   type RunSubmission,
 } from './config/resolve.ts';
 import { runBatch, type BatchResult } from './core/batch.ts';
-import { estimateCostUsd } from './core/cost.ts';
+import { preflight } from './core/estimate.ts';
 import { replayRun } from './core/replay.ts';
 import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
 import {
@@ -30,6 +30,7 @@ import { CatalogError, loadCatalog, resolveModel } from './providers/catalog.ts'
 import { createProviders } from './providers/registry.ts';
 import { ProviderError, type Effort, type ProviderAdapter } from './providers/types.ts';
 import { GenerateError, generatePersona } from './personas/generate.ts';
+import { isLoopback, startDashboard } from './dashboard/server.ts';
 
 const USAGE = `Usage: lab [options]
        lab run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
@@ -37,6 +38,7 @@ const USAGE = `Usage: lab [options]
        lab replay <run-id> [--json]
        lab trace <run-id>
        lab persona validate
+       lab ui [--port <n>] [--host <address>]
        lab persona generate --url <url> --description <text> [--out <file>] [--model <provider>/<id>]
                             [--effort low|medium|high] [--dollars <n>] [--allow-untested] [--json]
 
@@ -78,6 +80,8 @@ const RUN_OPTIONS = {
   format: { type: 'string' },
   description: { type: 'string' },
   out: { type: 'string' },
+  host: { type: 'string' },
+  port: { type: 'string' },
 } as const;
 
 const GENERATE_DOLLARS = 0.5;
@@ -120,6 +124,7 @@ export async function run(
   }
   const [command, id, ...extra] = positionals;
   if (command === 'run' && id === undefined) return runCommand(values, write, deps);
+  if (command === 'ui' && id === undefined) return uiCommand(values, write, deps);
   if ((command === 'report' || command === 'replay' || command === 'trace') && id !== undefined && extra.length === 0) {
     try {
       if (command === 'report') return await reportCommand(id, values.format ?? 'md', write, deps);
@@ -243,6 +248,39 @@ async function generateCommand(
   return 0;
 }
 
+async function uiCommand(
+  values: Record<string, string | boolean | undefined>,
+  write: Write,
+  deps: Dependencies,
+): Promise<number> {
+  const host = values.host as string | undefined;
+  const port = values.port === undefined ? 0 : Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+    write('Error: --port must be an integer in [0, 65535]\n');
+    return 2;
+  }
+  if (host !== undefined && !isLoopback(host))
+    write(
+      `warning: listening on ${host} over plain HTTP. This service holds your LLM provider keys and launches browsers; anyone who can reach it and has the token can spend on your keys. This is not a secure remote deployment.\n`,
+    );
+  const dashboard = await startDashboard({
+    projectRoot: deps.cwd ?? process.cwd(),
+    env: deps.env ?? process.env,
+    ...(deps.providers ? { providers: deps.providers } : {}),
+    ...(host === undefined ? {} : { host }),
+    port,
+  });
+  write(
+    `dashboard: ${dashboard.url}\nThe token in this URL grants full access; keep it private. Press Ctrl-C to stop.\n`,
+  );
+  await new Promise<void>((resolve) => {
+    if (deps.signal?.aborted) resolve();
+    deps.signal?.addEventListener('abort', () => resolve(), { once: true });
+  });
+  await dashboard.close();
+  return 0;
+}
+
 function showTrace(tracePath: string): Promise<number> {
   const cli = join(dirname(createRequire(import.meta.url).resolve('playwright/package.json')), 'cli.js');
   return new Promise((resolve) => {
@@ -296,42 +334,6 @@ function submissionFrom(values: Record<string, string | boolean | undefined>): R
     ...(values.repeats === undefined ? {} : { repeats: number('repeats') }),
     ...(Object.keys(limits).length > 0 ? { limits } : {}),
   });
-}
-
-// shortcut: fixed per-call token assumption (6k in, 300 out); replace with measured per-call usage from Phase 0 runs.
-function costLine(entry: ResolvedEntry): { text: string; maxUsd: number | null } {
-  const { pricesPerMTok: prices, untested } = entry.request.catalog.entry;
-  const { steps, dollars } = entry.request.limits;
-  const perCall = estimateCostUsd(
-    {
-      inputTokens: 6000,
-      outputTokens: 300,
-      cachedInputTokens: 0,
-      imageInputTokens: null,
-      reportedCostUsd: null,
-      source: 'estimated',
-    },
-    prices,
-  );
-  const cost =
-    perCall === null
-      ? 'cost unknown; dollar cap unenforceable'
-      : `estimated $${(perCall * 2).toFixed(2)}-$${Math.min(dollars, perCall * steps).toFixed(2)} per run`;
-  return {
-    text: `untested: ${untested ? 'yes' : 'no'}; ${cost}`,
-    maxUsd: perCall === null ? null : dollars * entry.request.repeats,
-  };
-}
-
-function preflight(entries: readonly ResolvedEntry[]): { lines: string[]; maxBatchUsd: number | null } {
-  let maxBatchUsd: number | null = 0;
-  const lines = entries.map((entry, index) => {
-    const { request, layers } = entry;
-    const cost = costLine(entry);
-    maxBatchUsd = cost.maxUsd === null || maxBatchUsd === null ? null : maxBatchUsd + cost.maxUsd;
-    return `${index + 1}. ${entry.persona.id} x${request.repeats}: ${request.provider}/${request.model} effort ${request.effort} (model from ${layers.modelFrom}, effort from ${layers.effortFrom}); ${cost.text}; caps ${request.limits.steps} steps, ${request.limits.timeMs} ms, $${request.limits.dollars}`;
-  });
-  return { lines, maxBatchUsd };
 }
 
 async function runCommand(

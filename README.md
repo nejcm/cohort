@@ -6,7 +6,7 @@ AI synthetic users that operate your web app like real people. You give a person
 
 ## Status
 
-Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–3 are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, and persona validation and generation. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
+Implementation follows [PLAN.md](.plans/PLAN.md). Phases 0–3 and the Phase 4 dashboard API are tested against a scripted fake model. They cover the fixture app, both `fetch` provider adapters, the catalog, config/persona/suite resolution, target resolution, masking, caps, cancellation, loop detection, `lab run`, run bundles with manifests and reports, friction claims, `lab replay`/`lab report`/`lab trace`, persona validation and generation, and the `lab ui` HTTP/SSE API. Live provider checks are still open. Verified behavior and unsupported cases: [compatibility notes](docs/compatibility.md). Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md) and the [original idea](docs/original-idea.md).
 
 ## Prerequisites
 
@@ -71,6 +71,15 @@ How to write personas and suites, how prompt layers combine, and the generator g
 The result is recorded as `passed` or `failed` in the run report.
 
 Overrides: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--url`, `--note`. Untested catalog entries need `--allow-untested`. `--json` prints one JSON result. Exit codes: `0` all runs completed, `1` any other outcome or cancellation, `2` invalid invocation or configuration.
+
+### Dashboard
+
+```sh
+lab ui [--port <n>]           # loopback only; prints http://127.0.0.1:<port>/#token=...
+lab ui --host <address>       # explicit exposure; prints a warning first
+```
+
+The dashboard API is complete: run queue, cancel, live events over SSE, artifact downloads, and revision-checked persona and suite editing. The browser screens are not built yet, so the page answers 503 until they ship. Every API call needs the per-launch token as `Authorization: Bearer`. Requests with a foreign `Host` or `Origin` are refused. Setup references in personas and suites are read-only through the API. Runs are indexed in `.lab/index.sqlite` (gitignored). A restart marks unfinished runs `interrupted` and never resumes them.
 
 ## Environment variables
 

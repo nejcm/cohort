@@ -23,7 +23,7 @@ import type { ProviderAdapter } from '../providers/types.ts';
 import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
 import { redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
 import type { SetupResult } from '../setup/types.ts';
-import type { AgentResult } from './agent.ts';
+import type { AgentEvent, AgentResult } from './agent.ts';
 import { CostMeter } from './cost.ts';
 import { runOnce } from './engine.ts';
 import type { Outcome } from './outcomes.ts';
@@ -58,8 +58,9 @@ interface Trail {
   resolvedConfigHash: string | null;
 }
 
-const TOOL_VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
-const PLAYWRIGHT_VERSION = (createRequire(import.meta.url)('playwright/package.json') as { version: string }).version;
+export const TOOL_VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
+export const PLAYWRIGHT_VERSION = (createRequire(import.meta.url)('playwright/package.json') as { version: string })
+  .version;
 
 interface BatchOptions {
   projectRoot: string;
@@ -68,10 +69,17 @@ interface BatchOptions {
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   onRunStart?: (run: { runId: string; entryIndex: number; repeat: number; personaId: string }) => void;
+  /** Preassigned IDs, run IDs in entry then repeat order; the dashboard indexes runs before they start. */
+  ids?: { batchId: string; runIds: readonly string[] };
+  /** Per-run cancellation; a run already aborted when its turn comes is skipped. */
+  runSignal?: (runId: string) => AbortSignal | undefined;
+  onEvent?: (runId: string, type: BatchEvent, payload: Record<string, unknown>) => void;
 }
 
+export type BatchEvent = AgentEvent | 'run.started' | 'friction.created' | 'run.finished';
+
 const stamp = (): string => new Date().toISOString().replace(/[-:]/gu, '').replace('T', '_').slice(0, 15);
-const newId = (prefix: string): string => `${prefix}_${stamp()}_${randomBytes(3).toString('hex')}`;
+export const newId = (prefix: string): string => `${prefix}_${stamp()}_${randomBytes(3).toString('hex')}`;
 const firstLine = (text: string): string => text.split('\n')[0]!;
 
 // Missing or malformed named states fail before any run starts.
@@ -91,14 +99,24 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   );
   const providerKeys = [...keyEnvs].flatMap((name) => env[name] ?? []);
   const states = await loadNamedStates(projectRoot, entries);
-  const batchId = newId('batch');
+  const batchId = options.ids?.batchId ?? newId('batch');
   const runs: BatchRun[] = [];
   const reports: RunReport[] = [];
   const total = entries.reduce((sum, entry) => sum + entry.request.repeats, 0);
+  if (options.ids && options.ids.runIds.length !== total) throw new Error('one preassigned run ID per repetition');
+  let position = 0;
   for (const entry of entries)
     for (let repeat = 0; repeat < entry.request.repeats; repeat += 1) {
+      const runId = options.ids?.runIds[position++] ?? newId('run');
       if (signal?.aborted) break;
-      const run = await runEntry(entry, repeat);
+      const runSignal = options.runSignal?.(runId);
+      if (runSignal?.aborted) continue;
+      const run = await runEntry(
+        entry,
+        repeat,
+        runId,
+        runSignal ? AbortSignal.any([runSignal, ...(signal ? [signal] : [])]) : signal,
+      );
       runs.push(run.run);
       reports.push(run.report);
     }
@@ -110,11 +128,16 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   await writeBatchReports(reportDir, summary);
   return { batchId, runs, skipped, summary, reportDir };
 
-  async function runEntry(entry: ResolvedEntry, repeat: number): Promise<{ run: BatchRun; report: RunReport }> {
-    const runId = newId('run');
+  async function runEntry(
+    entry: ResolvedEntry,
+    repeat: number,
+    runId: string,
+    runSignal: AbortSignal | undefined,
+  ): Promise<{ run: BatchRun; report: RunReport }> {
     const outDir = join(projectRoot, '.lab', 'runs', runId);
     await mkdir(outDir, { recursive: true, mode: 0o700 });
     options.onRunStart?.({ runId, entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
+    options.onEvent?.(runId, 'run.started', { entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
     const trail: Trail = {
       startedAt: Date.now(),
       steps: [],
@@ -124,9 +147,13 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       setupHash: null,
       resolvedConfigHash: null,
     };
-    const run = await execute(entry, repeat, runId, outDir, trail);
+    const run = await execute(entry, repeat, runId, outDir, trail, runSignal);
     try {
-      return { run, report: await finalize(entry, run, trail) };
+      const report = await finalize(entry, run, trail);
+      for (const claim of report.friction)
+        options.onEvent?.(runId, 'friction.created', { claimId: claim.id, kind: claim.kind });
+      options.onEvent?.(runId, 'run.finished', { state: report.outcome.state });
+      return { run, report };
     } catch (error) {
       const reason = `artifact finalization failed: ${trail.secrets.redact(firstLine(String((error as Error)?.message ?? error)))}`;
       run.issues.push({ code: 'artifact_error', message: reason.slice(0, 200) });
@@ -134,6 +161,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         ...run,
         outcome: { state: 'agent_error', code: 'artifact_error', reason, evidence: [] },
       };
+      options.onEvent?.(runId, 'run.finished', { state: 'agent_error' });
       return { run: failed, report: reportOf(entry, failed, trail, []) };
     }
   }
@@ -261,6 +289,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
           friction: [...current.friction, claim],
         }));
         finished[finished.indexOf(report)] = updated;
+        options.onEvent?.(report.runId, 'friction.created', { claimId: claim.id, kind: claim.kind });
       }
     }
   }
@@ -271,6 +300,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     runId: string,
     outDir: string,
     trail: Trail,
+    runSignal: AbortSignal | undefined,
   ): Promise<BatchRun> {
     const { request, persona } = entry;
     const { startedAt, secrets } = trail;
@@ -293,7 +323,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     let startUrl = request.url!;
     let setupHash: string | null = null;
     const deadline = heldTimeout(request.limits.timeMs);
-    const setupSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
+    const setupSignal = runSignal ? AbortSignal.any([runSignal, deadline.signal]) : deadline.signal;
     try {
       if (entry.setup) {
         setupHash = sha256(await readFile(entry.setup));
@@ -318,11 +348,11 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     } catch (error) {
       deadline.clear();
       await cleanUp();
-      if (signal?.aborted)
+      if (runSignal?.aborted)
         return failed({
           state: 'agent_error',
           code: 'interrupted',
-          interruptedBy: signal.reason === 'process' ? 'process' : 'user',
+          interruptedBy: runSignal.reason === 'process' ? 'process' : 'user',
           reason: 'interrupted during setup',
           evidence: [],
         });
@@ -386,7 +416,8 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         locale: persona.locale,
         timezone: persona.timezone,
         ...(storageState ? { storageState } : {}),
-        ...(signal ? { signal } : {}),
+        ...(runSignal ? { signal: runSignal } : {}),
+        ...(options.onEvent ? { onEvent: (type, payload) => options.onEvent!(runId, type, payload) } : {}),
       });
       issues.push(...result.issues);
       trail.steps = result.steps;

@@ -368,7 +368,7 @@ async function requireFile(projectRoot: string, path: string, what: string): Pro
   if (!(await lstat(join(projectRoot, path)).catch(() => null))) throw new ConfigError(`unknown ${what}: no ${path}`);
 }
 
-async function listIds(projectRoot: string, dir: string, extension: string): Promise<string[]> {
+export async function listIds(projectRoot: string, dir: string, extension: string): Promise<string[]> {
   const names = await readdir(join(projectRoot, '.lab', dir)).catch(() => []);
   return names
     .filter((name) => name.endsWith(extension))
@@ -425,17 +425,31 @@ export async function checkProject(
   return { personas: valid.size, suites: suiteIds.length, problems };
 }
 
+/** Parses and validates suite YAML without touching the file system; `defaults.setup` stays as written. */
+export function parseSuite(content: string, source: string): Suite {
+  const suite = checked<Suite>(suiteSchema, parseYaml(content, source), source);
+  suite.defaults ??= {};
+  return suite;
+}
+
+/** Raw text of `.lab/<kind>/<id>.<ext>`, or null when absent; bad IDs, symlinks, and escapes are rejected. */
+export async function readDeclared(
+  projectRoot: string,
+  kind: 'personas' | 'suites',
+  fileId: string,
+): Promise<string | null> {
+  if (!new RegExp(ID, 'u').test(fileId)) throw new ConfigError(`invalid ${kind.slice(0, -1)} id: ${fileId}`);
+  const name = `${fileId}.${kind === 'personas' ? 'md' : 'yml'}`;
+  if (!(await lstat(join(projectRoot, '.lab', kind, name)).catch(() => null))) return null;
+  return readContained(projectRoot, ['.lab', kind], name);
+}
+
 export async function loadSuite(projectRoot: string, suiteId: string): Promise<Suite> {
   if (!new RegExp(ID, 'u').test(suiteId)) throw new ConfigError(`invalid suite id: ${suiteId}`);
   const source = `.lab/suites/${suiteId}.yml`;
   await requireFile(projectRoot, source, `suite ${suiteId}`);
-  const suite = checked<Suite>(
-    suiteSchema,
-    parseYaml(await readContained(projectRoot, ['.lab', 'suites'], `${suiteId}.yml`), source),
-    source,
-  );
+  const suite = parseSuite(await readContained(projectRoot, ['.lab', 'suites'], `${suiteId}.yml`), source);
   if (suite.id !== suiteId) throw new ConfigError(`${source}: id ${suite.id} does not match the file name`);
-  suite.defaults ??= {};
   if (suite.defaults.setup)
     suite.defaults.setup = await setupPath(
       projectRoot,
