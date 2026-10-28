@@ -1,0 +1,30 @@
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.output/
+.tanstack/
+.turbo/
+.vite/
+test-results/
+playwright-report/
+*.tsbuildinfo
+*.tgz
+*.log
+.DS_Store
+.idea/
+*.swp
+*.swo
+
+.env
+.env.*
+!.env.example
+
+# lab runtime state
+.lab/auth/
+.lab/runs/
+.lab/index.sqlite*
+
+# local planning notes
+.plans/
