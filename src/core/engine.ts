@@ -66,7 +66,8 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       await context.tracing.stop({ path: tracePath });
     } catch (error) {
       traced = null;
-      result.issues.push({ code: 'trace_failed', message: (error as Error).message.split('\n')[0]!.slice(0, 200) });
+      const message = options.secrets.redact((error as Error).message.split('\n')[0]!).slice(0, 200);
+      result.issues.push({ code: 'trace_failed', message });
     }
     await writeFile(join(options.outDir, 'steps.jsonl'), stepsJsonl(result.steps), { mode: 0o600 });
     await writeFile(

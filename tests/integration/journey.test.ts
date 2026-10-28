@@ -177,6 +177,8 @@ test('runOnce keeps requests and redirect hops inside the allowlist and keeps ar
   const blocked = await recorder();
   const resource = await recorder();
   let page: Page | undefined;
+  const secrets = new SecretStore();
+  secrets.bind('token', 'tok-trace-5678');
   try {
     const provider = fakeProvider([
       async () => {
@@ -209,14 +211,14 @@ test('runOnce keeps requests and redirect hops inside the allowlist and keeps ar
       startUrl: `${fixture.url}/`,
       allowedOrigins: [],
       resourceOrigins: [resource.origin],
-      secrets: new SecretStore(),
+      secrets,
       limits: { steps: 5, timeMs: 30_000, dollars: 1 },
       device: { viewport: { width: 800, height: 900 }, touch: false },
       locale: 'en-US',
       timezone: 'UTC',
       onPage: (created: Page) => {
         page = created;
-        created.context().tracing.stop = () => Promise.reject(new Error('disk full'));
+        created.context().tracing.stop = () => Promise.reject(new Error('disk full at /runs/tok-trace-5678'));
       },
     });
     assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
@@ -225,7 +227,8 @@ test('runOnce keeps requests and redirect hops inside the allowlist and keeps ar
     const goto = result.steps.find((step) => step.action.name === 'goto');
     assert.equal(goto?.result.status, 'error', 'a navigation redirected to a resource-only origin is blocked');
     assert.equal(result.tracePath, null);
-    assert.ok(result.issues.some((issue) => issue.code === 'trace_failed'));
+    const traceIssue = result.issues.find((issue) => issue.code === 'trace_failed');
+    assert.equal(traceIssue?.message, 'disk full at /runs/{{token}}');
     assert.ok((await stat(join(outDir, 'steps.jsonl'))).size > 0);
     assert.ok((await stat(result.replayPath)).size > 0);
   } finally {
