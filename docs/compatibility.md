@@ -101,7 +101,7 @@ At each clean capture every element's box is recorded and the mutation log is re
 ## Personas and generation (Phase 3)
 
 - Authoring formats, prompt layers, and commands are documented in [personas.md](personas.md).
-- `lab persona generate` was tested only with a scripted model. The tests cover: redirects and scripted navigation off the landing page are refused before the target loads; cross-origin subresources and popups are blocked; a query secret in `--url` never reaches the model; injected page text cannot make an accepted persona set `setup`, `storageState`, `model`, `effort`, or `limits`; invalid output is never saved; `--out` never overwrites.
+- `lab persona generate` was tested only with a scripted model. The tests cover: redirects and scripted navigation off the landing page are refused before the target loads; cross-origin subresources and popups are blocked; a query or fragment value in `--url` never reaches the model or an error message, even when the page echoes it; masked elements stay out of both the screenshot and the page text; cancellation closes the browser during capture; an unpriced model warns before the call; injected page text cannot make an accepted persona set `setup`, `storageState`, `model`, `effort`, or `limits`; invalid output is never saved; `--out` never overwrites.
 - Not verified: the quality of personas from a live model, and whether one landing page gives enough context. Both need live keys.
 - The token bound used to reserve the generator budget is the same unmeasured, conservative one the agent uses.
 

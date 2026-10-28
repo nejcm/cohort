@@ -1,6 +1,6 @@
 {
   "name": "synthetic-customer-lab",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "AI synthetic users that operate your web app and leave an inspectable Playwright trail.",
   "keywords": [],
   "license": "Apache-2.0",

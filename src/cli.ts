@@ -206,13 +206,16 @@ async function generateCommand(
   if (!provider?.available()) throw new ConfigError(`provider ${resolved.provider} is unavailable; set its API key`);
   const outPath = out === undefined ? null : resolvePath(projectRoot, out);
   if (outPath && !outPath.endsWith('.md')) throw new ConfigError('--out must name a .md file');
+  const prices = resolved.catalog.entry.pricesPerMTok;
+  if (!values.json && (prices.input === null || prices.output === null))
+    write('warning: cost unknown; dollar cap unenforceable\n');
   const generated = await generatePersona({
     url,
     description,
     provider,
     model: resolved.model,
     effort: resolved.effort,
-    prices: resolved.catalog.entry.pricesPerMTok,
+    prices,
     dollars,
     maskSelectors: project.screenshots?.maskSelectors ?? DEFAULT_MASKS,
     ...(deps.signal ? { signal: deps.signal } : {}),
@@ -223,18 +226,19 @@ async function generateCommand(
         error.code === 'EEXIST' ? `${out} exists; not overwritten` : `cannot write ${out}: ${error.code}`,
       );
     });
+  const reported = generated.usage?.reportedCostUsd ?? null;
   const cost =
-    generated.estimatedCostUsd === null ? 'cost unknown' : `estimated $${generated.estimatedCostUsd.toFixed(4)}`;
-  if (values.json)
-    write(
-      `${JSON.stringify({ id: generated.id, markdown: generated.markdown, saved: outPath, cost, usage: generated.usage })}\n`,
-    );
+    generated.estimatedCostUsd !== null
+      ? `estimated $${generated.estimatedCostUsd.toFixed(4)}`
+      : reported !== null
+        ? `reported $${reported.toFixed(4)}`
+        : 'cost unknown; dollar cap unenforceable';
+  const { id, markdown, usage, capEnforcement } = generated;
+  if (values.json) write(`${JSON.stringify({ id, markdown, saved: outPath, cost, capEnforcement, usage })}\n`);
   else {
-    write(generated.markdown);
-    if (outPath) {
-      const named = outPath.endsWith(`/${generated.id}.md`) ? '' : `; rename it to ${generated.id}.md to run it`;
-      write(`saved ${out} (${resolved.provider}/${resolved.model}, ${cost})${named}\n`);
-    }
+    write(markdown);
+    const named = !outPath || outPath.endsWith(`/${id}.md`) ? '' : `; rename it to ${id}.md to run it`;
+    write(`${outPath ? `saved ${out}` : 'preview only'} (${resolved.provider}/${resolved.model}, ${cost})${named}\n`);
   }
   return 0;
 }
