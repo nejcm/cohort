@@ -67,12 +67,10 @@ const decoded = (text: string): string => {
 // Query and fragment values may be tokens the page echoes back, so they are masked and redacted like secrets.
 function urlSecrets(url: URL): SecretStore {
   const secrets = new SecretStore();
+  const fragment = url.hash.slice(1);
   const raw = [
-    ...url.search
-      .slice(1)
-      .split('&')
-      .map((pair) => pair.split('=').slice(1).join('=')),
-    url.hash.slice(1),
+    ...`${url.search.slice(1)}&${fragment}`.split(/[?&;]/u).map((pair) => pair.split('=').slice(1).join('=')),
+    fragment,
   ];
   const values = new Set(raw.flatMap((value) => [value, decoded(value)]));
   [...values].filter((value) => value.length >= 4).forEach((value, index) => secrets.bind(`url_value_${index}`, value));

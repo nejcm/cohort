@@ -96,14 +96,31 @@ export async function readEditable(projectRoot: string, kind: Kind, id: string):
   }
 }
 
+const writing = new Map<string, Promise<unknown>>();
+
+// Serializes check-then-write per file so two saves from the same revision cannot both succeed.
+async function exclusive<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const queued = (writing.get(key) ?? Promise.resolve()).catch(() => {}).then(task);
+  writing.set(key, queued);
+  try {
+    return await queued;
+  } finally {
+    if (writing.get(key) === queued) writing.delete(key);
+  }
+}
+
 /** Saves only when the file still has `revision`; setup references can change only through a local file edit. */
-export async function saveEditable(
+export function saveEditable(
   projectRoot: string,
   kind: Kind,
   id: string,
   source: string,
   revision: string,
 ): Promise<Editable> {
+  return exclusive(join(projectRoot, kind, id), () => save(projectRoot, kind, id, source, revision));
+}
+
+async function save(projectRoot: string, kind: Kind, id: string, source: string, revision: string): Promise<Editable> {
   const where = sourceName(kind, id);
   const before = await current(projectRoot, kind, id);
   if (sha256(before) !== revision) throw new EditError(409, `${where} changed since it was read; reload it`);
@@ -119,7 +136,7 @@ export async function saveEditable(
     throw new EditError(400, `${where}: setup references are read-only here; edit the file locally`);
   await checkReferences(projectRoot, kind, next.parsed);
   const dir = await plainDirectory(projectRoot, kind);
-  // shortcut: the revision is rechecked just before the rename, not under a lock; add a lock file if editors race in practice.
+  // shortcut: other processes editing the file are only caught by this recheck; add a lock file if that race matters.
   if (sha256(await current(projectRoot, kind, id)) !== revision)
     throw new EditError(409, `${where} changed since it was read; reload it`);
   await writeAtomic(join(dir, `${id}.${extension(kind)}`), source);

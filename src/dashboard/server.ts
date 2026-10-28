@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readdir } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isIP, type AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
@@ -14,6 +14,7 @@ import { GenerateError, generatePersona } from '../personas/generate.ts';
 import { catalogHash, CatalogError, loadCatalog, resolveModel } from '../providers/catalog.ts';
 import { createProviders } from '../providers/registry.ts';
 import { EFFORTS, ProviderError, type Effort, type ProviderAdapter } from '../providers/types.ts';
+import { SecretStore, safeUrl } from '../setup/secrets.ts';
 import { LabDb, type RunRow } from './db.ts';
 import { appendSuiteEntry, createPersona, EditError, readEditable, saveEditable } from './files.ts';
 import { indexRuns, QueueError, recoverInterrupted, RunQueue } from './runner.ts';
@@ -166,12 +167,25 @@ async function screenshotIds(dir: string): Promise<string[]> {
     .toSorted();
 }
 
+// Manifest paths are data from disk: plain segments only, and every directory on the way must be a real directory.
+async function bundlePath(dir: string, relative: string): Promise<string> {
+  const segments = relative.split('/');
+  if (!segments.every((segment) => /^[\w-][\w.-]*$/u.test(segment))) throw new HttpError(404, 'artifact unavailable');
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    const info = await lstat(join(dir, ...segments.slice(0, depth))).catch(() => null);
+    if (!info?.isDirectory()) throw new HttpError(404, 'artifact unavailable');
+  }
+  return join(dir, ...segments);
+}
+
 async function sendFile(
   response: ServerResponse,
-  path: string,
+  dir: string,
+  relative: string,
   mediaType: string,
   attachment: string | null,
 ): Promise<void> {
+  const path = await bundlePath(dir, relative);
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => null);
   if (!handle) throw new HttpError(404, 'artifact unavailable');
   try {
@@ -406,7 +420,12 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
         const plan = preflight(entries);
         if (body.preview === true) return void json(response, 200, { ...plan });
         json(response, 202, {
-          ...queue.enqueue(entries, { submission, allowUntested: body.allowUntested === true }),
+          ...queue.enqueue(entries, {
+            submission: submission.url
+              ? { ...submission, url: safeUrl(submission.url, new SecretStore()) }
+              : submission,
+            allowUntested: body.allowUntested === true,
+          }),
           ...plan,
         });
       },
@@ -486,7 +505,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
         if (!SHOT.test(shot)) throw new HttpError(404, 'unknown screenshot');
         const dir = await runDir(row.id);
         if (!dir) throw new HttpError(404, 'unknown screenshot');
-        await sendFile(response, join(dir, 'screenshots', `${shot}.png`), 'image/png', null);
+        await sendFile(response, dir, `screenshots/${shot}.png`, 'image/png', null);
       },
     ],
     [
@@ -504,7 +523,8 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
         const inline = artifact.mediaType === 'image/png' || artifact.mediaType === 'application/json';
         await sendFile(
           response,
-          join(dir, ...artifact.path.split('/')),
+          dir,
+          artifact.path,
           artifact.mediaType,
           inline ? null : artifact.path.split('/').at(-1)!,
         );
@@ -548,7 +568,8 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     streams.add(response);
     let sent = lastId;
     const write = (event: { sequence: number; type: string; payload: Record<string, unknown> }): void => {
-      if (event.sequence <= sent) return;
+      // Batch-level claims can follow run.finished; the stream ends at the terminal event and the report carries them.
+      if (event.sequence <= sent || response.writableEnded) return;
       sent = event.sequence;
       response.write(`id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event.payload)}\n\n`);
       // A slow reader reconnects with Last-Event-ID instead of growing this buffer.
@@ -559,7 +580,9 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     for (const event of db.eventsAfter(runId, lastId)) write(event);
     const row = db.run(runId);
     if (row && !['queued', 'running'].includes(row.status) && !response.writableEnded) response.end();
-    const heartbeat = setInterval(() => response.write(': ping\n\n'), HEARTBEAT_MS);
+    const heartbeat = setInterval(() => {
+      if (!response.writableEnded) response.write(': ping\n\n');
+    }, HEARTBEAT_MS);
     response.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();

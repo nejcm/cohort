@@ -1,4 +1,4 @@
-import { mkdir, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
@@ -13,6 +13,7 @@ import {
 } from '../evidence/bundle.ts';
 import { writeManifest, type RunManifest } from '../evidence/manifest.ts';
 import { browserActionCount, type RunReport } from '../evidence/report.ts';
+import type { StepRecord } from '../evidence/steps.ts';
 import type { ModelCatalogEntry } from '../providers/catalog.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { reportColumns, type LabDb, type RunEvent, type RunRow } from './db.ts';
@@ -64,10 +65,7 @@ export class RunQueue {
   }
 
   get queuedRuns(): number {
-    return this.pending.reduce(
-      (sum, batch) => sum + batch.runIds.filter((id) => this.options.db.run(id)?.status === 'queued').length,
-      0,
-    );
+    return this.options.db.runsWithStatus('queued').length;
   }
 
   enqueue(entries: readonly ResolvedEntry[], request: unknown): { batchId: string; runIds: string[] } {
@@ -182,7 +180,8 @@ export class RunQueue {
 
   private finish(runId: string, payload: Record<string, unknown>): Promise<void> {
     const { db, projectRoot } = this.options;
-    return readBundleJson<RunReport>(join(projectRoot, relativeDir(runId)), 'report.json')
+    return bundleDir(projectRoot, runId)
+      .then(({ dir }) => readBundleJson<RunReport>(dir, 'report.json'))
       .then((report) => reportColumns(report))
       .catch(() => ({ outcome_state: String(payload.state ?? 'agent_error') }))
       .then((columns) => {
@@ -235,32 +234,42 @@ export async function recoverInterrupted(projectRoot: string, db: LabDb): Promis
   const recovered: string[] = [];
   for (const row of db.runsWithStatus('queued', 'running')) {
     recovered.push(row.id);
-    const dir = join(projectRoot, relativeDir(row.id));
     if (row.status === 'queued') {
       db.updateRun(row.id, { status: 'interrupted', interrupted_by: 'process', finished_at: now() });
       db.appendEvent(row.id, 'run.finished', { runId: row.id, status: 'interrupted' });
       continue;
     }
-    const finalized = await readBundleJson<RunReport>(dir, 'report.json').catch(() => null);
-    const report = finalized ?? (await reconstruct(dir, row));
-    db.updateRun(row.id, {
-      ...reportColumns(report),
-      status: finalized ? 'finished' : 'interrupted',
-      finished_at: now(),
-    });
-    db.appendEvent(row.id, 'run.finished', { runId: row.id, status: finalized ? 'finished' : 'interrupted' });
+    const dir = await plainRunDir(projectRoot, row.id).catch(() => null);
+    const finalized = dir ? await readBundleJson<RunReport>(dir, 'report.json').catch(() => null) : null;
+    const steps = dir ? await readSteps(dir).catch(() => []) : [];
+    const report = finalized ?? interruptedReport(row, steps);
+    // A crash between report.json and manifest.json leaves a bundle without downloadable artifacts.
+    if (dir && !(finalized && (await readBundleFile(dir, 'manifest.json').catch(() => null))))
+      await writeRecovered(dir, row, report, steps);
+    const status = finalized && dir ? 'finished' : 'interrupted';
+    db.updateRun(row.id, { ...reportColumns(report), status, finished_at: now() });
+    db.appendEvent(row.id, 'run.finished', { runId: row.id, status });
   }
   return recovered;
 }
 
-async function reconstruct(dir: string, row: RunRow): Promise<RunReport> {
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  const steps = await readSteps(dir).catch(() => []);
-  const resolved = await readBundleJson<ResolvedConfigFile>(dir, 'resolved-config.json').catch(() => null);
+async function plainRunDir(projectRoot: string, runId: string): Promise<string> {
+  for (const path of [
+    join(projectRoot, '.lab'),
+    join(projectRoot, '.lab', 'runs'),
+    join(projectRoot, relativeDir(runId)),
+  ]) {
+    await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    if (!(await lstat(path)).isDirectory()) throw new BundleError(`${runId}: artifact path is not a plain directory`);
+  }
+  return join(projectRoot, relativeDir(runId));
+}
+
+function interruptedReport(row: RunRow, steps: StepRecord[]): RunReport {
   const entry = JSON.parse(row.catalog_entry_json) as ModelCatalogEntry;
-  const catalog = { version: row.catalog_version, hash: row.catalog_hash, entry };
-  const startedAt = row.started_at ?? row.created_at;
-  const report: RunReport = {
+  return {
     schemaVersion: 1,
     runId: row.id,
     batchId: row.batch_id,
@@ -270,9 +279,9 @@ async function reconstruct(dir: string, row: RunRow): Promise<RunReport> {
     provider: row.provider,
     requestedModel: row.model,
     effort: row.effort as RunReport['effort'],
-    catalog,
+    catalog: { version: row.catalog_version, hash: row.catalog_hash, entry },
     returnedModel: null,
-    startedAt,
+    startedAt: row.started_at ?? row.created_at,
     durationMs: 0,
     steps: Math.max(0, steps.length - 1),
     browserActions: browserActionCount(steps),
@@ -306,11 +315,15 @@ async function reconstruct(dir: string, row: RunRow): Promise<RunReport> {
     ],
     manifestPath: 'manifest.json',
   };
+}
+
+async function writeRecovered(dir: string, row: RunRow, report: RunReport, steps: StepRecord[]): Promise<void> {
+  const resolved = await readBundleJson<ResolvedConfigFile>(dir, 'resolved-config.json').catch(() => null);
   await writeRunReports(dir, report, steps);
   await writeManifest(dir, {
     runId: row.id,
     batchId: row.batch_id,
-    createdAt: startedAt,
+    createdAt: report.startedAt,
     toolVersion: TOOL_VERSION,
     runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: null },
     configuration: {
@@ -323,10 +336,9 @@ async function reconstruct(dir: string, row: RunRow): Promise<RunReport> {
       provider: row.provider,
       model: row.model,
       effort: report.effort,
-      catalog,
+      catalog: report.catalog,
     },
   });
-  return report;
 }
 
 /** Adds finalized run bundles on disk (for example from `lab run`) that the index does not know yet. */

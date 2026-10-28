@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -505,6 +505,91 @@ test('tag and suite dispatch go through the same resolution as the CLI', async (
   );
 });
 
+test('a forged manifest cannot reach files outside the bundle, directly or through a symlinked directory', async () => {
+  turn = done;
+  const latest = { id: (await guestRun()).json().runIds[0] as string };
+  await dashboard.queue.idle();
+  const dir = join(root, '.lab/runs', latest.id);
+  const outside = await mkdtemp(join(tmpdir(), 'lab-outside-'));
+  await writeFile(join(outside, 'secret.txt'), 'outside-canary-5512');
+  await symlink(outside, join(dir, 'linked'));
+  const original = await readFile(join(dir, 'manifest.json'), 'utf8');
+  const manifest = JSON.parse(original);
+  const forged = ['../../config.yml', 'linked/secret.txt', '/etc/hostname'];
+  manifest.artifacts.push(
+    ...forged.map((path) => ({ path, mediaType: 'text/plain', bytes: 1, sensitivity: 'normal' })),
+  );
+  await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest));
+  try {
+    for (const path of forged) {
+      const reply = await call('GET', `/api/runs/${latest.id}/artifacts/${encodeURIComponent(path)}`);
+      assert.equal(reply.status, 404, path);
+      assert.ok(!reply.text.includes('outside-canary') && !reply.text.includes('schemaVersion'), path);
+    }
+  } finally {
+    await writeFile(join(dir, 'manifest.json'), original);
+    await rm(join(dir, 'linked'));
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('events stored after run.finished do not break a replayed stream', async () => {
+  turn = done;
+  const runId = (await guestRun()).json().runIds[0] as string;
+  await dashboard.queue.idle();
+  const side = new LabDb(join(root, '.lab/index.sqlite'));
+  side.appendEvent(runId, 'friction.created', { runId, late: true });
+  side.close();
+  const replay = await call('GET', `/api/runs/${runId}/events`);
+  const types = [...replay.text.matchAll(/^event: (.+)$/gmu)].map((match) => match[1]);
+  assert.equal(types.at(-1), 'run.finished');
+  assert.equal((await call('GET', '/api/runs?limit=1')).status, 200, 'the server survived');
+});
+
+test("the queue bound counts the active batch's waiting repetitions", async () => {
+  const blocker = gate();
+  turn = blocker.turn;
+  assert.equal((await guestRun(20)).status, 202);
+  await blocker.reached;
+  for (let index = 0; index < 4; index += 1) assert.equal((await guestRun(20)).status, 202);
+  assert.equal(dashboard.queue.queuedRuns, 99);
+  assert.equal((await guestRun(2)).status, 429);
+  for (const item of (await call('GET', '/api/runs?limit=200')).json().runs)
+    if (item.status === 'queued' || item.status === 'running')
+      await call('POST', `/api/runs/${item.id}/cancel`, { body: {} });
+  blocker.release();
+  await dashboard.queue.idle();
+  turn = done;
+});
+
+test('concurrent saves from one revision let exactly one win', async () => {
+  const current = (await call('GET', '/api/personas/guest')).json();
+  const save = (text: string) =>
+    call('PUT', '/api/personas/guest', {
+      body: { source: `${current.source}${text}\n`, revision: current.revision },
+    });
+  const replies = await Promise.all([save('First writer.'), save('Second writer.')]);
+  assert.deepEqual(replies.map((reply) => reply.status).toSorted(), [200, 409]);
+  const winner = replies.find((reply) => reply.status === 200)!.json();
+  assert.equal(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), winner.source);
+});
+
+test('batch snapshots keep no URL query or fragment credentials', async () => {
+  turn = done;
+  const accepted = await submit({
+    selector: { kind: 'persona', id: 'guest' },
+    url: `${fixture.url}/?token=query-canary-3141#key=fragment-canary-2718`,
+  });
+  assert.equal(accepted.status, 202, accepted.text);
+  await dashboard.queue.idle();
+  const { batchId } = accepted.json();
+  const batch = await call('GET', `/api/batches/${batchId}`);
+  const side = new LabDb(join(root, '.lab/index.sqlite'));
+  const stored = side.batch(batchId)!.request_json;
+  side.close();
+  for (const text of [batch.text, stored]) assert.ok(!/query-canary|fragment-canary/u.test(text), text);
+});
+
 const orphan = (id: string, status: 'queued' | 'running', entry: number) => ({
   id,
   batch_id: 'batch_20260101_000000_aaaaaa',
@@ -566,6 +651,45 @@ test('a restart marks orphaned runs interrupted with a bounded report and never 
   } finally {
     await restarted.close();
     await rm(restartRoot, { recursive: true, force: true });
+  }
+});
+
+test('recovery repairs a missing manifest and never writes through a symlinked run directory', async () => {
+  const restartRoot = await mkdtemp(join(tmpdir(), 'lab-repair-'));
+  const outside = await mkdtemp(join(tmpdir(), 'lab-outside-'));
+  const [latest] = (await call('GET', '/api/runs?limit=1')).json().runs;
+  const partial = 'run_20260101_000000_bbbbb1';
+  const linked = 'run_20260101_000000_bbbbb2';
+  const report = JSON.parse(await readFile(join(root, '.lab/runs', latest.id, 'report.json'), 'utf8'));
+  await mkdir(join(restartRoot, '.lab/runs', partial), { recursive: true });
+  await writeFile(
+    join(restartRoot, '.lab/runs', partial, 'report.json'),
+    JSON.stringify({ ...report, runId: partial, batchId: 'batch_20260101_000000_aaaaaa' }),
+  );
+  await symlink(outside, join(restartRoot, '.lab/runs', linked));
+  await writeFile(join(restartRoot, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/test-model\n');
+  const db = new LabDb(join(restartRoot, '.lab/index.sqlite'));
+  db.insertBatch('batch_20260101_000000_aaaaaa', {});
+  db.insertRun(orphan(partial, 'running', 0));
+  db.insertRun(orphan(linked, 'running', 1));
+  db.close();
+  const restarted = await startDashboard({
+    projectRoot: restartRoot,
+    env: ENV,
+    providers: providers as never,
+    assetsDir: assets,
+  });
+  try {
+    const repaired = (await call('GET', `/api/runs/${partial}`, { target: restarted })).json();
+    assert.equal(repaired.run.status, 'finished');
+    assert.ok(repaired.artifacts.some((artifact: { id: string }) => artifact.id === 'report.json'));
+    const redirected = (await call('GET', `/api/runs/${linked}`, { target: restarted })).json();
+    assert.deepEqual([redirected.run.status, redirected.run.outcome], ['interrupted', 'agent_error']);
+    assert.deepEqual(await readdir(outside), []);
+  } finally {
+    await restarted.close();
+    await rm(restartRoot, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });
 
