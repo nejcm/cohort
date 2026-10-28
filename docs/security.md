@@ -29,14 +29,14 @@ Scope and trust boundary: the lab is a local tool for trusted application target
 
 ## Changes made in this review
 
-- `trace.zip` is now chmod 0600 after writing, and `.lab/index.sqlite` is created 0600 before SQLite opens it (its WAL files inherit the mode). Before, both followed the umask, typically 0644, inside an 0700 directory.
+- `trace.zip` is now chmod 0600 after writing. `lab ui` chmods `.lab` to 0700 and `index.sqlite`, `-wal`, and `-shm` to 0600 on every start, so an index left with umask modes is tightened too; `lab init` creates `.lab` as 0700. Before, `.lab` and an existing index followed the umask, typically 0755/0644 (`canary.test.ts` holds this).
 - Unexpected CLI errors print one bounded line with provider keys scrubbed instead of a raw stack; `LAB_DEBUG=1` restores the stack.
-- `lab init` writes `.lab/.gitignore`; `lab doctor` reports when `.lab/runs` or `.lab/auth` is not ignored and when `.lab/auth` is group- or world-readable.
+- `lab init` writes `.lab/.gitignore`; `lab doctor` reports when `.lab/runs`, `.lab/auth`, or `.lab/index.sqlite*` is not ignored and when `.lab/auth` is group- or world-readable.
 - The build now starts from an empty `dist/`, so deleted modules cannot ship from a stale build.
 
 ## Not verified
 
 - Provider wire formats, retention settings, and error bodies against live APIs.
-- Node 24 locally (CI pins Node 24; local runs used Node v26.8.2).
+- Node 24, locally or in CI (CI pins Node 24 but has never run; local runs used Node v26.8.2).
 - The Action on GitHub-hosted runners.
 - Other browsers for the dashboard; Chromium only.

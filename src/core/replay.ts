@@ -68,6 +68,7 @@ export async function replayRun(
       ),
     ]);
   const capMs = config.request.limits.timeMs;
+  const deadlineAt = Date.now() + capMs;
   let bridge: { close: () => void } | null = null;
   try {
     let storageState: unknown =
@@ -97,7 +98,7 @@ export async function replayRun(
         storageState = result.storageState ?? storageState;
         if (Object.keys(result.tools ?? {}).length > 0) {
           customToolDefinitions(result.tools);
-          bridge = await serveTools(result.tools!, secrets, scrub, capMs, env);
+          bridge = await serveTools(result.tools!, secrets, scrub, deadlineAt, env);
         }
       } catch (error) {
         const reason = options.signal?.aborted
@@ -142,11 +143,10 @@ export async function serveTools(
   tools: Record<string, CustomTool>,
   secrets: SecretStore,
   scrub: (text: string) => string,
-  capMs: number,
+  deadline: number,
   env: NodeJS.ProcessEnv,
 ): Promise<{ close: () => void }> {
   const token = randomBytes(24).toString('hex');
-  const deadline = Date.now() + capMs;
   const server = createServer(async (request, response) => {
     const reply = (status: number, body: object): void => {
       response.writeHead(status, { 'content-type': 'application/json' });

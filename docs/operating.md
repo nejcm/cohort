@@ -54,7 +54,7 @@ Secrets are passed as `LAB_SECRET_<NAME>` and a storage state as `LAB_STORAGE_ST
 
 ## Artifacts
 
-Each run writes `.lab/runs/<run-id>/`; each batch writes `.lab/runs/<batch-id>/`. Directories are created owner-only (0700) and files 0600, including `trace.zip` and `.lab/index.sqlite`.
+Each run writes `.lab/runs/<run-id>/`; each batch writes `.lab/runs/<batch-id>/`. Directories are created owner-only (0700) and files 0600, including `trace.zip`. `lab init` creates `.lab` as 0700, and `lab ui` tightens `.lab` to 0700 and `index.sqlite`, `-wal`, and `-shm` to 0600 on every start.
 
 | File | Contents | Sensitivity |
 | --- | --- | --- |

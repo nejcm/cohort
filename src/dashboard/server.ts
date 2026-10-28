@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readdir, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isIP, type AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
@@ -215,11 +215,16 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
   const assetsDir = options.assetsDir ?? defaultAssets();
   const token = randomBytes(32).toString('base64url');
   const expected = Buffer.from(`Bearer ${token}`);
-  await mkdir(join(projectRoot, '.lab'), { recursive: true, mode: 0o700 });
+  await mkdir(join(projectRoot, '.lab'), { recursive: true });
+  await chmod(join(projectRoot, '.lab'), 0o700);
   const dbPath = join(projectRoot, '.lab', 'index.sqlite');
-  // SQLite gives its -wal and -shm files the main file's mode.
   await writeFile(dbPath, '', { flag: 'a', mode: 0o600 });
   const db = new LabDb(dbPath);
+  // Files left by an older or umask-created index keep their mode unless tightened.
+  for (const suffix of ['', '-wal', '-shm'])
+    await chmod(`${dbPath}${suffix}`, 0o600).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
   await recoverInterrupted(projectRoot, db);
   await indexRuns(projectRoot, db);
   const queue = new RunQueue({ projectRoot, db, providers, env });

@@ -1,12 +1,12 @@
 # Compatibility notes
 
-Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, with a scripted fake model. Node 24 itself has not been run locally yet; CI pins `.node-version`.
+Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, with a scripted fake model. Node 24 itself has not been run yet: CI pins it in `.node-version`, but the workflow has never run (no remote).
 
 ## Runtime, browser, and providers (release candidate 0.1.0-rc.0)
 
 | Component | Supported | Verified |
 | --- | --- | --- |
-| Node.js | 24.2.0 or later (`engines`) | Local: v26.8.2 only. CI runs every check and the package smoke test on Node 24 (`.node-version`); no Node 24 run has been observed locally |
+| Node.js | 24.2.0 or later (`engines`) | Local: v26.8.2 only. CI is configured to run every check and the package smoke test on Node 24 (`.node-version`); no Node 24 run has been observed, locally or in CI |
 | Package manager for users | npm (no Bun) | `scripts/package-smoke.ts`: npm 12.2.1, Bun removed from `PATH` |
 | Bun | Development only (`bun@1.4.4`) | Local |
 | Playwright | 1.64.1, exact pin | Local |
@@ -77,7 +77,7 @@ At each clean capture every element's box is recorded and the mutation log is re
 ## Runtime
 
 - Setup modules load natively with type stripping. Relative imports must use explicit `.ts` extensions. Modules must live inside `.lab/setup/` and the path must not contain symlinks.
-- `node:sqlite` works in a child Node process. Node v26.8.2 printed no warning; check the Node 24 warning on CI.
+- `node:sqlite` works in a child Node process. Node v26.8.2 printed no warning; check the Node 24 warning on the first CI run.
 - Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`. It ends by waiting up to 5 s for network idle, so a final form post completes. With persistent connections it simply proceeds after 5 s.
 - If writing `trace.zip` fails, the run still writes `steps.jsonl` and the replay, reports `tracePath: null`, and records issue `trace_failed`.
 
@@ -152,7 +152,7 @@ At each clean capture every element's box is recorded and the mutation log is re
 
 ## Packaging, Action, and hardening (Phase 6)
 
-- `scripts/package-smoke.ts` (`bun run smoke:package` after `bun run build`) packs the tarball, checks its file list (only `dist/`, `examples/personas/`, `LICENSE`, `NOTICE`, `README.md`, `package.json`), installs it with npm into an empty directory with Bun removed from `PATH`, then runs the installed `lab --version`, `init`, `persona validate`, `doctor`, a fixture run through the installed library with a scripted model, `lab report`, `lab ui` (static page with CSP, 401 without the token, the run in `/api/runs`), and the Action script against the installed CLI. Passed locally on Node v26.8.2; CI runs it on Node 24.
+- `scripts/package-smoke.ts` (`bun run smoke:package` after `bun run build`) packs the tarball, checks its file list (only `dist/`, `examples/personas/`, `LICENSE`, `NOTICE`, `README.md`, `package.json`), installs it with npm into an empty directory with Bun removed from `PATH`, then runs the installed `lab --version`, `init`, `persona validate`, `doctor`, a fixture run through the installed library with a scripted model, `lab report`, `lab ui` (static page with CSP, 401 without the token, the run in `/api/runs`), and the Action script against the installed CLI. Passed locally on Node v26.8.2; the CI `package` job is configured to run it on Node 24 but has not run yet.
 - The Action (`action.yml`) is tested with a stub CLI: inputs arrive as separate arguments, outputs and exit codes map from the JSON result, and no step interpolates inputs into shell or uploads anything. It has not run on GitHub-hosted runners yet.
 - `tests/integration/canary.test.ts` scans every file a run, its batch, and the reports write under `.lab` (except `trace.zip`) for setup secrets, an environment-only value, and the provider key, and checks owner-only modes.
 - `lab init` and `lab doctor` exist; doctor never calls a model.

@@ -136,7 +136,7 @@ test('the replay tool bridge closes rejected connections and stops running tools
     },
     new SecretStore(),
     (text) => text,
-    80,
+    Date.now() + 80,
     env,
   );
   try {

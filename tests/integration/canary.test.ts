@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { lstat, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { run } from '../../src/cli.ts';
+import { startDashboard } from '../../src/dashboard/server.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId } from '../helpers/fake-provider.ts';
 import { zipEntry } from '../helpers/zip.ts';
@@ -121,6 +122,23 @@ test('known secrets and the provider key stay out of every output and artifact e
     await cli(['report', result.batchId, '--format', format]);
   }
   await cli(['persona', 'validate']);
+  // An index left by an older version under a loose umask.
+  const index = join(root, '.lab', 'index.sqlite');
+  await chmod(join(root, '.lab'), 0o755);
+  await writeFile(index, '', { mode: 0o644 });
+  await chmod(index, 0o644);
+  const dashboard = await startDashboard({ projectRoot: root, env, providers: { openai: provider } });
+  try {
+    const listed = await fetch(`${dashboard.origin}/api/runs`, {
+      headers: { authorization: `Bearer ${dashboard.token}` },
+    });
+    assert.match(await listed.text(), new RegExp(runId, 'u'));
+    assert.equal((await lstat(join(root, '.lab'))).mode & 0o777, 0o700, '.lab is owner-only');
+    for (const suffix of ['', '-wal', '-shm'])
+      assert.equal((await lstat(`${index}${suffix}`)).mode & 0o777, 0o600, `index.sqlite${suffix} is owner-only`);
+  } finally {
+    await dashboard.close();
+  }
 
   const outbound = JSON.stringify(
     fake.requests.map(({ observation, ...rest }) => ({ ...rest, text: observation.text })),

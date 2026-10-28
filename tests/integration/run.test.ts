@@ -711,6 +711,20 @@ test('a setup module signs in with storage state; its code tool rebinds just bef
   assert.equal(fresh.length, 1);
   assert.deepEqual(fixture.auth(fresh[0]!), { sessions: 0, codes: fixture.auth(fresh[0]!).codes, verified: 1 });
   assert.equal(fixture.auth(fresh[0]!).codes.length, 2, 'replay reacquires both codes through the tool');
+
+  // Setup spends nearly the whole cap, so the tool bridge must have almost none left.
+  await put(
+    '.lab/setup/slow-auth.ts',
+    "import auth from './fixture-auth.ts';\nexport default async (ctx) => {\n  await new Promise((resolve) => setTimeout(resolve, 1500));\n  return auth(ctx);\n};\n",
+  );
+  const configPath = join(first.outDir, 'resolved-config.json');
+  const resolved = JSON.parse(await readFile(configPath, 'utf8'));
+  resolved.setup.path = resolved.setup.path.replace('fixture-auth.ts', 'slow-auth.ts');
+  resolved.request.limits.timeMs = 1600;
+  await writeFile(configPath, JSON.stringify(resolved));
+  const late = await cli(['replay', first.runId]);
+  assert.match(late.out, /tool_timeout: the replay ran past its time limit/u);
+  assert.match(late.out, /replay run_\S+: failed/u);
 });
 
 test('a setup tool that would override a built-in fails the run as a setup error', async () => {

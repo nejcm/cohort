@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -66,6 +66,7 @@ test('init creates the project layout once and doctor reports it without printin
   };
   const first = await cli(['init']);
   assert.equal(first.code, 0);
+  assert.equal((await lstat(join(root, '.lab'))).mode & 0o777, 0o700);
   for (const path of ['.lab/config.yml', '.lab/.gitignore', '.lab/personas/first-time-host.md'])
     assert.match(first.out, new RegExp(`created ${path.replaceAll('.', '\\.')}`, 'u'));
   await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
@@ -82,6 +83,11 @@ test('init creates the project layout once and doctor reports it without printin
   assert.match(unusable.out, /error ANTHROPIC_API_KEY is not set/u);
   assert.match(unusable.out, /ok    \.lab\/runs is gitignored/u);
   assert.match(unusable.out, /ok    \.lab\/auth is gitignored/u);
+  assert.match(unusable.out, /ok    \.lab\/index\.sqlite is gitignored/u);
+  await writeFile(join(root, '.lab/.gitignore'), 'auth/\nruns/\n');
+  const exposed = await cli(['doctor']);
+  assert.match(exposed.out, /error \.lab\/index\.sqlite is not gitignored/u);
+  await writeFile(join(root, '.lab/.gitignore'), 'auth/\nruns/\nindex.sqlite*\n');
 
   const key = 'sk-doctor-canary-0123456789';
   await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');

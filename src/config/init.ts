@@ -23,9 +23,11 @@ export async function initProject(projectRoot: string): Promise<{ created: strin
   const created: string[] = [];
   const kept: string[] = [];
   for (const dir of ['.lab', '.lab/personas', '.lab/suites', '.lab/setup']) {
-    await mkdir(join(projectRoot, dir)).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'EEXIST') throw error;
-    });
+    await mkdir(join(projectRoot, dir), { mode: dir === '.lab' ? 0o700 : 0o777 }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error;
+      },
+    );
     if (!(await lstat(join(projectRoot, dir))).isDirectory())
       throw new ConfigError(`${dir} must be a plain directory, not a symlink or file`);
   }

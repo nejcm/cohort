@@ -82,10 +82,14 @@ export async function doctor(
   for (const problem of problems) add('error', problem);
   add(problems.length === 0 ? 'ok' : 'error', `${personas} valid persona(s), ${suites} suite(s)`);
 
-  for (const dir of ['runs', 'auth']) {
-    const ignored = await gitIgnored(projectRoot, `.lab/${dir}/probe`);
-    if (ignored === false) add('error', `.lab/${dir} is not gitignored; it holds private evidence or credentials`);
-    if (ignored === true) add('ok', `.lab/${dir} is gitignored`);
+  for (const [name, probe] of [
+    ['runs', 'runs/probe'],
+    ['auth', 'auth/probe'],
+    ['index.sqlite', 'index.sqlite-wal'],
+  ]) {
+    const ignored = await gitIgnored(projectRoot, `.lab/${probe}`);
+    if (ignored === false) add('error', `.lab/${name} is not gitignored; it holds private evidence or credentials`);
+    if (ignored === true) add('ok', `.lab/${name} is gitignored`);
   }
   const auth = await lstat(join(projectRoot, '.lab', 'auth')).catch(() => null);
   if (auth && (auth.mode & 0o077) !== 0) add('warn', '.lab/auth is readable by other users; run: chmod 700 .lab/auth');
