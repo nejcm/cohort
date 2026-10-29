@@ -10,7 +10,15 @@
     "testing",
     "ux"
   ],
+  "homepage": "https://github.com/nejcm/cohort#readme",
+  "bugs": {
+    "url": "https://github.com/nejcm/cohort/issues"
+  },
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nejcm/cohort.git"
+  },
   "bin": {
     "cohort": "dist/cli.js"
   },
