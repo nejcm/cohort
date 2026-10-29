@@ -25,6 +25,7 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 | Unused code | `bun run knip` |
 | Build | `bun run build` |
 | Verify | `bun run verify` |
+| Seed local dashboard data (`.seed/`, then `cd .seed && node ../src/cli.ts ui`) | `bun run seed` |
 | Package smoke (after build; needs npm registry access) | `bun run smoke:package` |
 
 TypeScript uses `NodeNext` with explicit `.ts` relative imports (rewritten on build), not the baseline's `Bundler` resolution, because the output runs directly on Node.

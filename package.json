@@ -42,6 +42,7 @@
     "test": "node --test --test-timeout=120000 tests/unit/ tests/integration/",
     "knip": "knip",
     "verify": "bun run typecheck && bun run lint && bun run format:check && bun run test && bun run knip",
+    "seed": "node scripts/seed.ts",
     "smoke:package": "node scripts/package-smoke.ts"
   },
   "dependencies": {
