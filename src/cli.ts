@@ -11,7 +11,6 @@ import { createInterface } from 'node:readline/promises';
 import { chromium, type Page } from 'playwright';
 import { checkProject, ConfigError, loadProjectConfig, saveStorageState } from './config/files.ts';
 import { DEFAULT_MASKS, validateSubmission, type RunSubmission } from './config/resolve.ts';
-import { runBatch } from './core/batch.ts';
 import type { preflight } from './core/estimate.ts';
 import { compareRun, renderCompareMarkdown, renderCompareText } from './core/compare.ts';
 import { replayRun } from './core/replay.ts';
@@ -32,7 +31,7 @@ import { ProviderError, type Effort, type ProviderAdapter } from './providers/ty
 import { GenerateError, generatePersona } from './personas/generate.ts';
 import { EditError } from './dashboard/files.ts';
 import { estimate } from './dashboard/operations.ts';
-import { QueueError, startBatch, type DetachedBatch } from './dashboard/runner.ts';
+import { openIndex, QueueError, runOwnedBatch, startBatch, type DetachedBatch } from './dashboard/runner.ts';
 import { isLoopback, startDashboard } from './dashboard/server.ts';
 import { initProject } from './config/init.ts';
 import { doctor } from './doctor.ts';
@@ -711,28 +710,38 @@ async function runCommand(values: Values, write: Write, deps: Dependencies, ctx:
   if (!values.json) write(`${plan.lines.join('\n')}\n${budgetLine(plan)}\n`);
   const { maxUsd, refusal } = costRefusal(plan, values);
   if (refusal) throw refusal;
+  const request = {
+    submission: submission.url ? { ...submission, url: safeUrl(submission.url, new SecretStore()) } : submission,
+    allowUntested: values['allow-untested'] === true,
+    source: 'cli',
+  };
   if (values.detach) {
-    const request = {
-      submission: submission.url ? { ...submission, url: safeUrl(submission.url, new SecretStore()) } : submission,
-      allowUntested: values['allow-untested'] === true,
-      source: 'cli',
-    };
     const started = await (deps.worker ?? ((batch) => spawnWorker(projectRoot, env, batch)))({ entries, request });
     if (values.json)
       emit(write, { ...started, preflight: plan.lines, plans: plan.plans, maxBatchUsd: plan.maxBatchUsd, maxUsd });
     else write(`batch ${started.batchId} started in the background; next: cohort runs wait ${started.batchId}\n`);
     return 0;
   }
-  const batch = await runBatch({
-    projectRoot,
-    entries,
-    providers,
-    env,
-    ...(deps.signal ? { signal: deps.signal } : {}),
-    onRunStart: values.json
-      ? undefined
-      : (started) => write(`run ${started.runId} (${started.personaId}, repeat ${started.repeat + 1})\n`),
+  const db = await openIndex(projectRoot).catch((error: NodeJS.ErrnoException) => {
+    throw new CliError(
+      'index_unavailable',
+      `cannot open .cohort/index.sqlite (${error.code ?? error.name}); a foreground run needs a writable index`,
+    );
   });
+  const batch = await runOwnedBatch(
+    db,
+    {
+      projectRoot,
+      entries,
+      providers,
+      env,
+      ...(deps.signal ? { signal: deps.signal } : {}),
+      onRunStart: values.json
+        ? undefined
+        : (started) => write(`run ${started.runId} (${started.personaId}, repeat ${started.repeat + 1})\n`),
+    },
+    request,
+  ).finally(() => db.close());
   const exitCode = batch.skipped === 0 && batch.runs.every((item) => item.outcome.state === 'completed') ? 0 : 1;
   if (values.json)
     emit(write, {

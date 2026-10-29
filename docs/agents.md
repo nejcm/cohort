@@ -91,6 +91,7 @@ Errors look like `{"schemaVersion":1,"error":"<message>","code":"<code>", ...}`.
 | `over_budget` | 2 | The batch's maximum cost exceeds `--max-usd`; `estimate` |
 | `blocked` | 2 | A person must act; `command` is what they should run |
 | `queue_full` | 2 | Too many queued runs |
+| `index_unavailable` | 2 | A foreground `run` could not open `.cohort/index.sqlite`; it needs a writable index |
 | `not_ready` | 2 | The run has no report yet |
 | `provider_error` | 1 | The model provider failed (persona generation) |
 | `timeout` | 1 | `runs wait` reached `--timeout-ms`; wait again |
@@ -111,6 +112,7 @@ Run `cohort estimate` first; its `refusal` field says exactly what `run` would r
 `cohort run --detach` resolves and prices the batch, then starts a separate `cohort` process that owns it and returns the batch and run IDs as soon as they are queued. The batch lives in the same index the dashboard reads (`.cohort/index.sqlite`), so `cohort ui` shows it, and `runs show|wait|cancel` work from any process.
 
 - `runs wait` polls until every run has ended and the batch report is written. When the owning process died, `runs wait` and `runs show` mark its active runs `interrupted` and write the batch report from the run reports. Owners are identified by PID plus process start time on Linux. Elsewhere, and for batches recorded before start times were stored, the PID alone is checked, so a reused PID can make a dead batch look alive until that process exits: `runs wait` then ends in `timeout` and a cancel stays pending. It never makes a live batch look dead.
+- A foreground `cohort run` is indexed the same way, so every `runs` command sees it (it does not act on `runs cancel`; stop it with `SIGINT`). A hard kill cannot finalize itself; the next `cohort run`, `cohort ui`, or any `cohort runs` command marks it interrupted and writes its batch report.
 - `runs cancel` (and the dashboard's cancel button) records the request in the index; the owning process stops queued runs at once and running ones within about 200 ms, finalizing them as cancelled by the user. Cancelling a finished run is a `conflict`.
 - An open dashboard follows a detached run's events through the index, every half second.
 - `runs` commands need only the index, so a broken `config.yml` never prevents cancelling a batch.

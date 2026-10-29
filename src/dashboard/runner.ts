@@ -3,7 +3,7 @@ import { chmod, lstat, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
-import { newId, PLAYWRIGHT_VERSION, runBatch, TOOL_VERSION, type BatchEvent } from '../core/batch.ts';
+import { newId, PLAYWRIGHT_VERSION, runBatch, TOOL_VERSION, type BatchEvent, type BatchResult } from '../core/batch.ts';
 import { CostMeter } from '../core/cost.ts';
 import {
   BundleError,
@@ -81,19 +81,7 @@ export class RunQueue {
     const total = entries.reduce((sum, entry) => sum + entry.request.repeats, 0);
     if (this.queuedRuns + total > MAX_QUEUED_RUNS)
       throw new QueueError(`the queue holds at most ${MAX_QUEUED_RUNS} runs; wait or cancel some`);
-    const { db } = this.options;
-    const batchId = newId('batch');
-    const runIds: string[] = [];
-    const createdAt = now();
-    db.transaction(() => {
-      db.insertBatch(batchId, request, createdAt, { pid: process.pid, start: processStart(process.pid) });
-      for (const entry of entries)
-        for (let repeat = 0; repeat < entry.request.repeats; repeat += 1) {
-          const runId = newId('run');
-          runIds.push(runId);
-          db.insertRun(queuedRow(batchId, runId, entry, repeat, createdAt));
-        }
-    });
+    const { batchId, runIds } = insertOwnedBatch(this.options.db, entries, request);
     for (const runId of runIds) {
       this.controllers.set(runId, new AbortController());
       this.emit(runId, 'run.queued', { batchId });
@@ -192,16 +180,74 @@ export class RunQueue {
   }
 
   private finish(runId: string, payload: Record<string, unknown>): Promise<void> {
-    const { db, projectRoot } = this.options;
-    return bundleDir(projectRoot, runId)
-      .then(({ dir }) => readBundleJson<RunReport>(dir, 'report.json'))
-      .then((report) => reportColumns(report))
-      .catch(() => ({ outcome_state: String(payload.state ?? 'agent_error') }))
-      .then((columns) => {
-        db.updateRun(runId, { ...columns, status: 'finished', finished_at: now() });
-        this.emit(runId, 'run.finished', { status: 'finished', ...payload });
-      });
+    return finishRow(this.options.projectRoot, this.options.db, runId, payload).then(() =>
+      this.emit(runId, 'run.finished', { status: 'finished', ...payload }),
+    );
   }
+}
+
+const newBatchIds = (entries: readonly ResolvedEntry[]) => ({
+  batchId: newId('batch'),
+  runIds: entries.flatMap((entry) => Array.from({ length: entry.request.repeats }, () => newId('run'))),
+});
+
+// This process owns the batch, so recovery finalizes it once the process is gone.
+function insertOwnedBatch(db: LabDb, entries: readonly ResolvedEntry[], request: unknown, ids = newBatchIds(entries)) {
+  const createdAt = now();
+  db.transaction(() => {
+    db.insertBatch(ids.batchId, request, createdAt, { pid: process.pid, start: processStart(process.pid) });
+    let position = 0;
+    for (const entry of entries)
+      for (let repeat = 0; repeat < entry.request.repeats; repeat += 1)
+        db.insertRun(queuedRow(ids.batchId, ids.runIds[position++]!, entry, repeat, createdAt));
+  });
+  return ids;
+}
+
+/** Runs a foreground batch indexed with this process as owner, so a hard kill is finalized by the next index open. */
+export async function runOwnedBatch(
+  db: LabDb,
+  options: Omit<Parameters<typeof runBatch>[0], 'ids' | 'onEvent'>,
+  request: unknown,
+): Promise<BatchResult> {
+  const { projectRoot, entries } = options;
+  const ids = newBatchIds(entries);
+  let indexed = false;
+  const finishing: Promise<void>[] = [];
+  try {
+    return await runBatch({
+      ...options,
+      ids,
+      onEvent: (runId, type, payload) => {
+        try {
+          // Indexed at the first run start, so a preflight failure still leaves nothing behind.
+          if (type === 'run.started' && !indexed) indexed = !!insertOwnedBatch(db, entries, request, ids);
+          if (type === 'run.started') db.updateRun(runId, { status: 'running', started_at: now() });
+          if (type === 'run.finished') finishing.push(finishRow(projectRoot, db, runId, payload).catch(() => {}));
+        } catch {}
+      },
+    });
+  } finally {
+    // The bundles and batch report are already on disk; a failed index update is recovered later.
+    await Promise.all(finishing);
+    if (indexed)
+      await (async () => {
+        for (const runId of ids.runIds) {
+          const status = db.run(runId)?.status;
+          if (status === 'queued') db.updateRun(runId, { status: 'cancelled', finished_at: now() });
+          if (status === 'running') db.updateRun(runId, { status: 'interrupted', finished_at: now() });
+        }
+        await finalizeBatch(projectRoot, db, ids.batchId);
+      })().catch(() => {});
+  }
+}
+
+async function finishRow(projectRoot: string, db: LabDb, runId: string, payload: Record<string, unknown>) {
+  const columns = await bundleDir(projectRoot, runId)
+    .then(({ dir }) => readBundleJson<RunReport>(dir, 'report.json'))
+    .then((report) => reportColumns(report))
+    .catch(() => ({ outcome_state: String(payload.state ?? 'agent_error') }));
+  db.updateRun(runId, { ...columns, status: 'finished', finished_at: now() });
 }
 
 function queuedRow(batchId: string, runId: string, entry: ResolvedEntry, repeat: number, createdAt: string) {
@@ -285,26 +331,38 @@ export async function recoverInterrupted(projectRoot: string, db: LabDb): Promis
   for (const row of db.runsWithStatus('queued', 'running')) {
     const batch = db.batch(row.batch_id);
     if (batch && ownerAlive(batch)) continue;
-    recovered.push(row.id);
-    if (row.status === 'queued') {
-      db.updateRun(row.id, { status: 'interrupted', interrupted_by: 'process', finished_at: now() });
-      db.appendEvent(row.id, 'run.finished', { runId: row.id, status: 'interrupted' });
-      continue;
-    }
-    const dir = await plainRunDir(projectRoot, row.id).catch(() => null);
-    const finalized = dir ? await readBundleJson<RunReport>(dir, 'report.json').catch(() => null) : null;
-    const steps = dir ? await readSteps(dir).catch(() => []) : [];
-    const report = finalized ?? interruptedReport(row, steps);
-    // A crash between report.json and manifest.json leaves a bundle without downloadable artifacts.
-    if (dir && !(finalized && (await readBundleFile(dir, 'manifest.json').catch(() => null))))
-      await writeRecovered(dir, row, report, steps);
-    const status = finalized && dir ? 'finished' : 'interrupted';
-    db.updateRun(row.id, { ...reportColumns(report), status, finished_at: now() });
-    db.appendEvent(row.id, 'run.finished', { runId: row.id, status });
+    // One unreadable bundle must not block every later index open; it is retried next time.
+    if (
+      await recoverRow(projectRoot, db, row).then(
+        () => true,
+        () => false,
+      )
+    )
+      recovered.push(row.id);
   }
-  for (const batch of db.unfinishedOwnedBatches())
-    if (!ownerAlive(batch)) await finalizeBatch(projectRoot, db, batch.id);
+  for (const batch of db.unfinishedOwnedBatches()) {
+    const pending = db.batchRuns(batch.id).some((row) => row.status === 'queued' || row.status === 'running');
+    if (!pending && !ownerAlive(batch)) await finalizeBatch(projectRoot, db, batch.id).catch(() => {});
+  }
   return recovered;
+}
+
+async function recoverRow(projectRoot: string, db: LabDb, row: RunRow): Promise<void> {
+  if (row.status === 'queued') {
+    db.updateRun(row.id, { status: 'interrupted', interrupted_by: 'process', finished_at: now() });
+    db.appendEvent(row.id, 'run.finished', { runId: row.id, status: 'interrupted' });
+    return;
+  }
+  const dir = await plainRunDir(projectRoot, row.id).catch(() => null);
+  const finalized = dir ? await readBundleJson<RunReport>(dir, 'report.json').catch(() => null) : null;
+  const steps = dir ? await readSteps(dir).catch(() => []) : [];
+  const report = finalized ?? interruptedReport(row, steps);
+  // A crash between report.json and manifest.json leaves a bundle without downloadable artifacts.
+  if (dir && !(finalized && (await readBundleFile(dir, 'manifest.json').catch(() => null))))
+    await writeRecovered(dir, row, report, steps);
+  const status = finalized && dir ? 'finished' : 'interrupted';
+  db.updateRun(row.id, { ...reportColumns(report), status, finished_at: now() });
+  db.appendEvent(row.id, 'run.finished', { runId: row.id, status });
 }
 
 async function plainRunDir(projectRoot: string, runId: string): Promise<string> {
@@ -343,7 +401,7 @@ function interruptedReport(row: RunRow, steps: StepRecord[]): RunReport {
       state: 'agent_error',
       code: 'interrupted',
       interruptedBy: 'process',
-      reason: 'the dashboard process stopped during this run; it was not resumed',
+      reason: 'the owning process stopped during this run; it was not resumed',
       evidence: [],
     },
     friction: [],
@@ -443,9 +501,7 @@ async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
         ...reportColumns(report),
       });
       if (inserted) added += 1;
-    } catch (error) {
-      if (!(error instanceof BundleError || error instanceof SyntaxError)) throw error;
-    }
+    } catch {}
   }
   return added;
 }

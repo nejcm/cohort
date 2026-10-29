@@ -84,13 +84,13 @@ Each run writes `.cohort/runs/<run-id>/`; each batch writes `.cohort/runs/<batch
 | `manifest.json` | Inventory and configuration hashes, written last | No secrets |
 | `.cohort/auth/<name>.json` | Saved login storage state | A credential |
 | `.cohort/auth/dashboard-<id>.url` | Dashboard URL with its token, written by `cohort ui --json` while it runs | A credential |
-| `.cohort/index.sqlite*` | Index of runs and redacted events, shared by `cohort ui`, `cohort run --detach`, and `cohort runs` | Redacted |
+| `.cohort/index.sqlite*` | Index of runs and redacted events, shared by `cohort ui`, `cohort run` (foreground and `--detach`), and `cohort runs` | Redacted |
 
 `cohort init` writes `.cohort/.gitignore` so `runs/`, `auth/`, and `index.sqlite*` stay out of git; `cohort doctor` checks this with `git check-ignore`. Treat every artifact as sensitive until reviewed.
 
 `cohort run --detach` hands the batch to a background `cohort` process that records its PID and start time in the index; `cohort runs wait|cancel` and the dashboard coordinate through the index ([agents.md](agents.md#background-runs)).
 
-A run directory without `manifest.json` was not finalized: it is still running, or its process was killed. `SIGINT` and `SIGTERM` finalize runs as interrupted; a hard kill cannot. `cohort doctor` lists such directories, and `cohort ui` and `cohort runs wait` mark indexed ones whose owning process is gone as interrupted with a bounded report. Nothing resumes or spends again.
+A run directory without `manifest.json` was not finalized: it is still running, or its process was killed. `SIGINT` and `SIGTERM` finalize runs as interrupted; a hard kill does not finalize itself. Every batch, foreground `cohort run` included, is indexed with its owning process, so a foreground run needs a writable `.cohort/index.sqlite` (`index_unavailable` otherwise). The next `cohort run`, `cohort ui`, or any `cohort runs` command marks runs whose owner is gone as interrupted and writes a bounded run and batch report. `cohort doctor` stays read-only and only lists such directories. Nothing resumes or spends again.
 
 ## Retention and deletion
 
@@ -99,7 +99,7 @@ There is no automatic retention. Delete what you no longer need:
 ```sh
 rm -rf .cohort/runs/run_20261028_123523_6a126b   # one run
 rm -rf .cohort/runs                              # all runs and batch reports
-rm -f .cohort/index.sqlite .cohort/index.sqlite-wal .cohort/index.sqlite-shm  # dashboard index; rebuilt on next cohort ui
+rm -f .cohort/index.sqlite .cohort/index.sqlite-wal .cohort/index.sqlite-shm  # run index; rebuilt on next cohort ui or cohort run
 rm -f .cohort/auth/<name>.json                   # a saved login
 ```
 

@@ -443,6 +443,28 @@ test('batches whose owner died or whose PID was reused are finalized by wait, ba
   }
 });
 
+test('a dead batch stays unfinished until every run recovers, then gets a complete report', async () => {
+  const batch = 'batch_20260103_000000_aaaaaa';
+  const [ok, stuck] = ['run_20260103_000000_aaaaa1', 'run_20260103_000000_aaaaa2'];
+  const db = new LabDb(join(root, '.cohort/index.sqlite'));
+  db.insertBatch(batch, {}, new Date().toISOString(), { pid: 2 ** 22 + 1, start: null });
+  for (const [index, id] of [ok, stuck].entries())
+    db.insertRun({ ...queuedRow(batch, id), entry_index: index, status: 'running' as never });
+  db.close();
+  // A directory where report.json goes makes recovering that one run throw.
+  await mkdir(join(root, `.cohort/runs/${stuck}/report.json`), { recursive: true });
+  const first = await cli(['runs', 'show', batch, '--json']);
+  assert.deepEqual([first.json.done, first.json.summary], [false, null]);
+  await rm(join(root, `.cohort/runs/${stuck}/report.json`), { recursive: true });
+  const waited = await cli(['runs', 'wait', batch, '--timeout-ms', '10000', '--json']);
+  assert.deepEqual(
+    [waited.json.done, waited.json.runs.map((item: any) => item.status)],
+    [true, ['interrupted', 'interrupted']],
+  );
+  const report = JSON.parse(await readFile(join(root, `.cohort/runs/${batch}/report.json`), 'utf8'));
+  assert.equal(JSON.stringify(report).includes(stuck), true, 'the late run is in the batch report');
+});
+
 test('runs commands read the index even when the current config is broken', async () => {
   const config = await readFile(join(root, '.cohort/config.yml'), 'utf8');
   await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: [');
@@ -633,6 +655,62 @@ test('a real detached process outlives its parent, and no JSON output carries a 
   assert.deepEqual(leaks, []);
   const index = await readFile(join(root, '.cohort/index.sqlite'));
   assert.ok(![KEY, SETUP_SECRET, URL_SECRET].some((secret) => index.includes(secret)));
+});
+
+test('a hard-killed foreground run is finalized as interrupted once its owner is gone, and never resumed', async () => {
+  const project = await mkdtemp(join(tmpdir(), 'lab-killed-'));
+  const marker = join(project, 'hang-started');
+  assert.equal((await cli(['init', '--json'], { cwd: project })).code, 0);
+  assert.equal((await cli(['models', 'edit', '--file', '-', '--json'], { cwd: project, stdin: MODELS })).code, 0);
+  const write = (path: string, content: string) => writeFile(join(project, path), content);
+  await write('.cohort/config.yml', 'schemaVersion: 1\nmodel: openai/test-model\nrepeats: 1\n');
+  await mkdir(join(project, '.cohort/setup'), { recursive: true });
+  await write(
+    '.cohort/setup/hang.ts',
+    `import { appendFileSync } from 'node:fs';\nexport default () => { appendFileSync(${JSON.stringify(marker)}, 'x'); return new Promise(() => {}); };\n`,
+  );
+  await write(
+    '.cohort/suites/hang.yml',
+    'schemaVersion: 1\nid: hang\nname: Hang\ndefaults:\n  setup: ../setup/hang.ts\nentries:\n  - persona: first-time-host\n',
+  );
+  const child = spawn(process.execPath, [CLI, 'run', '--suite', 'hang', '--json'], {
+    cwd: project,
+    env: { ...env, PATH: process.env.PATH },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => (output += chunk));
+  child.stderr.on('data', (chunk) => (output += chunk));
+  let ended = false;
+  const exited = new Promise((resolve) => child.once('exit', resolve)).finally(() => (ended = true));
+  try {
+    while (!statSync(marker, { throwIfNoEntry: false })) {
+      assert.ok(!ended, `the run ended before setup: ${output}`);
+      await delay(50);
+    }
+    const db = new LabDb(join(project, '.cohort/index.sqlite'));
+    const batchId = db.unfinishedOwnedBatches().find((batch) => batch.owner_pid === child.pid)!.id;
+    db.close();
+    const live = await cli(['runs', 'show', batchId, '--json'], { cwd: project });
+    assert.deepEqual([live.json.done, live.json.runs[0].status], [false, 'running'], 'a live owner is left alone');
+    child.kill('SIGKILL');
+    await exited;
+    const waited = await cli(['runs', 'wait', batchId, '--timeout-ms', '10000', '--json'], { cwd: project });
+    assert.deepEqual([waited.code, waited.json.done, waited.json.runs.length], [1, true, 1]);
+    assert.equal(waited.json.runs[0].status, 'interrupted');
+    assert.equal(waited.json.summary.batchId, batchId);
+    assert.equal((await cli(['report', batchId, '--json'], { cwd: project })).code, 0);
+    await delay(200);
+    assert.equal(readFileSync(marker, 'utf8'), 'x', 'setup ran once; nothing resumed');
+    await rm(join(project, '.cohort/index.sqlite'));
+    await mkdir(join(project, '.cohort/index.sqlite'));
+    const unindexed = await cli(['run', '--suite', 'hang', '--json'], { cwd: project });
+    assert.deepEqual([unindexed.code, unindexed.json.code], [2, 'index_unavailable']);
+  } finally {
+    child.kill('SIGKILL');
+    await exited;
+    await rm(project, { recursive: true, force: true });
+  }
 });
 
 test('with stdin closed, nothing waits for input', async () => {
