@@ -12,6 +12,7 @@ export type JsonSchema = {
   maximum?: number;
   items?: JsonSchema;
   minItems?: number;
+  uniqueItems?: boolean;
   oneOf?: readonly JsonSchema[];
   description?: string;
 };
@@ -32,12 +33,13 @@ export function validate(schema: JsonSchema, value: unknown, path = '$'): string
     case 'array': {
       if (!Array.isArray(value)) return `${path}: must be a list`;
       if (schema.minItems !== undefined && value.length < schema.minItems) return `${path}: too few items`;
-      if (!schema.items) return null;
-      for (const [index, item] of value.entries()) {
-        const error = validate(schema.items, item, `${path}[${index}]`);
-        if (error) return error;
-      }
-      return null;
+      if (schema.items)
+        for (const [index, item] of value.entries()) {
+          const error = validate(schema.items, item, `${path}[${index}]`);
+          if (error) return error;
+        }
+      const repeat = schema.uniqueItems ? value.findIndex((item, index) => value.indexOf(item) !== index) : -1;
+      return repeat === -1 ? null : `${path}[${repeat}]: duplicate ${JSON.stringify(value[repeat])}`;
     }
     case 'string':
       if (typeof value !== 'string') return `${path}: must be a string`;

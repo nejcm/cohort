@@ -36,7 +36,7 @@ Optional frontmatter:
 
 The body must not be empty. Unknown fields, symlinks, and paths that leave their folder are rejected.
 
-The dashboard edits the frontmatter through form fields built from this schema and the body as Markdown text; saving writes the same file format. `setup` stays read-only there. A file whose frontmatter is not valid YAML or has fields the form does not know opens as source text until it fits the form again.
+The dashboard edits the frontmatter through form fields built from this schema and the body as Markdown text; saving writes the same file format. Each field is checked against the schema, and locale and time zone against the browser's `Intl`, as you type; saving waits until they pass, and the server checks again before writing. A name with several lines opens as source text. `setup` stays read-only there, and a new-persona draft that references setup offers to remove it. A file whose frontmatter is not valid YAML or has fields the form does not know opens as source text until it fits the form again.
 
 ## Templates
 

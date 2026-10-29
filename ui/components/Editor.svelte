@@ -17,6 +17,7 @@
   let message = $state('');
   let conflict = $state(false);
   let saving = $state(false);
+  let invalid = $state(false);
 
   const markdown = $derived(kind === 'personas');
   const file = $derived(`.cohort/${kind}/${id}.${kind === 'personas' ? 'md' : 'yml'}`);
@@ -105,7 +106,7 @@
     <h2 id="editor-title">{file}{#if dirty}{" "}<span class="unsaved">(unsaved)</span>{/if}</h2>
     <div class="actions">
       <button type="button" onclick={load} disabled={!dirty}><Icon name="undo" />Revert</button>
-      <button type="submit" class="primary" disabled={saving || !dirty} aria-busy={saving}><Icon name="check" />Validate and save</button>
+      <button type="submit" class="primary" disabled={saving || !dirty || invalid} aria-busy={saving}><Icon name="check" />Validate and save</button>
     </div>
   </div>
   {#if conflict}
@@ -135,6 +136,7 @@
           inheritedModels={config ? [config.defaults.model] : []}
           {error}
           idPrefix="editor"
+          bind:invalid
         />
       {/key}
     {/if}

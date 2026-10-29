@@ -1,4 +1,5 @@
-export function navigate(url: string): void {
-  history.pushState(null, '', url);
+export function navigate(url: string, replace = false): void {
+  if (replace) history.replaceState(null, '', url);
+  else history.pushState(null, '', url);
   dispatchEvent(new PopStateEvent('popstate'));
 }

@@ -1,27 +1,50 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { api, badge, initials, statusLabel, tint, usd, type RunSummary } from '../lib/api.ts';
+  import { navigate } from '../lib/nav.ts';
 
-  let { filter }: { filter: string } = $props();
+  let { params }: { params: URLSearchParams } = $props();
   let runs = $state<RunSummary[]>([]);
-  let counts = $state<Record<'all' | 'active' | 'look' | 'finished' | 'running' | 'queued' | 'finishedToday' | 'spentToday', number> | null>(null);
+  let counts = $state<Record<'all' | 'active' | 'look' | 'finished' | 'total' | 'lookTotal' | 'running' | 'queued' | 'finishedToday' | 'spentToday', number> | null>(null);
   let cursor = $state<string | null>(null);
   let error = $state('');
   let loaded = $state(false);
-  let sort = $state('created');
-  let asc = $state(false);
   let text = $state('');
-  let search = $state('');
   let latest = 0;
   let busy = $state(false);
 
+  const COLUMNS: [string, string, string?][] = [
+    ['id', 'Run and goal'],
+    ['status', 'Status'],
+    ['persona', 'Persona'],
+    ['started', 'Started'],
+    ['mode', 'Mode'],
+    ['model', 'Model'],
+    ['repeat', 'Repeat', 'num'],
+    ['duration', 'Duration', 'num'],
+    ['cost', 'Cost', 'num'],
+  ];
   const TABS: [string, string][] = [
     ['', 'All'],
     ['active', 'Active'],
     ['look', 'Needs a look'],
     ['finished', 'Finished'],
   ];
-  const tab = $derived(TABS.some(([key]) => key === filter) ? filter : '');
+  const tab = $derived(TABS.find(([key]) => key === params.get('f'))?.[0] ?? '');
+  const sort = $derived(COLUMNS.find(([key]) => key === params.get('sort'))?.[0] ?? 'created');
+  const asc = $derived(params.get('dir') === 'asc');
+  const search = $derived(params.get('q')?.trim() ?? '');
+  function href(change: Record<string, string>): string {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(change)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    return next.size ? `/runs?${next}` : '/runs';
+  }
+  const setSort = (key: string, ascending: boolean): void =>
+    navigate(href({ sort: key === 'created' ? '' : key, dir: ascending ? 'asc' : '' }));
   const query = $derived(
     `/api/runs?limit=50${sort === 'created' ? '' : `&sort=${sort}`}${asc ? '&dir=asc' : ''}${tab ? `&f=${tab}` : ''}${search ? `&q=${encodeURIComponent(search)}` : ''}`,
   );
@@ -58,9 +81,14 @@
     }
   }
 
+  $effect.pre(() => {
+    const value = search;
+    if (untrack(() => text.trim()) !== value) text = value;
+  });
   $effect(() => {
     const value = text.trim();
-    const timer = setTimeout(() => (search = value), 250);
+    if (value === search) return;
+    const timer = setTimeout(() => navigate(href({ q: value }), true), 250);
     return () => clearTimeout(timer);
   });
 
@@ -68,26 +96,12 @@
     void load(false, 0);
     // shortcut: refetches every loaded page every 3 s while runs are active; subscribe to a list event stream if that gets heavy.
     const timer = setInterval(() => {
-      if (counts?.active && !busy) void load();
+      if (counts && counts.running + counts.queued > 0 && !busy) void load();
     }, 3000);
     return () => clearInterval(timer);
   });
 
-  const COLUMNS: [string, string, string?][] = [
-    ['id', 'Run and goal'],
-    ['status', 'Status'],
-    ['persona', 'Persona'],
-    ['started', 'Started'],
-    ['mode', 'Mode'],
-    ['model', 'Model'],
-    ['repeat', 'Repeat', 'num'],
-    ['duration', 'Duration', 'num'],
-    ['cost', 'Cost', 'num'],
-  ];
-  function order(key: string, kind?: string): void {
-    asc = sort === key ? !asc : !kind && key !== 'started';
-    sort = key;
-  }
+  const order = (key: string, kind?: string): void => setSort(key, sort === key ? !asc : !kind && key !== 'started');
   const SORTS: [string, string][] = [
     ['created:desc', 'Newest first'],
     ['created:asc', 'Oldest first'],
@@ -98,8 +112,7 @@
   ];
   function pick(event: Event): void {
     const [key, dir] = (event.currentTarget as HTMLSelectElement).value.split(':');
-    sort = key!;
-    asc = dir === 'asc';
+    setSort(key!, dir === 'asc');
   }
   const sum = (list: RunSummary[]): number => list.reduce((total, run) => total + (run.costUsd ?? 0), 0);
 
@@ -123,7 +136,7 @@
     <div class="body"><strong>Couldn't load runs.</strong><span>{error}</span></div>
   </div>
 {/if}
-{#if loaded && counts?.all === 0 && !tab && !search && !error}
+{#if loaded && counts?.total === 0 && !error}
   <div class="empty">
     <Icon name="play" size={24} />
     <strong>No runs yet.</strong>
@@ -136,12 +149,12 @@
       <dd class="note">{counts.queued} queued behind them</dd>
     </div>
     <div>
-      <dt>Needs a look</dt><dd class="warn"><span class="tick" aria-hidden="true"></span>{counts.look}</dd>
+      <dt>Needs a look</dt><dd class="warn"><span class="tick" aria-hidden="true"></span>{counts.lookTotal}</dd>
       <dd class="note">blocked, limit reached, failed</dd>
     </div>
     <div>
       <dt>Finished today</dt><dd>{counts.finishedToday}</dd>
-      <dd class="note">of {counts.all} runs</dd>
+      <dd class="note">of {counts.total} runs</dd>
     </div>
     <div>
       <dt>Spent today</dt><dd>{usd(counts.spentToday)}</dd><dd class="note">provider-reported</dd>
@@ -150,7 +163,7 @@
   <ul class="tabs" aria-label="Filter runs">
     {#each TABS as [key, label] (key)}
       <li>
-        <a href={key ? `/runs?f=${key}` : '/runs'} aria-current={tab === key ? 'true' : undefined}>
+        <a href={href({ f: key })} aria-current={tab === key ? 'true' : undefined}>
           {label} <span class="n">{counts[(key || 'all') as keyof typeof counts]}</span>
         </a>
       </li>

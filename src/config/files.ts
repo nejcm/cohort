@@ -3,6 +3,7 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from
 import { join, relative, resolve, sep } from 'node:path';
 import { parse } from 'yaml';
 import { validate, type JsonSchema } from '../core/schema.ts';
+import { localeProblems } from './locale.ts';
 import { EFFORTS, type Effort } from '../providers/types.ts';
 
 export class ConfigError extends Error {
@@ -196,7 +197,7 @@ export const personaSchema: JsonSchema = {
     schemaVersion: { const: 1 },
     id,
     name: { type: 'string', minLength: 1, maxLength: 200 },
-    tags: { type: 'array', items: id },
+    tags: { type: 'array', items: id, uniqueItems: true },
     device: {
       type: 'object',
       additionalProperties: false,
@@ -321,19 +322,6 @@ async function readContained(projectRoot: string, where: string[], name: string)
   return readFile(path, 'utf8');
 }
 
-function checkLocaleAndZone(persona: { locale: string; timezone: string }, source: string): void {
-  try {
-    Intl.getCanonicalLocales(persona.locale);
-  } catch {
-    throw new ConfigError(`${source}.locale: unsupported locale ${persona.locale}`);
-  }
-  try {
-    Intl.DateTimeFormat('en', { timeZone: persona.timezone });
-  } catch {
-    throw new ConfigError(`${source}.timezone: unsupported time zone ${persona.timezone}`);
-  }
-}
-
 async function setupPath(projectRoot: string, declaringDir: string, value: string, source: string): Promise<string> {
   const path = resolve(declaringDir, value);
   try {
@@ -359,9 +347,8 @@ export function parsePersona(content: string, source: string): Omit<Persona, 'se
   if (!match) throw new ConfigError(`${source}: missing YAML frontmatter`);
   // The leading newline makes YAML error line numbers match the file.
   const front = checked<Omit<Persona, 'body' | 'hash'>>(personaSchema, parseYaml(`\n${match[1]!}`, source), source);
-  const duplicate = front.tags.find((tag, index) => front.tags.indexOf(tag) !== index);
-  if (duplicate) throw new ConfigError(`${source}.tags: duplicate tag ${duplicate}`);
-  checkLocaleAndZone(front, source);
+  const [localeProblem] = localeProblems(front, source);
+  if (localeProblem) throw new ConfigError(localeProblem);
   const body = match[2]!.trim();
   if (!body) throw new ConfigError(`${source}: persona body is empty`);
   return { ...front, body, hash: sha256(content) };

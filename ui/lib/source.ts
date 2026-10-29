@@ -1,5 +1,6 @@
-import { isAlias, parseDocument, stringify, visit } from 'yaml';
-import type { JsonSchema } from '../../src/core/schema.ts';
+import { isAlias, isScalar, parseDocument, stringify, visit } from 'yaml';
+import { localeProblems } from '../../src/config/locale.ts';
+import { validate, type JsonSchema } from '../../src/core/schema.ts';
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
 type Path = (string | number)[];
@@ -8,7 +9,12 @@ function edit(yaml: string, path: Path, value: unknown): string {
   const document = parseDocument(yaml);
   if (document.errors.length > 0) throw new Error(document.errors[0]!.message);
   if (value === undefined || value === null) document.deleteIn(path);
-  else document.setIn(path, value);
+  else {
+    document.setIn(path, value);
+    const node = document.getIn(path, true);
+    // A reparsed `""` keeps its quote style; reset it so YAML quotes only when the value needs it.
+    if (isScalar(node)) node.type = undefined;
+  }
   return String(document);
 }
 
@@ -18,11 +24,14 @@ export function readAt(source: string, path: Path, markdown: boolean): unknown {
   if (yaml === undefined) return null;
   const document = parseDocument(yaml);
   if (document.errors.length > 0) return null;
-  let value: unknown = document.toJS();
-  for (const key of path)
-    value = typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
-  return value ?? null;
+  return valueAt(document.toJS(), path) ?? null;
 }
+
+const valueAt = (value: unknown, path: Path): unknown =>
+  path.reduce<unknown>(
+    (at, key) => (typeof at === 'object' && at !== null ? (at as Record<string, unknown>)[key] : undefined),
+    value,
+  );
 
 /** Sets or (for undefined or null) removes one field, keeping comments, other keys and the Markdown body. */
 export function setAt(source: string, path: Path, value: unknown, markdown: boolean): string {
@@ -88,8 +97,12 @@ export function fieldGroups(schema: JsonSchema, omit: readonly string[]): { lege
   ];
 }
 
+export const multiline = (schema: JsonSchema): boolean => (schema.maxLength ?? 0) > 200;
+
 function mismatch(schema: JsonSchema, value: unknown, at: string): string | null {
   if (value === undefined) return null;
+  if (schema.type === 'string' && !multiline(schema) && typeof value === 'string' && /[\r\n]/u.test(value))
+    return `${at} has several lines`;
   if (schema.type === 'array') return Array.isArray(value) ? null : `${at || 'frontmatter'} is not a list`;
   if (schema.type !== 'object') return null;
   if (typeof value !== 'object' || value === null || Array.isArray(value))
@@ -120,7 +133,24 @@ export function formProblem(source: string, schema: JsonSchema): string | null {
   return mismatch(schema, document.toJS() ?? {}, '');
 }
 
-/** The part of a validation error that names `path`, such as `too short` for `x.md.name: too short`. */
-export function fieldError(error: string, path: string[]): string | null {
-  return new RegExp(`\\.${path.join('\\.')}(?:\\[\\d+\\])?: (.*)$`, 'u').exec(error)?.[1] ?? null;
+/** The part of a validation error that names `path` (or its list item `index`), such as `too short` for `x.md.name: too short`. */
+export function fieldError(error: string, path: string[], index?: number): string | null {
+  const item = index === undefined ? '' : `\\[${index}\\]`;
+  return new RegExp(`\\.${path.join('\\.')}${item}: (.*)$`, 'u').exec(error)?.[1] ?? null;
+}
+
+/** Checks each field's frontmatter value against its schema, plus locale and time zone; errors use the server's `.path: message` form. */
+export function fieldProblems(source: string, fields: Field[]): string[] {
+  const front = readAt(source, [], true);
+  const fieldErrors = fields.flatMap((field) => {
+    const value = valueAt(front, field.path);
+    const at = `.${field.path.join('.')}`;
+    if (value === undefined) return field.required ? [`${at}: required`] : [];
+    const { items: itemSchema, ...list } = field.schema;
+    if (!Array.isArray(value) || !itemSchema)
+      return [validate(field.schema, value, at)].filter((error) => error !== null);
+    const items = value.map((item, index) => validate(itemSchema, item, `${at}[${index}]`));
+    return [...items, validate(list, value, at)].filter((error) => error !== null);
+  });
+  return [...fieldErrors, ...localeProblems((front ?? {}) as Record<string, unknown>, '')];
 }

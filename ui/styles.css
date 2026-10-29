@@ -463,6 +463,7 @@ body {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--s-3);
@@ -1361,9 +1362,11 @@ progress.prog::-moz-progress-bar {
   width: 1ch;
 }
 .app .toolbar .search {
+  flex: 1 1 200px;
   max-width: 320px;
 }
 .app .toolbar .sort-pick {
+  flex: none;
   width: auto;
 }
 .app td .model {
@@ -1382,6 +1385,10 @@ progress.prog::-moz-progress-bar {
   left: 0;
   z-index: 1;
   background: var(--surface-2);
+  border-right: var(--bw) solid var(--line);
+}
+.app .table-wrap.runs th:nth-child(2) {
+  box-shadow: none;
 }
 .table-wrap.runs th:first-child {
   background: var(--band);
@@ -2595,9 +2602,9 @@ body {
 .logo .dot {
   fill: var(--brand);
 }
-/* 1440 window: 1440 - 220 side - 8 inset - 48 padding - 2 border = 1162px; the run column takes the rest (a full id needs ~230px). */
+/* Fits a 1400 window (1400 - 220 side - 8 inset - 48 padding - 2 border = 1122px); narrower ones scroll under the sticky run column. */
 .table-wrap.runs table {
-  min-width: 1156px;
+  min-width: 1120px;
 }
 .table-wrap.runs col:nth-child(2) {
   width: 136px;

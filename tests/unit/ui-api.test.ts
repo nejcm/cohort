@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { follow, splitEvents, type LiveEvent } from '../../ui/lib/api.ts';
 import { parsePersona, personaSchema } from '../../src/config/files.ts';
-import { bodyOf, fieldError, fieldGroups, formProblem, readAt, setAt, withBody } from '../../ui/lib/source.ts';
+import {
+  bodyOf,
+  fieldError,
+  fieldGroups,
+  fieldProblems,
+  formProblem,
+  readAt,
+  setAt,
+  withBody,
+} from '../../ui/lib/source.ts';
 
 const frame = (id: number, type: string): string => `id: ${id}\nevent: ${type}\ndata: {}\n\n`;
 
@@ -202,7 +211,9 @@ test('validation errors attach to the field they name', () => {
   const error = '.cohort/personas/guest.md.device.viewport.width: above maximum';
   assert.equal(fieldError(error, ['device', 'viewport', 'width']), 'above maximum');
   assert.equal(fieldError(error, ['device', 'viewport', 'height']), null);
-  assert.equal(fieldError('new persona.tags[1]: does not match pattern', ['tags']), 'does not match pattern');
+  assert.equal(fieldError('new persona.tags[3]: does not match pattern', ['tags']), null);
+  assert.equal(fieldError('new persona.tags[3]: does not match pattern', ['tags'], 2), null);
+  assert.equal(fieldError('new persona.tags[3]: does not match pattern', ['tags'], 3), 'does not match pattern');
   assert.equal(fieldError('x.md.name: required', ['name']), 'required');
   assert.equal(fieldError('x.md: persona body is empty', ['name']), null);
 });
@@ -221,4 +232,112 @@ test('list edits touch only the edited item, and anchors or aliases fall back to
   assert.deepEqual(readAt(setAt('---\nid: x\n---\nB', ['tags', 0], '', true), ['tags'], true), ['']);
   const linked = '---\nschemaVersion: 1\ntags: [guest, &mobile mobile]\nname: *mobile\n---\nB';
   assert.equal(formProblem(linked, personaSchema), 'the frontmatter uses YAML anchors or aliases');
+});
+
+const FORM =
+  '---\nschemaVersion: 1\nid: guest\nname: Guest\ntags: []\ndevice: { viewport: { width: 800, height: 600 }, touch: false }\nlocale: en-US\ntimezone: UTC\n---\n\nYou are a guest.\n';
+const FIELDS = fieldGroups(personaSchema, ['model', 'effort', 'setup']).flatMap((group) => group.fields);
+
+test('form fields are checked against the persona schema on the client, item by item', () => {
+  assert.deepEqual(fieldProblems(FORM, FIELDS), []);
+  let source = setAt(FORM, ['name'], '', true);
+  source = setAt(source, ['tags', 0], 'ok', true);
+  source = setAt(source, ['tags', 1], '', true);
+  source = setAt(source, ['tags', 2], 'ok', true);
+  source = setAt(source, ['device', 'viewport', 'width'], 10, true);
+  source = setAt(source, ['locale'], undefined, true);
+  source = setAt(source, ['limits', 'dollars'], 2000, true);
+  const problems = fieldProblems(source, FIELDS);
+  assert.deepEqual(problems, [
+    '.name: too short',
+    '.tags[1]: does not match pattern',
+    '.tags[2]: duplicate "ok"',
+    '.locale: required',
+    '.device.viewport.width: below minimum',
+    '.limits.dollars: above maximum',
+  ]);
+  assert.equal(problems.map((error) => fieldError(error, ['tags'], 0)).find(Boolean), undefined);
+  const ALL = fieldGroups(personaSchema, []).flatMap((group) => group.fields);
+  let mismatched = setAt(FORM, ['goal'], 'x', true).replace('goal: x', 'goal: null');
+  mismatched = setAt(mismatched, ['model'], 'no-slash', true);
+  mismatched = setAt(mismatched, ['locale'], 'en_US', true);
+  mismatched = setAt(mismatched, ['timezone'], 'No/Such_Zone', true);
+  const found = fieldProblems(mismatched, ALL);
+  assert.deepEqual(found, [
+    '.goal: must be a string',
+    '.model: does not match pattern',
+    '.locale: unsupported locale en_US',
+    '.timezone: unsupported time zone No/Such_Zone',
+  ]);
+  for (const error of found)
+    assert.throws(
+      () => parsePersona(mismatched, 'x.md'),
+      (thrown: Error) => thrown.message.startsWith('x.md.'),
+      error,
+    );
+});
+
+test('values written from the form stay plain unless YAML needs quotes', () => {
+  let source = setAt(FORM, ['name'], '', true);
+  source = setAt(source, ['name'], 'Formed', true);
+  source = setAt(source, ['tags', 0], '', true);
+  source = setAt(source, ['tags', 0], 'verified', true);
+  assert.match(source, /^name: Formed$/mu);
+  assert.match(source, /^tags: \[ verified \]$/mu);
+  assert.match(setAt(FORM, ['name'], 'true', true), /^name: "true"$/mu);
+});
+
+test('hostile form values round-trip through the Markdown file unchanged or are rejected by the schema', () => {
+  const hostile = [
+    '---',
+    '--- x',
+    'a: b',
+    '# heading',
+    'x # not a comment',
+    '"double"',
+    "'single'",
+    '- item',
+    '* star',
+    '&anchor',
+    '!tag',
+    '| block',
+    '> fold',
+    '{ a: 1 }',
+    '[1]',
+    'ünïcødé ✓ 日本',
+    'null',
+    '~',
+    '0x1F',
+    'é'.repeat(200),
+  ];
+  for (const value of hostile) {
+    const goal = `${value}\n---\n${value}\n`;
+    let source = setAt(FORM, ['name'], value, true);
+    source = setAt(source, ['goal'], goal, true);
+    source = setAt(source, ['storageState'], value, true);
+    source = withBody(source, `\n${value}\n---\nmore: text\n---\n`);
+    const problems = fieldProblems(source, FIELDS);
+    const fixed = problems.reduce(
+      (current, error) => setAt(current, error.slice(1, error.indexOf(':')).split('.'), undefined, true),
+      source,
+    );
+    const persona = parsePersona(fixed, 'x.md');
+    assert.equal(persona.name, value, value);
+    assert.equal(persona.goal, goal, value);
+    assert.equal(persona.body, `${value}\n---\nmore: text\n---`, value);
+    if (problems.length === 0) assert.equal(persona.storageState, value);
+    else
+      assert.throws(
+        () => parsePersona(source, 'x.md'),
+        new RegExp(problems[0]!.replace(/[[\]\\^$.|?*+(){}]/gu, '\\$&'), 'u'),
+      );
+  }
+  const empty = setAt(FORM, ['name'], '', true);
+  assert.equal(fieldError(fieldProblems(empty, FIELDS)[0]!, ['name']), 'too short');
+  assert.throws(() => parsePersona(empty, 'x.md'), /x\.md\.name: too short/u);
+  const multiline = setAt(FORM, ['name'], 'Two\n---\nlines', true);
+  assert.equal(formProblem(multiline, personaSchema), 'name has several lines');
+  assert.equal(parsePersona(multiline, 'x.md').name, 'Two\n---\nlines');
+  assert.deepEqual(fieldProblems(setAt(FORM, ['name'], '   ', true), FIELDS), []);
+  assert.throws(() => parsePersona(withBody(FORM, '\n  \n'), 'x.md'), /persona body is empty/u);
 });

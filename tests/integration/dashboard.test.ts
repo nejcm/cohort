@@ -676,7 +676,8 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
       ...orphan(`run_20260101_000000_sort0${index}`, 'queued', index),
       status: index < 3 ? 'finished' : index === 3 ? 'queued' : 'running',
       outcome_state: index === 0 ? 'blocked' : index < 3 ? 'completed' : null,
-      persona_id: index === 2 ? 'Admin-Ann' : 'guest',
+      persona_id: index === 2 ? 'Admin-Ann' : index === 4 ? 'Élodie' : 'guest',
+      goal: index === 1 ? 'ΟΔΟΣ ΚΑΙ' : 'Look around.',
       estimated_cost_usd: cost,
       created_at: `2026-01-0${index + 1}T00:00:00.000Z`,
       started_at: index === 3 ? null : `2026-02-0${5 - index}T00:00:00.000Z`,
@@ -698,6 +699,14 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
   assert.equal(pages({ filter: 'look' }), '0');
   assert.equal(pages({ filter: 'active', sort: 'id', asc: true }), '34');
   assert.equal(pages({ text: 'admin' }), '2');
+  assert.equal(pages({ text: 'éLODIE' }), '4');
+  for (const text of ['Σ', 'ς', 'οδος', 'ΟΔΟΣ Κ']) assert.equal(pages({ text }), '1', text);
+  const searched = db.runCounts('admin', '2026-01-03');
+  assert.deepEqual(
+    [searched.all, searched.look, searched.total, searched.lookTotal, searched.running, searched.queued],
+    [1, 0, 5, 1, 1, 1],
+    'tabs follow the search; headline counts cover every run',
+  );
   const counts = db.runCounts('', '2026-01-03');
   assert.equal(Math.round(counts.spentToday * 100), 60);
   assert.deepEqual(
@@ -707,6 +716,8 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
       active: 2,
       look: 1,
       finished: 3,
+      total: 5,
+      lookTotal: 1,
       running: 1,
       queued: 1,
       finishedToday: 1,

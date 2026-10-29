@@ -26,7 +26,6 @@
   );
   const section = $derived(['runs', 'personas', 'suites'].includes(route[0]!) ? route[0]! : 'runs');
   const title = $derived(section[0]!.toUpperCase() + section.slice(1));
-  const filter = $derived(new URLSearchParams(query).get('f') ?? '');
 
   function follow(event: MouseEvent): void {
     const link = (event.target as Element).closest('a');
@@ -122,7 +121,7 @@
       {:else if route[1]}
         {#key route[1]}<RunDetail id={route[1]} />{/key}
       {:else}
-        <Runs {filter} />
+        <Runs params={new URLSearchParams(query)} />
       {/if}
     </main>
     <RunDialog bind:this={dialog} />

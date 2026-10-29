@@ -394,7 +394,7 @@ test('authoring diagnostics name the file, line, entry, and known alternatives',
     );
     await write('.cohort/suites/broken.yml', 'schemaVersion: 1\nid: broken\nname: [\n');
     await assert.rejects(loadPersona(bad, 'twice'), /twice\.md: invalid YAML: Map keys must be unique at line 11/u);
-    await assert.rejects(loadPersona(bad, 'tags'), /tags: duplicate tag guest/u);
+    await assert.rejects(loadPersona(bad, 'tags'), /tags\[1\]: duplicate "guest"/u);
     await assert.rejects(loadPersona(bad, 'ghost'), /unknown persona ghost: no \.cohort\/personas\/ghost\.md/u);
     await assert.rejects(loadSuite(bad, 'nope'), /unknown suite nope: no \.cohort\/suites\/nope\.yml/u);
     const project = await loadProjectConfig(bad);

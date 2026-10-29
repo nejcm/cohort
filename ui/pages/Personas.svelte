@@ -6,7 +6,7 @@
   import ModelPicker from '../components/ModelPicker.svelte';
   import PersonaForm from '../components/PersonaForm.svelte';
   import type { JsonSchema } from '../../src/core/schema.ts';
-  import { readAt } from '../lib/source.ts';
+  import { readAt, setAt } from '../lib/source.ts';
 
   interface Summary {
     id: string;
@@ -39,6 +39,8 @@ Describe who this person is and how they behave.
   let templates = $state<{ id: string; source: string }[] | null>(null);
   let templateId = $state('');
   let draftKey = $state(0);
+  let draftInvalid = $state(false);
+  const draftSetup = $derived(readAt(draft, ['setup'], true));
 
   let models = $state<Models | null>(null);
   let schema = $state<JsonSchema | null>(null);
@@ -157,6 +159,12 @@ Describe who this person is and how they behave.
         </div>
       </div>
       {#if draftError}<div class="banner error" role="alert"><div class="body"><span>{draftError}</span></div></div>{/if}
+      {#if draftSetup}
+        <div class="banner warn" role="status">
+          <div class="body"><span>This draft references setup code <code>{String(draftSetup)}</code>; new personas cannot. Remove it here and add it by editing the file locally.</span></div>
+          <div class="actions"><button type="button" class="sm" onclick={() => (draft = setAt(draft, ['setup'], undefined, true))}>Remove setup reference</button></div>
+        </div>
+      {/if}
       {#if generated}
         <div class="banner info" role="status">
           <div class="body">
@@ -166,11 +174,11 @@ Describe who this person is and how they behave.
         </div>
       {/if}
       {#if schema}
-        {#key draftKey}<PersonaForm bind:source={draft} {schema} {models} error={draftError} idPrefix="draft" />{/key}
+        {#key draftKey}<PersonaForm bind:source={draft} bind:invalid={draftInvalid} {schema} {models} error={draftError} idPrefix="draft" />{/key}
       {/if}
       <div class="editor-foot">
         <span>New personas cannot reference setup code; add one by editing the file locally.</span>
-        <button type="submit" class="primary sm"><Icon name="check" />Validate and create</button>
+        <button type="submit" class="primary sm" disabled={draftInvalid || !!draftSetup}><Icon name="check" />Validate and create</button>
       </div>
     </form>
     <form class="metered" onsubmit={generate} aria-labelledby="generate-title" aria-busy={generating}>

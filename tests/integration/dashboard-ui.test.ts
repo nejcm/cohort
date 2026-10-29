@@ -337,18 +337,34 @@ test('persona edits keep the user text on a revision conflict and keep setup rea
   await page.locator('#editor-device-touch').check();
   await page.locator('#editor-input').selectOption('keyboard');
   await page.getByRole('group', { name: 'Tags' }).getByRole('button', { name: 'Add' }).click();
-  await page.locator('#editor-tags-1').fill('Bad Tag');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'editor-tags-1');
+  await page.keyboard.type('Bad Tag');
   await page.locator('#editor-default-effort').focus();
   await page.keyboard.press('ArrowDown');
-  await page.getByRole('button', { name: 'Validate and save' }).click();
-  await page.getByRole('group', { name: /Tags/u }).getByText('does not match pattern').waitFor();
-  assert.equal(await page.locator('#editor-tags-1').getAttribute('aria-invalid'), 'true');
+  const save = page.getByRole('button', { name: 'Validate and save' });
+  await page.locator('#editor-tags-1-error').getByText('does not match pattern').waitFor();
+  assert.equal(await page.locator('#editor-tags-1').getAttribute('aria-describedby'), 'editor-tags-1-error');
+  assert.equal(await page.locator('#editor-tags-0').getAttribute('aria-invalid'), null);
+  assert.ok(await save.isDisabled());
   await page.getByRole('button', { name: 'Remove Tags 2' }).click();
-  await page.getByRole('button', { name: 'Validate and save' }).click();
+  await page.locator('#editor-locale').fill('en_US');
+  await page.locator('#editor-locale-error').getByText('unsupported locale en_US').waitFor();
+  assert.ok(await save.isDisabled());
+  await page.locator('#editor-locale').fill('en-US');
+  await page.route('**/api/personas/guest', (route) =>
+    route.request().method() === 'PUT'
+      ? route.fulfill({ status: 400, json: { error: '.cohort/personas/guest.md.tags[0]: from the server' } })
+      : route.continue(),
+  );
+  await save.click();
+  await page.locator('#editor-tags-0-error').getByText('from the server').waitFor();
+  assert.equal(await page.locator('#editor-tags-0').getAttribute('aria-invalid'), 'true');
+  await page.unroute('**/api/personas/guest');
+  await save.click();
   await page.getByText('Saved .cohort/personas/guest.md.').waitFor();
   const saved = await readFile(join(root, '.cohort/personas/guest.md'), 'utf8');
   assert.match(saved, /Saved now\.$/u);
-  assert.match(saved, /^name: 'Guest: renamed'$/mu);
+  assert.match(saved, /^name: "Guest: renamed"$/mu);
   assert.match(saved, /^device: \{ viewport: \{ width: 390, height: 600 \}, touch: true \}$/mu);
   assert.match(saved, /^input: keyboard$/mu);
   assert.match(saved, /^effort: low$/mu);
@@ -411,14 +427,32 @@ test('picking a template fills the new-persona draft', async () => {
   assert.equal(await page.locator('#draft-id').inputValue(), 'new-persona');
   await page.locator('#draft-id').fill('formed');
   await page.locator('#draft-name').fill('');
-  await page.getByRole('button', { name: 'Validate and create' }).click();
   await page.locator('label[for="draft-name"]').getByText('too short').waitFor();
+  assert.ok(await page.getByRole('button', { name: 'Validate and create' }).isDisabled());
   await page.locator('#draft-name').fill('Formed');
   await page.getByRole('button', { name: 'Validate and create' }).click();
   await page.locator('#editor-body').waitFor();
   const created = await readFile(join(root, '.cohort/personas/formed.md'), 'utf8');
-  assert.match(created, /^id: formed\nname: "?Formed"?$/mu);
+  assert.match(created, /^id: formed\nname: Formed$/mu);
   assert.match(created, /\nDescribe who this person is and how they behave\.\n$/u);
+});
+
+test('a new-persona draft that references setup offers to remove it', async () => {
+  const source = PERSONA('scripted-draft', 'Scripted draft', 'setup: ../setup/login.ts\n');
+  await page.route('**/api/persona-templates', (route) =>
+    route.fulfill({ json: { templates: [{ id: 'scripted-draft', source }] } }),
+  );
+  try {
+    await page.goto(`${dashboard.origin}/personas/new`);
+    await page.locator('#draft-template').selectOption({ label: 'Template: Scripted draft' });
+    const create = page.getByRole('button', { name: 'Validate and create' });
+    assert.ok(await create.isDisabled());
+    await page.getByRole('button', { name: 'Remove setup reference' }).click();
+    assert.ok(await create.isEnabled());
+    assert.equal(await page.getByText('references setup code').count(), 0);
+  } finally {
+    await page.unroute('**/api/persona-templates');
+  }
 });
 
 test('the persona generator form previews a draft without saving it', async () => {
@@ -538,8 +572,31 @@ test('run headers sort on the server and the filter box narrows rows', async () 
   assert.equal(await cost.getAttribute('aria-sort'), 'ascending');
   await page.getByRole('combobox', { name: 'Sort runs' }).selectOption('Mode, descending');
   await page.locator('th[aria-sort="descending"]', { hasText: 'Mode' }).waitFor();
+  const kpis = await page.locator('.kpis').textContent();
   await page.getByRole('searchbox', { name: 'Search runs' }).fill('no-such-run');
   await page.getByText('No runs match.').waitFor();
+  assert.equal(await page.locator('.kpis').textContent(), kpis, 'headline counts ignore the search');
+});
+
+test('run sort, tab, and search live in the URL so reload and back keep them', async () => {
+  const pick = page.getByRole('combobox', { name: 'Sort runs' });
+  const search = page.getByRole('searchbox', { name: 'Search runs' });
+  await page.goto(`${dashboard.origin}/runs?f=finished&sort=cost&dir=asc&q=run`);
+  await pick.waitFor();
+  assert.equal(await pick.inputValue(), 'cost:asc');
+  assert.equal(await search.inputValue(), 'run');
+  assert.equal(await page.getByRole('link', { name: /^Finished/u }).getAttribute('aria-current'), 'true');
+  await pick.selectOption('Mode, descending');
+  await page.waitForURL((url) => url.searchParams.get('sort') === 'mode' && url.searchParams.get('f') === 'finished');
+  await search.fill('');
+  await page.waitForURL((url) => !url.searchParams.has('q'));
+  await page.reload();
+  await pick.waitFor();
+  assert.equal(await pick.inputValue(), 'mode:desc');
+  await page.goBack();
+  await page.waitForURL((url) => url.searchParams.get('sort') === 'cost');
+  assert.equal(await pick.inputValue(), 'cost:asc');
+  assert.equal(await search.inputValue(), 'run');
 });
 
 test('a slow failed response from an abandoned filter does not overwrite the current one', async () => {
@@ -642,6 +699,15 @@ test('narrow layouts keep column headers for screen readers without hidden sort 
     await page.getByRole('combobox', { name: 'Sort runs' }).waitFor();
     assert.equal(await page.getByRole('columnheader', { name: 'Cost' }).count(), 1);
     assert.equal(await page.getByRole('button', { name: /^Cost/u }).count(), 0);
+    const pick = await page.getByRole('combobox', { name: 'Sort runs' }).boundingBox();
+    const search = await page.getByRole('searchbox', { name: 'Search runs' }).boundingBox();
+    assert.ok(pick!.width >= 140 && search!.width >= 200, 'toolbar wraps instead of squeezing its controls');
+    await page.setViewportSize({ width: 1400, height: 900 });
+    const wrap = page.locator('.table-wrap.runs');
+    assert.ok(
+      await wrap.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      'no sideways scroll at 1400',
+    );
   } finally {
     if (size) await page.setViewportSize(size);
   }
