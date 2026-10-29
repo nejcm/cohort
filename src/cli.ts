@@ -37,6 +37,7 @@ import { openIndex, QueueError, runOwnedBatch, startBatch, type DetachedBatch } 
 import { isLoopback, startDashboard } from './dashboard/server.ts';
 import { initProject } from './config/init.ts';
 import { doctor } from './doctor.ts';
+import { COMMANDS, renderHelp } from './help.ts';
 import { scrubEnv } from './setup/run.ts';
 import { safeUrl, SecretStore } from './setup/secrets.ts';
 import {
@@ -83,6 +84,7 @@ const USAGE = `Usage: cohort [options]
        cohort suite list | show|remove <id> [--yes] | add [--force] | edit <id>  --file <path>|-
        cohort suite add-entry <suite-id> --persona <id> [--goal <text>] [--url <url>] [--note <text>]
        cohort ui [--port <n>] [--host <address>]
+       cohort help [command]
 
 Options:
   -h, --help     Show this help
@@ -237,6 +239,22 @@ async function main(argv: string[], write: Write, deps: Dependencies): Promise<n
   if (values.version) {
     if (values.json) emit(write, { version: readVersion() });
     else write(`${readVersion()}\n`);
+    return 0;
+  }
+  if (positionals[0] === 'help' && positionals.length <= 2) {
+    const text = renderHelp(positionals[1]);
+    if (text === undefined) {
+      const known = COMMANDS.map((command) => command.name).join(', ');
+      const message = `unknown command: ${positionals[1]} (known: ${known})`;
+      if (values.json) emit(write, { error: message, code: 'usage' });
+      else write(`Error: ${message}\n`);
+      return 2;
+    }
+    if (values.json)
+      emit(write, {
+        commands: COMMANDS.filter((command) => positionals[1] === undefined || command.name === positionals[1]),
+      });
+    else write(text);
     return 0;
   }
   if (values.help || positionals.length === 0) {

@@ -18,6 +18,8 @@
   } from '../lib/api.ts';
   import AdhocSave from '../components/AdhocSave.svelte';
   import Skeleton from '../components/Skeleton.svelte';
+  import ReplayPlayer from '../components/ReplayPlayer.svelte';
+  import type { PlayerStep } from '../lib/player.ts';
 
   interface Claim {
     id: string;
@@ -50,10 +52,7 @@
     artifacts: { id: string; mediaType: string; bytes: number; sensitivity: string }[];
     screenshots: string[];
   }
-  interface Step {
-    id: string;
-    action: string;
-    status: string;
+  interface Step extends PlayerStep {
     screenshotId: string | null;
   }
   interface Resolved {
@@ -71,6 +70,9 @@
   let selected = $state<string | null>(null);
   const current = $derived(selected ?? shots.at(-1) ?? null);
   let image = $state<string | null>(null);
+  let imageShot = $state<string | null>(null);
+  let cursor = $state<string | null>(null);
+  const playingStep = $derived(cursor?.split(':')[0] ?? null);
   let error = $state('');
   let notice = $state('');
   let linked = $state(true);
@@ -78,6 +80,8 @@
   let saving = $state<string | null>(null);
 
   const urls = new Map<string, string>();
+  const pending = new Map<string, Promise<string>>();
+  let generation = 0;
   let settling: ReturnType<typeof setTimeout> | undefined;
 
   // Comparison claims land after the whole batch ends, once its summary is written; poll until then.
@@ -109,15 +113,25 @@
           .map((line) => {
             const step = JSON.parse(line) as {
               id: string;
-              action: { name: string };
+                            action: { name: string; args: Record<string, unknown> };
               result: { status: string; code?: string };
+              beforeScreenshotId: string | null;
               afterScreenshotId: string | null;
+              pageUrl: string;
+              durationMs: number;
+              target?: { screenshotPoint?: { x: number; y: number } };
             };
             return {
               id: step.id,
               action: step.action.name,
               status: step.result.code ? `${step.result.status}: ${step.result.code}` : step.result.status,
               screenshotId: step.afterScreenshotId,
+              args: JSON.stringify(step.action.args).slice(0, 160),
+              pageUrl: step.pageUrl,
+              durationMs: step.durationMs,
+              beforeId: step.beforeScreenshotId,
+              afterId: step.afterScreenshotId,
+              point: step.target?.screenshotPoint ?? null,
             };
           });
       }
@@ -137,11 +151,17 @@
         action: String(data.action),
         status: 'running',
         screenshotId: null,
+        args: '',
+        pageUrl: '',
+        durationMs: 0,
+        beforeId: null,
+        afterId: null,
+        point: null,
       }];
     else if (event.type === 'step.completed' && data.stepId)
       steps = steps.map((step) =>
         step.id === data.stepId
-          ? { ...step, status: String(data.status), screenshotId: data.screenshotId ?? null }
+          ? { ...step, status: String(data.status), screenshotId: data.screenshotId ?? null, afterId: data.screenshotId ?? null }
           : step,
       );
     else if (event.type === 'usage.updated') usage = data;
@@ -166,24 +186,51 @@
     });
     return () => {
       stop?.();
+      generation += 1;
+      pending.clear();
       clearTimeout(settling);
       for (const url of urls.values()) URL.revokeObjectURL(url);
       urls.clear();
     };
   });
 
-  $effect(() => {
-    if (!current) return void (image = null);
-    const shot = current;
+  function fetchShot(shot: string): Promise<string> {
     const cached = urls.get(shot);
-    if (cached) return void (image = cached);
-    blobUrl(screenshotPath(id, shot)).then(
-      (url) => {
+    if (cached) return Promise.resolve(cached);
+    const owner = generation;
+    const inflight: Promise<string> =
+      pending.get(shot) ??
+      blobUrl(screenshotPath(id, shot)).then((url) => {
+        if (owner !== generation) {
+          URL.revokeObjectURL(url);
+          throw new Error('run changed');
+        }
         urls.set(shot, url);
-        if (current === shot) image = url;
+        if (pending.get(shot) === inflight) pending.delete(shot);
+        return url;
+      });
+    pending.set(shot, inflight);
+    inflight.catch(() => {
+      if (pending.get(shot) === inflight) pending.delete(shot);
+    });
+    return inflight;
+  }
+
+  $effect(() => {
+    if (!current) return void (image = imageShot = null);
+    const shot = current;
+    const owner = generation;
+    const cached = urls.get(shot);
+    if (cached) return void ((image = cached), (imageShot = shot));
+    fetchShot(shot).then(
+      (url) => {
+        if (current !== shot || owner !== generation) return;
+        image = url;
+        imageShot = shot;
       },
       (caught: Error) => {
-        if (current === shot) image = null;
+        if (owner !== generation) return;
+        if (current === shot) image = imageShot = null;
         error = `Couldn't load screenshot ${shot}: ${caught.message}`;
       },
     );
@@ -208,6 +255,7 @@
     if (next === null || next < 0 || next >= shots.length) return;
     event.preventDefault();
     selected = shots[next]!;
+    cursor = null;
     document.getElementById(`shot-${selected}`)?.focus();
   }
 
@@ -312,19 +360,14 @@
           <ol class="timeline" role="toolbar" aria-label="Screenshots; use the arrow keys" tabindex="-1" onkeydown={onTimelineKey}>
             {#each shots as shot, index (shot)}
               <li>
-                <button type="button" class="lg" id="shot-{shot}" aria-label={shot} aria-pressed={current === shot} onclick={() => (selected = shot)}>
+                <button type="button" class="lg" id="shot-{shot}" aria-label={shot} aria-pressed={current === shot} onclick={() => ((selected = shot), (cursor = null))}>
                   <span class="n">{String(index + 1).padStart(2, '0')}</span>{shot}
                 </button>
               </li>
             {/each}
           </ol>
         {/if}
-        {#if image && current}
-          <figure class="shot">
-            <img src={image} alt="Masked screenshot {current}" />
-            <figcaption><span>Masked screenshot <span class="mono">{current}</span></span></figcaption>
-          </figure>
-        {/if}
+        <ReplayPlayer {steps} bind:selected bind:cursor {image} {imageShot} enabled={!isActive(run.status)} preload={(shot) => void fetchShot(shot).catch(() => undefined)} />
       </section>
 
       <section class="section" aria-labelledby="steps-title">
@@ -335,12 +378,12 @@
               <li class="waiting">{isActive(run.status) ? 'Waiting for the first step…' : 'No steps recorded.'}</li>
             {/if}
             {#each steps as step (step.id)}
-              <li>
+              <li aria-current={playingStep === step.id ? 'step' : undefined}>
                 <span class="sid">{step.id}</span> <span class="action">{step.action}</span>
                 <span class="end">
                   <span class="chip {step.status.split(':')[0] === 'ok' ? 'ok' : step.status === 'running' ? 'running' : 'failed'}">{step.status}</span>
-                  {#if step.screenshotId}
-                    <button type="button" class="link" onclick={() => (selected = step.screenshotId)}>{step.screenshotId}</button>
+                  {#if step.afterId ?? step.beforeId}
+                    <button type="button" class="link" onclick={() => ((selected = step.afterId ?? step.beforeId), (cursor = `${step.id}:after`))}>{step.afterId ?? step.beforeId}</button>
                   {/if}
                 </span>
               </li>
