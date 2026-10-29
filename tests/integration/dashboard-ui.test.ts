@@ -8,7 +8,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { build } from 'vite';
 import { LabDb } from '../../src/dashboard/db.ts';
 import { startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 
 const KEY = 'sk-dashboard-ui-canary-5150';

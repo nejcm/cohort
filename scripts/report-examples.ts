@@ -1,5 +1,5 @@
 // Regenerates one bundle per outcome plus their batch report from the fixture app and a scripted model, laid out like .cohort/runs.
-// Run: node examples/report-examples.ts
+// Run: node scripts/report-examples.ts
 import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,7 @@ import { basename, dirname, join } from 'node:path';
 import { run } from '../src/cli.ts';
 import { writeBatchReports } from '../src/evidence/bundle.ts';
 import { buildBatchReport, type RunReport } from '../src/evidence/report.ts';
-import { startFixture } from '../fixtures/friction-app/server.ts';
+import { startFixture } from '../tests/fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../tests/helpers/fake-provider.ts';
 
 const out = new URL('../docs/report-examples', import.meta.url).pathname;

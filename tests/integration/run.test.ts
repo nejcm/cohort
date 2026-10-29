@@ -15,7 +15,7 @@ import { run } from '../../src/cli.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 import { decodePng } from '../helpers/png.ts';
 

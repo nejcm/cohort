@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { HEALTHY_MINIMUM_ACTIONS, MUTATIONS, type Mutation } from '../../fixtures/friction-app/scenarios.ts';
-import { startFixture } from '../../fixtures/friction-app/server.ts';
+import { HEALTHY_MINIMUM_ACTIONS, MUTATIONS, type Mutation } from '../fixtures/friction-app/scenarios.ts';
+import { startFixture } from '../fixtures/friction-app/server.ts';
 
 async function journey(mutations: Mutation[], form: Record<string, string>) {
   const fixture = await startFixture({ mutations });

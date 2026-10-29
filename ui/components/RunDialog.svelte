@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { api, usd, type Models, type ProjectDefaults } from './api.ts';
-  import { navigate } from './nav.ts';
+  import { api, usd, type Models, type ProjectDefaults } from '../lib/api.ts';
+  import { navigate } from '../lib/nav.ts';
   import ModelPicker from './ModelPicker.svelte';
 
   interface Plan {

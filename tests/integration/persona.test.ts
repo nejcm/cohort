@@ -8,7 +8,7 @@ import { after, before, test } from 'node:test';
 import { MASK_RGB } from '../../src/browser/observations.ts';
 import { run } from '../../src/cli.ts';
 import { PERSONA_GUIDANCE } from '../../src/personas/generate.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 import { decodePng } from '../helpers/png.ts';
 

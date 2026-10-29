@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Models } from './api.ts';
+  import type { Models } from '../lib/api.ts';
 
   let {
     models,

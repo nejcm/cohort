@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { follow, splitEvents, type LiveEvent } from '../../ui/api.ts';
-import { readAt, setAt } from '../../ui/source.ts';
+import { follow, splitEvents, type LiveEvent } from '../../ui/lib/api.ts';
+import { readAt, setAt } from '../../ui/lib/source.ts';
 
 const frame = (id: number, type: string): string => `id: ${id}\nevent: ${type}\ndata: {}\n\n`;
 

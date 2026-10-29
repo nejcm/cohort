@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { run } from '../../src/cli.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId } from '../helpers/fake-provider.ts';
 
 const repoRoot = new URL('../..', import.meta.url).pathname;

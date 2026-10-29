@@ -1,10 +1,10 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
-  import { api, initials, tint, usd, type Models } from './api.ts';
-  import { navigate } from './nav.ts';
-  import Editor from './Editor.svelte';
-  import ModelPicker from './ModelPicker.svelte';
-  import { readAt } from './source.ts';
+  import Icon from '../components/Icon.svelte';
+  import { api, initials, tint, usd, type Models } from '../lib/api.ts';
+  import { navigate } from '../lib/nav.ts';
+  import Editor from '../components/Editor.svelte';
+  import ModelPicker from '../components/ModelPicker.svelte';
+  import { readAt } from '../lib/source.ts';
 
   interface Summary {
     id: string;

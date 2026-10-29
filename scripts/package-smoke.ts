@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
-import { startFixture } from '../fixtures/friction-app/server.ts';
+import { startFixture } from '../tests/fixtures/friction-app/server.ts';
 
 const repoRoot = new URL('..', import.meta.url).pathname;
 const exec = promisify(execFile);

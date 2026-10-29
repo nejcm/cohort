@@ -9,7 +9,7 @@ import { after, before, test } from 'node:test';
 import { promisify } from 'node:util';
 import { runOnce } from '../../src/core/engine.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, pointOf } from '../helpers/fake-provider.ts';
 import { zipEntry } from '../helpers/zip.ts';
 import type { Page } from 'playwright';

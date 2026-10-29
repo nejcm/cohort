@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
+  import Icon from '../components/Icon.svelte';
   import {
     api,
     artifactPath,
@@ -14,8 +14,8 @@
     words,
     type LiveEvent,
     type RunSummary,
-  } from './api.ts';
-  import AdhocSave from './AdhocSave.svelte';
+  } from '../lib/api.ts';
+  import AdhocSave from '../components/AdhocSave.svelte';
 
   interface Claim {
     id: string;

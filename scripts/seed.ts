@@ -3,7 +3,7 @@
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { run } from '../src/cli.ts';
-import { startFixture } from '../fixtures/friction-app/server.ts';
+import { startFixture } from '../tests/fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../tests/helpers/fake-provider.ts';
 
 const root = resolve(process.argv[2] ?? '.seed');

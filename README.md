@@ -27,7 +27,7 @@ npx cohort doctor    # runtime, browser, config, model, keys, paths; never calls
 Try it on the bundled fixture app (from a clone of this repository; it needs only Node):
 
 ```sh
-node fixtures/friction-app/server.ts --port 4173        # add --mutation hidden_primary etc. for seeded friction
+node tests/fixtures/friction-app/server.ts --port 4173        # add --mutation hidden_primary etc. for seeded friction
 npx cohort run --persona first-time-host --url http://127.0.0.1:4173/ --repeats 1
 open .cohort/runs/<batch-id>/report.html                    # the run prints its report path
 ```

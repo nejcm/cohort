@@ -1,8 +1,8 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
-  import { api } from './api.ts';
-  import { navigate } from './nav.ts';
-  import Editor from './Editor.svelte';
+  import Icon from '../components/Icon.svelte';
+  import { api } from '../lib/api.ts';
+  import { navigate } from '../lib/nav.ts';
+  import Editor from '../components/Editor.svelte';
 
   let { id }: { id: string | undefined } = $props();
   let suites = $state<{ id: string; name: string | null; entries: number; error: string | null }[]>([]);

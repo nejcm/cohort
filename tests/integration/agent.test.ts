@@ -13,7 +13,7 @@ import { deriveClaims, validateClaim } from '../../src/evidence/friction.ts';
 import { generateReplay } from '../../src/evidence/replay.ts';
 import { ProviderError, type DecideRequest, type Usage } from '../../src/providers/types.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, pointOf, type Turn } from '../helpers/fake-provider.ts';
 import { decodePng } from '../helpers/png.ts';
 

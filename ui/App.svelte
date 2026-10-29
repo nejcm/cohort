@@ -1,13 +1,13 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
-  import { bootstrapToken } from './api.ts';
-  import Logo from './Logo.svelte';
-  import Personas from './Personas.svelte';
-  import RunDetail from './RunDetail.svelte';
-  import RunDialog from './RunDialog.svelte';
-  import Runs from './Runs.svelte';
-  import { navigate } from './nav.ts';
-  import Suites from './Suites.svelte';
+  import Icon from './components/Icon.svelte';
+  import { bootstrapToken } from './lib/api.ts';
+  import Logo from './components/Logo.svelte';
+  import Personas from './pages/Personas.svelte';
+  import RunDetail from './pages/RunDetail.svelte';
+  import RunDialog from './components/RunDialog.svelte';
+  import Runs from './pages/Runs.svelte';
+  import { navigate } from './lib/nav.ts';
+  import Suites from './pages/Suites.svelte';
 
   const token = bootstrapToken();
   let path = $state(location.pathname.slice(1));

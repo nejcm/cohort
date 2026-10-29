@@ -6,7 +6,7 @@ import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { run } from '../../src/cli.ts';
 import { startDashboard } from '../../src/dashboard/server.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId } from '../helpers/fake-provider.ts';
 import { zipEntry } from '../helpers/zip.ts';
 

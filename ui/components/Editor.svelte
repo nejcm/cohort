@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { api, ApiError, type Editable, type Models, type ProjectDefaults } from './api.ts';
+  import { api, ApiError, type Editable, type Models, type ProjectDefaults } from '../lib/api.ts';
   import ModelPicker from './ModelPicker.svelte';
-  import { readAt, setAt } from './source.ts';
+  import { readAt, setAt } from '../lib/source.ts';
 
   let { kind, id, onsaved }: { kind: 'personas' | 'suites'; id: string; onsaved: () => void } = $props();
 

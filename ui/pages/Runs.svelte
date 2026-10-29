@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
-  import { api, badge, initials, isActive, statusLabel, tint, usd, type RunSummary } from './api.ts';
+  import Icon from '../components/Icon.svelte';
+  import { api, badge, initials, isActive, statusLabel, tint, usd, type RunSummary } from '../lib/api.ts';
 
   let { filter }: { filter: string } = $props();
   let runs = $state<RunSummary[]>([]);

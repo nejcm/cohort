@@ -8,7 +8,7 @@ import { run } from '../../src/cli.ts';
 import { LabDb } from '../../src/dashboard/db.ts';
 import { saveEditable, type EditError } from '../../src/dashboard/files.ts';
 import { CSP, startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
-import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
+import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 
 const KEY = 'sk-dashboard-canary-7731';

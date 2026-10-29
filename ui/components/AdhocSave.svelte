@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { stringify } from 'yaml';
-  import { api, ApiError, type Editable } from './api.ts';
-  import { personaMarkdown } from './source.ts';
+  import { api, ApiError, type Editable } from '../lib/api.ts';
+  import { personaMarkdown } from '../lib/source.ts';
 
   let { resolved }: { resolved: { request: { url?: string; note?: string }; persona: Record<string, unknown> } } =
     $props();
