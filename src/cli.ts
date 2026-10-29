@@ -39,7 +39,7 @@ import { scrubEnv } from './setup/run.ts';
 import { SecretStore } from './setup/secrets.ts';
 
 const USAGE = `Usage: cohort [options]
-       cohort init
+       cohort init [--template <id>]...
        cohort doctor [--json]
        cohort run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
        cohort report <run-or-batch-id> [--format json|md|html]
@@ -94,6 +94,7 @@ const RUN_OPTIONS = {
   host: { type: 'string' },
   port: { type: 'string' },
   state: { type: 'string' },
+  template: { type: 'string', multiple: true },
 } as const;
 
 const GENERATE_DOLLARS = 0.5;
@@ -137,7 +138,7 @@ export async function run(
   const [command, id, ...extra] = positionals;
   if (command === 'init' && id === undefined) {
     try {
-      const { created, kept } = await initProject(deps.cwd ?? process.cwd());
+      const { created, kept } = await initProject(deps.cwd ?? process.cwd(), values.template);
       for (const path of created) write(`created ${path}\n`);
       for (const path of kept) write(`kept ${path} (exists)\n`);
       write('next: cohort doctor\n');
@@ -228,7 +229,7 @@ async function validateCommand(write: Write, deps: Dependencies): Promise<number
 }
 
 async function generateCommand(
-  values: Record<string, string | boolean | undefined>,
+  values: Record<string, string | string[] | boolean | undefined>,
   write: Write,
   deps: Dependencies,
 ): Promise<number> {
@@ -288,7 +289,7 @@ async function generateCommand(
 }
 
 async function uiCommand(
-  values: Record<string, string | boolean | undefined>,
+  values: Record<string, string | string[] | boolean | undefined>,
   write: Write,
   deps: Dependencies,
 ): Promise<number> {
@@ -331,7 +332,7 @@ function waitForEnter(page: Page): Promise<void> {
 }
 
 async function loginCommand(
-  values: Record<string, string | boolean | undefined>,
+  values: Record<string, string | string[] | boolean | undefined>,
   write: Write,
   deps: Dependencies,
 ): Promise<number> {
@@ -374,7 +375,7 @@ async function traceCommand(id: string, deps: Dependencies): Promise<number> {
   return (deps.openTrace ?? showTrace)(tracePath);
 }
 
-function submissionFrom(values: Record<string, string | boolean | undefined>): RunSubmission {
+function submissionFrom(values: Record<string, string | string[] | boolean | undefined>): RunSubmission {
   const selectors = (['persona', 'tag', 'suite'] as const).filter((key) => values[key] !== undefined);
   if (selectors.length > 1) throw new ConfigError('choose one of --persona, --tag, --suite');
   const number = (key: string): number | undefined =>
@@ -413,7 +414,7 @@ function submissionFrom(values: Record<string, string | boolean | undefined>): R
 }
 
 async function runCommand(
-  values: Record<string, string | boolean | undefined>,
+  values: Record<string, string | string[] | boolean | undefined>,
   write: Write,
   deps: Dependencies,
 ): Promise<number> {

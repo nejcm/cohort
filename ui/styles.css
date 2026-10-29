@@ -1955,6 +1955,7 @@ progress.prog::-moz-progress-bar {
 }
 .editor-head .actions {
   display: flex;
+  align-items: center;
   gap: var(--s-2);
 }
 .editor .banner {
@@ -2513,4 +2514,7 @@ body {
   gap: var(--s-4);
   padding: var(--s-4);
   border-bottom: var(--bw) solid var(--line);
+}
+.editor-head select {
+  width: auto;
 }

@@ -9,8 +9,10 @@ import {
   loadPersona,
   loadProjectConfig,
   loadSuite,
+  parsePersona,
   saveStorageState,
 } from '../../src/config/files.ts';
+import { personaTemplates } from '../../src/config/init.ts';
 import { PERSONA_GUIDANCE } from '../../src/personas/generate.ts';
 import { resolveSubmission, validateSubmission, type RunSubmission } from '../../src/config/resolve.ts';
 import { validateCatalog, type ModelCatalogEntry } from '../../src/providers/catalog.ts';
@@ -417,12 +419,26 @@ test('authoring diagnostics name the file, line, entry, and known alternatives',
   }
 });
 
-test('the shipped persona and guest suite examples validate unchanged; the docs carry the generator guidance verbatim', async () => {
+test('every shipped persona template and the guest suite validate unchanged; the docs carry the generator guidance verbatim', async () => {
   const project = await mkdtemp(join(tmpdir(), 'lab-examples-'));
   try {
     const examples = new URL('../../examples/personas/', import.meta.url).pathname;
     const names = (await readdir(examples)).toSorted();
-    assert.deepEqual(names, ['first-time-host.md', 'mobile-first-guest.md', 'returning-desktop-user.md']);
+    const templates = await personaTemplates();
+    assert.deepEqual(
+      templates.map((template) => `${template.id}.md`),
+      names,
+    );
+    assert.ok(templates.length >= 10 && templates.length <= 15);
+    for (const { id, source } of templates) {
+      const parsed = parsePersona(source, id);
+      for (const key of ['setup', 'storageState', 'model', 'effort', 'limits'])
+        assert.equal(key in parsed, false, `${id} leaves ${key} to the operator`);
+      assert.ok(parsed.goal, `${id} has a goal`);
+      assert.match(source, /^Assumptions \(edit these\):/mu, `${id} marks its assumptions`);
+    }
+    const docs = await readFile(new URL('../../docs/personas.md', import.meta.url), 'utf8');
+    for (const { id } of templates) assert.ok(docs.includes(`\`${id}\``), `docs list ${id}`);
     await mkdir(join(project, '.cohort/personas'), { recursive: true });
     for (const name of names) await copyFile(join(examples, name), join(project, '.cohort/personas', name));
     await mkdir(join(project, '.cohort/suites'), { recursive: true });
@@ -430,8 +446,7 @@ test('the shipped persona and guest suite examples validate unchanged; the docs 
     const shipped = new URL('../../examples/', import.meta.url).pathname;
     await copyFile(join(shipped, 'suites/fixture-guest.yml'), join(project, '.cohort/suites/fixture-guest.yml'));
     await copyFile(join(shipped, 'setup/fixture.ts'), join(project, '.cohort/setup/fixture.ts'));
-    assert.deepEqual(await checkProject(project), { personas: 3, suites: 1, problems: [] });
-    const docs = await readFile(new URL('../../docs/personas.md', import.meta.url), 'utf8');
+    assert.deepEqual(await checkProject(project), { personas: names.length, suites: 1, problems: [] });
     assert.ok(docs.includes(`> ${PERSONA_GUIDANCE}`));
   } finally {
     await rm(project, { recursive: true, force: true });

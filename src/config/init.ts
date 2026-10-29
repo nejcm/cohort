@@ -16,10 +16,28 @@ allowedOrigins: []
 // Private evidence and credentials; see docs/operating.md.
 const GITIGNORE = 'auth/\nruns/\nindex.sqlite*\n';
 
-const EXAMPLES = new URL('../../examples/personas/', import.meta.url);
+const TEMPLATES = new URL('../../examples/personas/', import.meta.url);
+const DEFAULT_TEMPLATES = ['first-time-host', 'mobile-first-guest', 'returning-desktop-user'];
 
-/** Creates the `.cohort` project layout; never overwrites an existing file. */
-export async function initProject(projectRoot: string): Promise<{ created: string[]; kept: string[] }> {
+/** The shipped persona templates, sorted by id. */
+export async function personaTemplates(): Promise<{ id: string; source: string }[]> {
+  const names = (await readdir(TEMPLATES)).filter((file) => file.endsWith('.md')).toSorted();
+  return Promise.all(
+    names.map(async (name) => ({ id: name.slice(0, -3), source: await readFile(new URL(name, TEMPLATES), 'utf8') })),
+  );
+}
+
+/** Creates the `.cohort` project layout with the chosen persona templates; never overwrites an existing file. */
+export async function initProject(
+  projectRoot: string,
+  templateIds: string[] = DEFAULT_TEMPLATES,
+): Promise<{ created: string[]; kept: string[] }> {
+  const templates = await personaTemplates();
+  const unknown = templateIds.filter((id) => !templates.some((template) => template.id === id));
+  if (unknown.length > 0)
+    throw new ConfigError(
+      `unknown template ${unknown.join(', ')}; known templates: ${templates.map((template) => template.id).join(', ')}`,
+    );
   const created: string[] = [];
   const kept: string[] = [];
   for (const dir of ['.cohort', '.cohort/personas', '.cohort/suites', '.cohort/setup']) {
@@ -35,8 +53,8 @@ export async function initProject(projectRoot: string): Promise<{ created: strin
     ['.cohort/config.yml', CONFIG],
     ['.cohort/.gitignore', GITIGNORE],
   ];
-  for (const name of (await readdir(EXAMPLES)).filter((file) => file.endsWith('.md')).toSorted())
-    files.push([`.cohort/personas/${name}`, await readFile(new URL(name, EXAMPLES), 'utf8')]);
+  for (const template of templates)
+    if (templateIds.includes(template.id)) files.push([`.cohort/personas/${template.id}.md`, template.source]);
   for (const [path, content] of files)
     // `wx` also refuses to follow a symlink planted at the path.
     await writeFile(join(projectRoot, path), content, { flag: 'wx' }).then(

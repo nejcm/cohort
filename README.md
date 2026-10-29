@@ -36,7 +36,7 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 
 | Command | Purpose |
 | --- | --- |
-| `cohort init` | Create `.cohort/` without overwriting anything |
+| `cohort init [--template <id>]...` | Create `.cohort/` without overwriting anything; `--template` adds the named [persona templates](docs/personas.md#templates) instead of the default three |
 | `cohort doctor [--json]` | Check the setup; exit 2 on any error |
 | `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--allow-untested`, `--json` |
 | `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
@@ -54,7 +54,7 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 ## Documentation
 
 - [Operating the lab](docs/operating.md): keys, models, costs and limits, blockers, replay bindings, artifacts, retention and deletion, diagnostics.
-- [Personas and suites](docs/personas.md): formats, prompt layers, generator guidance.
+- [Personas and suites](docs/personas.md): formats, templates, prompt layers, generator guidance.
 - [Setup modules and saved login](docs/setup-and-login.md): custom tools for one-time codes, storage state, routes, blocker detection.
 - [GitHub Action](docs/github-action.md): the thin Action and a workflow that never uploads traces.
 - [Compatibility](docs/compatibility.md): exact runtime, browser, and provider status, and what is unsupported.

@@ -4,6 +4,8 @@ id: first-time-host
 name: First-time host on a laptop
 tags:
   - host
+  - marketplace
+  - first-time
   - desktop
 device:
   viewport:

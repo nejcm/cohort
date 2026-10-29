@@ -4,6 +4,7 @@
   import { navigate } from './nav.ts';
   import Editor from './Editor.svelte';
   import ModelPicker from './ModelPicker.svelte';
+  import { readAt } from './source.ts';
 
   interface Summary {
     id: string;
@@ -33,6 +34,8 @@ Describe who this person is and how they behave.
 `;
   let draft = $state(TEMPLATE);
   let draftError = $state('');
+  let templates = $state<{ id: string; source: string }[] | null>(null);
+  let templateId = $state('');
 
   let models = $state<Models | null>(null);
   let genUrl = $state('');
@@ -62,7 +65,17 @@ Describe who this person is and how they behave.
         (found) => (models = found),
         (caught: Error) => (error = caught.message),
       );
+    if (id === 'new' && !templates)
+      api<{ templates: { id: string; source: string }[] }>('GET', '/api/persona-templates').then(
+        (found) => (templates = found.templates),
+        (caught: Error) => (error = caught.message),
+      );
   });
+
+  function pickTemplate(): void {
+    draft = templates?.find((template) => template.id === templateId)?.source ?? TEMPLATE;
+    generated = null;
+  }
 
   async function create(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -70,6 +83,7 @@ Describe who this person is and how they behave.
     try {
       const saved = await api<{ id: string }>('POST', '/api/personas', { source: draft });
       draft = TEMPLATE;
+      templateId = '';
       generated = null;
       await list();
       navigate(`/personas/${encodeURIComponent(saved.id)}`);
@@ -92,6 +106,7 @@ Describe who this person is and how they behave.
         allowUntested: genAllowUntested,
       });
       draft = generated!.markdown;
+      templateId = '';
     } catch (caught) {
       draftError = (caught as Error).message;
     } finally {
@@ -116,7 +131,20 @@ Describe who this person is and how they behave.
 {#if id === 'new'}
   <div class="form-grid loose">
     <form class="editor" onsubmit={create} aria-labelledby="create-title">
-      <div class="editor-head"><h2 id="create-title">Write it yourself</h2><span class="hint">Free</span></div>
+      <div class="editor-head">
+        <h2 id="create-title">Write it yourself</h2>
+        <div class="actions">
+          <label for="draft-template"><span class="sr-only">Start from</span>
+            <select id="draft-template" class="sm" bind:value={templateId} onchange={pickTemplate}>
+              <option value="">Blank persona</option>
+              {#each templates ?? [] as template (template.id)}
+                <option value={template.id}>Template: {readAt(template.source, ['name'], true) ?? template.id}</option>
+              {/each}
+            </select>
+          </label>
+          <span class="hint">Free</span>
+        </div>
+      </div>
       {#if draftError}<div class="banner error" role="alert"><div class="body"><span>{draftError}</span></div></div>{/if}
       {#if generated}
         <div class="banner info" role="status">

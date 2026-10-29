@@ -5,6 +5,7 @@ name: First-time mobile guest
 tags:
   - guest
   - mobile
+  - first-time
 device:
   viewport:
     width: 390

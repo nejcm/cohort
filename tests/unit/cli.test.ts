@@ -70,6 +70,7 @@ test('init creates the project layout once and doctor reports it without printin
   for (const path of ['.cohort/config.yml', '.cohort/.gitignore', '.cohort/personas/first-time-host.md'])
     assert.match(first.out, new RegExp(`created ${path.replaceAll('.', '\\.')}`, 'u'));
   await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  assert.doesNotMatch(first.out, /saas-trial-evaluator/u);
   const second = await cli(['init']);
   assert.doesNotMatch(second.out, /created/u);
   assert.match(second.out, /kept \.cohort\/config\.yml/u);
@@ -77,7 +78,15 @@ test('init creates the project layout once and doctor reports it without printin
     await readFile(join(root, '.cohort/config.yml'), 'utf8'),
     'schemaVersion: 1\nmodel: openai/vision-model\n',
   );
-  assert.equal((await cli(['persona', 'validate'])).code, 0);
+  const unknown = await cli(['init', '--template', 'nope']);
+  assert.equal(unknown.code, 2);
+  assert.match(unknown.out, /unknown template nope; known templates: .*saas-trial-evaluator/u);
+  const picked = await cli(['init', '--template', 'saas-trial-evaluator', '--template', 'first-time-host']);
+  assert.equal(picked.code, 0);
+  assert.match(picked.out, /^created \.cohort\/personas\/saas-trial-evaluator\.md$/mu);
+  assert.match(picked.out, /^kept \.cohort\/personas\/first-time-host\.md \(exists\)$/mu);
+  assert.doesNotMatch(picked.out, /mobile-first-guest/u);
+  assert.match((await cli(['persona', 'validate'])).out, /^4 valid persona\(s\), 0 suite\(s\), 0 problem\(s\)$/mu);
 
   await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: anthropic/claude-sonnet-5-5\n');
   const unusable = await cli(['doctor']);

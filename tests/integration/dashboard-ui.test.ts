@@ -393,6 +393,14 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   assert.ok(!(await page.content()).includes(KEY));
 });
 
+test('picking a template fills the new-persona draft', async () => {
+  await page.goto(`${dashboard.origin}/personas/new`);
+  await page.locator('#draft-template').selectOption({ label: 'Template: Mobile shopper on a budget' });
+  assert.match(await page.locator('#draft-source').inputValue(), /^id: mobile-shopper$/mu);
+  await page.locator('#draft-template').selectOption('');
+  assert.match(await page.locator('#draft-source').inputValue(), /^id: new-persona$/mu);
+});
+
 test('the persona generator form previews a draft without saving it', async () => {
   turn = () => ({ name: 'write_persona', args: { markdown: PERSONA('drafted', 'Drafted') } });
   await page.goto(`${dashboard.origin}/personas/new`);

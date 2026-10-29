@@ -35,7 +35,34 @@ Optional frontmatter:
 
 The body must not be empty. Unknown fields, symlinks, and paths that leave their folder are rejected.
 
-Three editable examples are in `examples/personas/`: `mobile-first-guest`, `first-time-host`, and `returning-desktop-user`. Copy them into `.cohort/personas/` and change the goals to suit your app.
+## Templates
+
+The package ships editable persona templates in `examples/personas/`. They are generic starting points, not personas of your users: each one marks its assumptions in the body, sets no `setup`, `storageState`, `model`, `effort`, or `limits`, and has a goal you should adapt to your app. Tags group them by product type, device, and behaviour, so `cohort run --tag <tag>` works across them.
+
+| Template | Tags | Who |
+| --- | --- | --- |
+| `back-office-operator` | admin, back-office, desktop, power-user | Daily user of an internal tool who finds and inspects a record; needs saved login state |
+| `booking-guest` | marketplace, booking, mobile, non-native | Plans a trip on a phone, reads English as a second language, prices dates without booking |
+| `cautious-banking-user` | fintech, mobile, cautious | Checks fees and support routes; never enters account or identity details |
+| `comparison-shopper` | ecommerce, saas, comparison, desktop | Compares two or three products or plans side by side and picks one |
+| `developer-docs-reader` | devtools, docs, desktop, keyboard | Keyboard-first developer looking for setup steps and the smallest working example |
+| `first-time-host` | host, marketplace, first-time, desktop | Careful newcomer working out how to start offering something through the service |
+| `mobile-first-guest` | guest, mobile, first-time | Skims on a phone while busy, looking for how to contact the people behind the service |
+| `mobile-shopper` | ecommerce, mobile, first-time | Finds a product under a budget and adds it to the cart, stopping before payment |
+| `news-reader` | content, media, mobile, low-bandwidth | Reads an article to the end on a small phone and notes everything in the way |
+| `onboarding-first-timer` | onboarding, mobile, first-time, non-native | Works through sign-up and onboarding; stops at email, phone, or payment checks |
+| `public-service-applicant` | public-service, forms, desktop, careful | Checks eligibility and fills a long form with fictional details, without submitting |
+| `returning-desktop-user` | returning, desktop | Repeats the main task quickly and reports anything that changed or slows them down |
+| `saas-trial-evaluator` | saas, b2b, evaluator, desktop | Evaluates a business product's pricing and trial terms; stops at the sign-up form |
+| `subscription-manager` | subscription, saas, returning, desktop | Looks for how to downgrade or cancel; stops before confirming; needs saved login state |
+
+To use one:
+
+- `cohort init` copies `first-time-host`, `mobile-first-guest`, and `returning-desktop-user` into `.cohort/personas/`. `cohort init --template <id>` (repeatable) copies the named templates instead; it never overwrites an existing file, so running it again adds templates to an existing project. An unknown id lists the known ones.
+- In the dashboard, **New persona** has a picker that loads a template into the draft. Edit it there, then **Validate and create**.
+- Or copy a file from `examples/personas/` into `.cohort/personas/` by hand.
+
+Templates that need a signed-in session say so. Save one with `cohort login --url <url> --state <name>` and add `storageState: <name>` to the persona. Never write credentials into a template.
 
 ## Suite format
 

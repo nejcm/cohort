@@ -6,6 +6,7 @@ import { isIP, type AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ConfigError, listIds, loadProjectConfig, type SuiteEntry } from '../config/files.ts';
+import { personaTemplates } from '../config/init.ts';
 import { DEFAULT_MASKS, resolveSubmission, validateSubmission } from '../config/resolve.ts';
 import { preflight } from '../core/estimate.ts';
 import { BundleError, bundleDir, readBundleFile } from '../evidence/bundle.ts';
@@ -300,6 +301,13 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
             };
           }),
         });
+      },
+    ],
+    [
+      'GET',
+      /^\/api\/persona-templates$/u,
+      async (_m, _q, response) => {
+        json(response, 200, { templates: await personaTemplates() });
       },
     ],
     [
