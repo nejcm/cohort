@@ -8,7 +8,7 @@ Rules every command follows:
 - Nothing prompts. A step that needs a person (deleting a file, logging in) fails with exit 2 and a stable error code instead; `--yes` confirms deletions.
 - Input that is a file comes from `--file <path>` or `--file -` (stdin), up to 1 MiB. A terminal on stdin is refused rather than read.
 - Output has no color or progress animation, TTY or not.
-- No output contains provider keys: every value is redacted before it is printed, and `run`, `ui`, and `persona generate`, which hand keys to a provider, refuse a set provider key shorter than 8 characters as `invalid`; other commands never read key values, so they run. Those other commands do not redact a key shorter than 8 characters, so they can echo one back if it is passed as an argument or flag; real provider keys are longer. Nor does it contain setup secrets, the dashboard token, or URL query strings; start URLs are reduced to origin and path everywhere they are stored or printed. `suite show` and `persona show` return the file exactly as written, so do not put secrets in persona or suite files.
+- No output contains provider keys: every value is redacted before it is printed, and `run`, `explore`, `ui`, and `persona generate`, which hand keys to a provider, refuse a set provider key shorter than 8 characters as `invalid`; other commands never read key values, so they run. Those other commands do not redact a key shorter than 8 characters, so they can echo one back if it is passed as an argument or flag; real provider keys are longer. Nor does it contain setup secrets, the dashboard token, or URL query strings; start URLs are reduced to origin and path everywhere they are stored or printed. `suite show` and `persona show` return the file exactly as written, so do not put secrets in persona or suite files.
 
 ## Command map
 
@@ -37,6 +37,7 @@ Rules every command follows:
 | Checking personas and suites after a manual edit | `cohort persona validate --json` |
 | Starting the dashboard for a person | `cohort ui --json` runs in the foreground (start it as a background job); it prints `origin`, `pid`, and `urlFile` |
 | Stopping the dashboard | Send `SIGTERM` (or `SIGINT`) to that `pid`; it closes cleanly and removes `urlFile` |
+| Exploring an app and reviewing suggestions (CLI only) | `cohort explore --url <url> --json [--detach]`, then `cohort explore suggest <run-id> --json` after a detached run; `cohort explore save <run-id> --persona <id> \| --suite <id> --yes [--revision <sha256>]` ([explore.md](explore.md)) |
 | Viewing a trace | `cohort trace <run-id> --json` returns the path and opens nothing |
 
 Adding or changing a `setup:` reference stays a manual edit by a person, in the CLI as in the dashboard. Setup modules run as code with your privileges, and the security model allows no model-authored setup ([security.md](security.md)), so an agent must not be the one to wire them in.
@@ -58,6 +59,8 @@ Every JSON document has `schemaVersion: 1`. The version changes only when a fiel
 | `models show` | `path`, `source` (null when absent), `revision` |
 | `config edit`, `models edit` | `path`, `revision`, `action: "saved"` |
 | `ui` | `origin`, `pid`, `urlFile` |
+| `explore`, `explore suggest` | `runId`, `outcome`, `coverage`, `features[]`, `untried[]`, `personas[]`, `goals[]`, `suite`, `tests[]`, `dropped[]`, `estimatedCostUsd`; foreground `explore` adds `batchId`, `maxUsd`, `runOutcome`; `--detach` returns `batchId`, `runIds` |
+| `explore save` | `id`, `revision`, `path`, `action: "created" \| "replaced"` |
 | `--help`, or no command | `usage` |
 | `persona list` / `suite list` | `personas[]` / `suites[]`, each with `error` (null when valid) |
 | `persona show` / `suite show` | `id`, `source`, `revision`, `parsed`, `error`, `path` |

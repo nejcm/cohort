@@ -5,6 +5,8 @@ import { captureMasked, MaskError, type Capture } from '../browser/observations.
 import {
   focusedElement,
   focusedLocator,
+  focusedText,
+  elementText,
   focusState,
   resolvePoint,
   screenshotToCss,
@@ -55,6 +57,8 @@ export interface AgentOptions {
   deniedNavigations?: readonly string[];
   /** Redacts custom-tool text; defaults to secret redaction. */
   scrub?: (text: string) => string;
+  /** Returns why activating an element with this visible text is refused, or null; a refusal is recorded and the run continues. */
+  refuse?: (text: string) => string | null;
   /** Abort with reason `'process'` for process interruption; any other reason counts as the user. */
   signal?: AbortSignal;
   /** Epoch ms the time cap counts from; earlier than now when setup already ran. */
@@ -502,7 +506,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         maxOutputTokens,
       };
       const outboundText = [instructions, ...history, text, ...(customText ? [customText] : [])].join('\n');
-      if (secrets.contains(outboundText))
+      if (secrets.leaks(outboundText))
         return agentError('browser_error', 'a registered secret appeared in outbound text; provider call suppressed');
 
       // shortcut: unmeasured conservative token bound; replace with Phase 0 measured per-call components.
@@ -660,6 +664,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           tag: resolved.tag,
         };
         pending.target = target;
+        const refused =
+          call.name === 'click' && options.refuse ? options.refuse(await bounded(elementText(resolved.locator))) : null;
+        if (refused) {
+          record(call, started, { status: 'rejected', code: 'action_refused', message: refused }, { target });
+          continue;
+        }
         try {
           if (call.name === 'click') {
             const clickOptions = { position: resolved.position, timeout: actionTimeout() };
@@ -695,6 +705,23 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         await page.mouse.move(viewport.width / 2, viewport.height / 2);
         await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
       } else if (call.name === 'press') {
+        const activates = options.refuse && (args.key === 'Enter' || args.key === 'Space');
+        const focused = activates
+          ? await bounded(focusedText(page)).catch((error: unknown) => {
+              if (error instanceof InterruptError || error instanceof DeadlineError) throw error;
+              return undefined;
+            })
+          : null;
+        const refused =
+          focused === undefined
+            ? 'refused during exploration: the focused element could not be identified'
+            : focused === null
+              ? null
+              : options.refuse!(focused);
+        if (refused) {
+          reject('action_refused', refused);
+          continue;
+        }
         await page.keyboard.press(String(args.key));
       } else if (call.name === 'type') {
         const typed = String(args.text);

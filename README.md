@@ -44,6 +44,7 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 | `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
 | `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
 | `cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` | Replay an approved run on two deployments with confirmation; writes one advisory PR comment body ([details](docs/operating.md#comparing-base-and-head)) |
+| `cohort explore --url <url> [--steps\|--time-ms\|--dollars\|--max-usd] [--detach]` | One bounded exploration run that refuses destructive controls, then one metered call that suggests personas, goals, and replay tests citing observed steps; written only into the run bundle, saved with `cohort explore save <run-id> --persona\|--suite <id> --yes` ([details](docs/explore.md)) |
 | `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
 | `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
 | `cohort persona validate \| schema \| templates` | Check every persona and suite, reporting all problems; print the persona schema or the template list |
@@ -78,7 +79,7 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 
 The MVP ends with screening by outside developers. Add-ons follow in this order, each only after the previous one is useful:
 
-1. Crawler and suggestions: an `explore` mode that proposes personas and replayable tests from observed paths.
+1. Crawler and suggestions: `cohort explore` proposes personas, goals, and replayable tests from observed paths ([docs/explore.md](docs/explore.md)). Still to come: a crawler view in the dashboard.
 2. PR regression hardening: `cohort compare` and the Action's `compare-run` already replay an approved run on base and head with confirmation and one advisory comment. Still to come: approved assertions, per-artifact hashes for downloaded bundles, preview provenance, scoped preparation and cleanup, a separate comment publisher, and a PR-head recheck before posting.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
 

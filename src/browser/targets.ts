@@ -281,6 +281,23 @@ export async function focusedLocator(
   return still ? { frames: steps.slice(0, -1), target: steps.at(-1)! } : undefined;
 }
 
+/** Accessible name, label, placeholder, and button value of an element, whichever locator reaches it. */
+export async function elementText(element: Locator | ElementHandle<Element>): Promise<string> {
+  const info = await (element as Locator).evaluate(describe);
+  const value = await (element as Locator).evaluate((node) =>
+    node instanceof HTMLInputElement && ['submit', 'button', 'reset'].includes(node.type) ? node.value : '',
+  );
+  return [info.name, info.label, info.placeholder ?? '', value].join(' ');
+}
+
+/** `elementText` of the focused element through frames; null when only the page has focus, undefined when unresolvable. */
+export async function focusedText(page: Page): Promise<string | null | undefined> {
+  const path = await focusPath(page);
+  if (!path) return undefined;
+  const element = path.at(-1);
+  return element ? elementText(element) : null;
+}
+
 /** Whether a native `<select>` list is open; it is drawn over the page but is not in the DOM, so hit tests miss it. */
 export async function selectListOpen(page: Page): Promise<boolean> {
   const element = (await focusPath(page))?.at(-1);

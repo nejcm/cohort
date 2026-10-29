@@ -19,8 +19,20 @@ export class SecretStore {
     return `{{${name}}}`;
   }
 
+  private readonly hidden: string[] = [];
+
+  /** Masks and redacts a value without making it a placeholder or tripping the outbound-text check. */
+  hide(value: string): void {
+    if (value.length >= MIN_SECRET_LENGTH && !this.hidden.includes(value)) this.hidden.push(value);
+  }
+
   get values(): string[] {
-    return this.exposed.map(([, value]) => value);
+    return [...this.exposed.map(([, value]) => value), ...this.hidden];
+  }
+
+  /** Whether a bound secret, not a hidden value, appears in text. */
+  leaks(text: string): boolean {
+    return this.exposed.some(([, value]) => text.includes(value));
   }
 
   get names(): string[] {
@@ -44,8 +56,11 @@ export class SecretStore {
   }
 
   redact(text: string): string {
-    const entries = this.exposed.toSorted((a, b) => b[1].length - a[1].length);
-    return entries.reduce((result, [name, value]) => result.split(value).join(`{{${name}}}`), text);
+    const entries = [
+      ...this.exposed.map(([name, value]) => [`{{${name}}}`, value]),
+      ...this.hidden.map((value) => ['[url-value]', value]),
+    ].toSorted((a, b) => b[1]!.length - a[1]!.length);
+    return entries.reduce((result, [mark, value]) => result.split(value!).join(mark!), text);
   }
 }
 

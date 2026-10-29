@@ -12,6 +12,7 @@ import { chromium, type Page } from 'playwright';
 import { checkProject, ConfigError, loadProjectConfig, saveStorageState } from './config/files.ts';
 import { DEFAULT_MASKS, validateSubmission, type RunSubmission } from './config/resolve.ts';
 import type { preflight } from './core/estimate.ts';
+import { EXPLORE_GOAL, saveSuggestion, suggest, SUGGEST_DOLLARS, type ExploreSummary } from './core/explore.ts';
 import { compareRun, renderCompareMarkdown, renderCompareText } from './core/compare.ts';
 import { replayRun } from './core/replay.ts';
 import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
@@ -28,7 +29,7 @@ import {
 import { CatalogError, loadCatalog, resolveModel } from './providers/catalog.ts';
 import { createProviders } from './providers/registry.ts';
 import { ProviderError, type Effort, type ProviderAdapter } from './providers/types.ts';
-import { GenerateError, generatePersona } from './personas/generate.ts';
+import { GenerateError, generatePersona, urlSecrets } from './personas/generate.ts';
 import { EditError } from './dashboard/files.ts';
 import { estimate } from './dashboard/operations.ts';
 import { openIndex, QueueError, runOwnedBatch, startBatch, type DetachedBatch } from './dashboard/runner.ts';
@@ -60,6 +61,9 @@ const USAGE = `Usage: cohort [options]
        cohort models list | show | edit --file <path>|- [--revision <sha256>]
        cohort estimate (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
        cohort run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options] [--detach]
+       cohort explore --url <url> [--mode|--model|--effort|--steps|--time-ms|--dollars|--max-usd] [--detach]
+       cohort explore suggest <run-id>
+       cohort explore save <run-id> (--persona <id> | --suite <id>) [--revision <sha256>] --yes
        cohort runs list [--limit <n>] [--filter active|look|finished] [--sort <key>] [--asc] [--search <text>]
                         [--since <iso-date>] [--cursor <c>]
        cohort runs show|wait|cancel <run-or-batch-id> [--timeout-ms <n>]
@@ -273,7 +277,7 @@ async function dispatch(positionals: string[], values: Values, write: Write, dep
     stdin: deps.stdin ?? process.stdin,
     ...(deps.signal ? { signal: deps.signal } : {}),
   };
-  if (['run', 'ui', WORKER].includes(command!) || (command === 'persona' && id === 'generate'))
+  if (['run', 'explore', 'ui', WORKER].includes(command!) || (command === 'persona' && id === 'generate'))
     refuseShortKeys(deps.env ?? process.env, ctx.providers);
   if (command === 'init' && id === undefined) {
     const { created, kept } = await initProject(ctx.root, values.template as string[] | undefined);
@@ -294,6 +298,9 @@ async function dispatch(positionals: string[], values: Values, write: Write, dep
   }
   if (command === WORKER && id === undefined) return workerCommand(ctx, deps);
   if (command === 'run' && id === undefined) return runCommand(values, write, deps, ctx);
+  if (command === 'explore' && id === undefined) return runCommand(values, write, deps, ctx, true);
+  if (command === 'explore' && id === 'suggest' && extra.length === 1) return suggestCommand(extra[0]!, ctx, deps);
+  if (command === 'explore' && id === 'save' && extra.length === 1) return saveCommand(extra[0]!, ctx);
   if (command === 'estimate' && id === undefined) return estimateCommand(ctx);
   if (command === 'ui' && id === undefined) return uiCommand(values, write, deps);
   if (command === 'login' && id === undefined) return loginCommand(values, write, deps);
@@ -701,25 +708,103 @@ function spawnWorker(projectRoot: string, env: NodeJS.ProcessEnv, batch: Detache
   });
 }
 
-async function runCommand(values: Values, write: Write, deps: Dependencies, ctx: Context): Promise<number> {
+function exploreValues(values: Values): Values {
+  const refused = ['persona', 'tag', 'suite', 'note', 'repeats'].filter((key) => values[key] !== undefined);
+  if (refused.length > 0) throw new CliError('usage', `cohort explore does not take --${refused.join(', --')}`);
+  if (values.url === undefined) throw new CliError('usage', 'cohort explore needs --url <url>');
+  return { ...values, note: EXPLORE_GOAL, repeats: '1' };
+}
+
+function exploreScrub(env: NodeJS.ProcessEnv, providers: Record<string, ProviderAdapter>, url?: string) {
+  const keys = [...Object.values(createProviders(env)), ...Object.values(providers)].flatMap(
+    (provider) => env[provider.keyEnv] ?? [],
+  );
+  const secrets = url && URL.canParse(url) ? urlSecrets(new URL(url)) : new SecretStore();
+  return (text: string): string => scrubEnv(text, secrets, keys);
+}
+
+function writeSummary(write: Write, summary: ExploreSummary): void {
+  const dir = `.cohort/runs/${summary.runId}`;
+  for (const feature of summary.features) write(`feature: ${feature.name} (steps ${feature.steps.join(', ')})\n`);
+  for (const item of summary.untried) write(`untried: ${item.step} ${item.reason}\n`);
+  for (const item of summary.dropped) write(`dropped ${item.kind} ${item.name}: ${item.reason}\n`);
+  write(
+    `${summary.personas.length} persona(s), ${summary.goals.length} goal(s), ${summary.tests.length} test(s) suggested in ${dir}/suggestions; ${summary.coverage}\n`,
+  );
+  for (const persona of summary.personas)
+    write(`review, then: cohort explore save ${summary.runId} --persona ${persona.id} --yes\n`);
+  if (summary.suite) write(`review, then: cohort explore save ${summary.runId} --suite ${summary.suite.id} --yes\n`);
+}
+
+async function suggestCommand(runId: string, ctx: Context, deps: Dependencies): Promise<number> {
+  const summary = await suggest({
+    projectRoot: ctx.root,
+    runId,
+    providers: ctx.providers,
+    scrub: exploreScrub(deps.env ?? process.env, ctx.providers),
+    ...(ctx.signal ? { signal: ctx.signal } : {}),
+  });
+  if (ctx.json) emit(ctx.write, summary);
+  else writeSummary(ctx.write, summary);
+  return 0;
+}
+
+async function saveCommand(runId: string, ctx: Context): Promise<number> {
+  const { values } = ctx;
+  const kind = values.persona !== undefined ? 'personas' : 'suites';
+  const id = (values.persona ?? values.suite) as string | undefined;
+  if (!id || (values.persona !== undefined && values.suite !== undefined))
+    throw new CliError('usage', 'cohort explore save <run-id> needs one of --persona <id> or --suite <id>');
+  if (values.yes !== true) {
+    const { dir } = await bundleDir(ctx.root, runId);
+    const name = kind === 'personas' ? `suggestions/personas/${id}.md` : 'suggestions/suite.yml';
+    const source = /^[a-z0-9][a-z0-9-]{0,63}$/u.test(id) ? await readBundleFile(dir, name) : null;
+    if (!ctx.json && source !== null) ctx.write(source);
+    throw new CliError('confirmation_required', `review ${name} in ${runId}, then pass --yes to save it`);
+  }
+  const saved = await saveSuggestion(ctx.root, runId, kind, id, values.revision as string | undefined);
+  const path = `.cohort/${kind}/${saved.id}.${kind === 'personas' ? 'md' : 'yml'}`;
+  if (ctx.json) emit(ctx.write, { id: saved.id, revision: saved.revision, path, action: saved.action });
+  else ctx.write(`${saved.action} ${path}\n`);
+  return 0;
+}
+
+async function runCommand(
+  given: Values,
+  write: Write,
+  deps: Dependencies,
+  ctx: Context,
+  explore = false,
+): Promise<number> {
   const projectRoot = ctx.root;
   const env = deps.env ?? process.env;
   const { providers } = ctx;
+  const values = explore ? exploreValues(given) : given;
   const submission = submissionFrom(values);
-  const { entries, plan } = await estimate(projectRoot, providers, submission, values['allow-untested'] === true);
+  const estimated = await estimate(projectRoot, providers, submission, values['allow-untested'] === true);
+  const entries = explore
+    ? estimated.entries.map((entry) => ({ ...entry, explore: true as const }))
+    : estimated.entries;
+  const plan =
+    explore && estimated.plan.maxBatchUsd !== null
+      ? { ...estimated.plan, maxBatchUsd: estimated.plan.maxBatchUsd + SUGGEST_DOLLARS }
+      : estimated.plan;
   if (!values.json) write(`${plan.lines.join('\n')}\n${budgetLine(plan)}\n`);
   const { maxUsd, refusal } = costRefusal(plan, values);
   if (refusal) throw refusal;
   const request = {
     submission: submission.url ? { ...submission, url: safeUrl(submission.url, new SecretStore()) } : submission,
     allowUntested: values['allow-untested'] === true,
-    source: 'cli',
+    source: explore ? 'explore' : 'cli',
   };
   if (values.detach) {
     const started = await (deps.worker ?? ((batch) => spawnWorker(projectRoot, env, batch)))({ entries, request });
     if (values.json)
       emit(write, { ...started, preflight: plan.lines, plans: plan.plans, maxBatchUsd: plan.maxBatchUsd, maxUsd });
-    else write(`batch ${started.batchId} started in the background; next: cohort runs wait ${started.batchId}\n`);
+    else
+      write(
+        `batch ${started.batchId} started in the background; next: cohort runs wait ${started.batchId}${explore ? `, then cohort explore suggest ${started.runIds[0]}` : ''}\n`,
+      );
     return 0;
   }
   const db = await openIndex(projectRoot).catch((error: NodeJS.ErrnoException) => {
@@ -742,6 +827,23 @@ async function runCommand(values: Values, write: Write, deps: Dependencies, ctx:
     },
     request,
   ).finally(() => db.close());
+  if (explore) {
+    const [explored] = batch.runs;
+    if (!explored) throw new CliError('interrupted', 'the exploration run did not start');
+    const summary = await suggest({
+      projectRoot,
+      runId: explored.runId,
+      providers,
+      scrub: exploreScrub(env, providers, values.url as string),
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    });
+    if (values.json) emit(write, { batchId: batch.batchId, maxUsd, runOutcome: explored.outcome, ...summary });
+    else {
+      write(`${explored.runId}: ${explored.outcome.state}: ${explored.outcome.reason}\n`);
+      writeSummary(write, summary);
+    }
+    return 0;
+  }
   const exitCode = batch.skipped === 0 && batch.runs.every((item) => item.outcome.state === 'completed') ? 0 : 1;
   if (values.json)
     emit(write, {

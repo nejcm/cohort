@@ -59,6 +59,8 @@ export interface ResolvedEntry {
   readonly suiteId: string | null;
   readonly entryIndex: number;
   readonly task: string;
+  /** Set by `cohort explore`: destructive-looking controls are refused, not activated. */
+  readonly explore?: true;
   readonly setup: string | null;
   readonly storageState: string | null;
   readonly allowedOrigins: readonly string[];
