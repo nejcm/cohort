@@ -1,0 +1,571 @@
+exports[`an agent drives the whole lifecycle through the CLI with no dashboard process 1`] = `
+{
+  "commands": {
+    "init": {
+      "created": [
+        "string"
+      ],
+      "kept": [],
+      "schemaVersion": "number"
+    },
+    "models show": {
+      "path": "string",
+      "revision": "null",
+      "schemaVersion": "number",
+      "source": "null"
+    },
+    "models edit": {
+      "action": "string",
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number"
+    },
+    "config edit": {
+      "action": "string",
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number"
+    },
+    "doctor": {
+      "checks": [
+        {
+          "level": "string",
+          "message": "string"
+        }
+      ],
+      "schemaVersion": "number"
+    },
+    "config show": {
+      "defaults": {
+        "allowedOrigins": [],
+        "effort": "null",
+        "limits": {
+          "steps": "number",
+          "timeMs": "number"
+        },
+        "mode": "string",
+        "model": "string",
+        "repeats": "number"
+      },
+      "providers": {
+        "openai": "boolean"
+      },
+      "revision": "string",
+      "schemaVersion": "number",
+      "source": "string"
+    },
+    "models list": {
+      "catalog": {
+        "hash": "string",
+        "version": "string"
+      },
+      "models": [
+        {
+          "defaultEffort": "string",
+          "enabled": "boolean",
+          "id": "string",
+          "label": "string",
+          "pricesPerMTok": "object",
+          "pricingVerifiedAt": "string",
+          "provider": "string",
+          "supportedEffortLevels": [
+            "string"
+          ],
+          "untested": "boolean",
+          "visionCapable": "boolean"
+        }
+      ],
+      "providers": [
+        {
+          "available": "boolean",
+          "id": "string"
+        }
+      ],
+      "schemaVersion": "number"
+    },
+    "persona schema": {
+      "schema": {
+        "additionalProperties": "boolean",
+        "properties": {
+          "device": "object",
+          "effort": "object",
+          "goal": "object",
+          "id": "object",
+          "input": "object",
+          "limits": "object",
+          "locale": "object",
+          "model": "object",
+          "name": "object",
+          "schemaVersion": "object",
+          "setup": "object",
+          "storageState": "object",
+          "tags": "object",
+          "timezone": "object"
+        },
+        "required": [
+          "string"
+        ],
+        "type": "string"
+      },
+      "schemaVersion": "number"
+    },
+    "persona templates": {
+      "schemaVersion": "number",
+      "templates": [
+        {
+          "id": "string",
+          "source": "string"
+        }
+      ]
+    },
+    "persona add": {
+      "action": "string",
+      "id": "string",
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number"
+    },
+    "suite add": {
+      "action": "string",
+      "id": "string",
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number"
+    },
+    "suite add-entry": {
+      "action": "string",
+      "id": "string",
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number"
+    },
+    "suite show": {
+      "error": "null",
+      "id": "string",
+      "parsed": {
+        "defaults": {
+          "url": "string"
+        },
+        "entries": [
+          "object"
+        ],
+        "id": "string",
+        "name": "string",
+        "schemaVersion": "number"
+      },
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number",
+      "source": "string"
+    },
+    "persona list": {
+      "personas": [
+        {
+          "error": "null",
+          "goal": "string",
+          "id": "string",
+          "name": "string",
+          "setup": "null",
+          "tags": [
+            "string"
+          ]
+        }
+      ],
+      "schemaVersion": "number"
+    },
+    "suite list": {
+      "schemaVersion": "number",
+      "suites": [
+        {
+          "entries": "number",
+          "error": "null",
+          "id": "string",
+          "name": "string"
+        }
+      ]
+    },
+    "persona show": {
+      "error": "null",
+      "id": "string",
+      "parsed": {
+        "body": "string",
+        "device": {
+          "touch": "boolean",
+          "viewport": "object"
+        },
+        "goal": "string",
+        "hash": "string",
+        "id": "string",
+        "locale": "string",
+        "name": "string",
+        "schemaVersion": "number",
+        "tags": [
+          "string"
+        ],
+        "timezone": "string"
+      },
+      "path": "string",
+      "revision": "string",
+      "schemaVersion": "number",
+      "source": "string"
+    },
+    "persona validate": {
+      "personas": "number",
+      "problems": [],
+      "schemaVersion": "number",
+      "suites": "number"
+    },
+    "estimate": {
+      "maxBatchUsd": "number",
+      "maxUsd": "number",
+      "plans": [
+        {
+          "effort": "string",
+          "effortFrom": "string",
+          "estimatePerRun": "object",
+          "limits": "object",
+          "model": "string",
+          "modelFrom": "string",
+          "personaId": "string",
+          "provider": "string",
+          "repeats": "number",
+          "untested": "boolean"
+        }
+      ],
+      "preflight": [
+        "string"
+      ],
+      "refusal": "null",
+      "schemaVersion": "number"
+    },
+    "run --detach": {
+      "batchId": "string",
+      "maxBatchUsd": "number",
+      "maxUsd": "number",
+      "plans": [
+        {
+          "effort": "string",
+          "effortFrom": "string",
+          "estimatePerRun": "object",
+          "limits": "object",
+          "model": "string",
+          "modelFrom": "string",
+          "personaId": "string",
+          "provider": "string",
+          "repeats": "number",
+          "untested": "boolean"
+        }
+      ],
+      "preflight": [
+        "string"
+      ],
+      "runIds": [
+        "string"
+      ],
+      "schemaVersion": "number"
+    },
+    "runs wait": {
+      "batch": {
+        "createdAt": "string",
+        "id": "string",
+        "request": {
+          "allowUntested": "boolean",
+          "source": "string",
+          "submission": "object"
+        }
+      },
+      "dir": "string",
+      "done": "boolean",
+      "runs": [
+        {
+          "batchId": "string",
+          "blockedKind": "null",
+          "capEnforcement": "string",
+          "catalog": "object",
+          "costUsd": "number",
+          "createdAt": "string",
+          "durationMs": "number",
+          "effort": "string",
+          "entryIndex": "number",
+          "finishedAt": "string",
+          "goal": "string",
+          "id": "string",
+          "interruptedBy": "null",
+          "mode": "string",
+          "model": "string",
+          "outcome": "string",
+          "outcomeCode": "null",
+          "personaId": "string",
+          "provider": "string",
+          "repeat": "number",
+          "startedAt": "string",
+          "status": "string",
+          "steps": "number",
+          "untested": "boolean"
+        }
+      ],
+      "schemaVersion": "number",
+      "summary": {
+        "batchId": "string",
+        "createdAt": "string",
+        "groups": [
+          "object"
+        ],
+        "notStarted": "number",
+        "schemaVersion": "number",
+        "totalCostUsd": "number",
+        "unknownCostRuns": "number",
+        "warnings": [
+          "string"
+        ]
+      }
+    },
+    "runs show": {
+      "artifacts": [
+        {
+          "bytes": "number",
+          "id": "string",
+          "mediaType": "string",
+          "sensitivity": "string"
+        }
+      ],
+      "dir": "string",
+      "done": "boolean",
+      "report": {
+        "batchId": "string",
+        "browserActions": "number",
+        "catalog": {
+          "entry": "object",
+          "hash": "string",
+          "version": "string"
+        },
+        "durationMs": "number",
+        "effort": "string",
+        "friction": [],
+        "goal": "string",
+        "issues": [],
+        "manifestPath": "string",
+        "mode": "string",
+        "outcome": {
+          "evidence": [
+            "object"
+          ],
+          "reason": "string",
+          "state": "string",
+          "verification": "string"
+        },
+        "personaId": "string",
+        "provider": "string",
+        "replay": {
+          "path": "string",
+          "status": "string"
+        },
+        "requestedModel": "string",
+        "returnedModel": "string",
+        "runId": "string",
+        "schemaVersion": "number",
+        "startedAt": "string",
+        "steps": "number",
+        "usage": {
+          "accounting": "string",
+          "cachedInputTokens": "number",
+          "capEnforcement": "string",
+          "estimatedCostUsd": "number",
+          "imageInputTokens": "null",
+          "inputTokens": "number",
+          "outputTokens": "number",
+          "pricingVerifiedAt": "string",
+          "providerReportedCostUsd": "null",
+          "reservedUnsettledCostUsd": "number"
+        }
+      },
+      "run": {
+        "batchId": "string",
+        "blockedKind": "null",
+        "capEnforcement": "string",
+        "catalog": {
+          "entry": "object",
+          "hash": "string",
+          "version": "string"
+        },
+        "costUsd": "number",
+        "createdAt": "string",
+        "durationMs": "number",
+        "effort": "string",
+        "entryIndex": "number",
+        "finishedAt": "string",
+        "goal": "string",
+        "id": "string",
+        "interruptedBy": "null",
+        "mode": "string",
+        "model": "string",
+        "outcome": "string",
+        "outcomeCode": "null",
+        "personaId": "string",
+        "provider": "string",
+        "repeat": "number",
+        "startedAt": "string",
+        "status": "string",
+        "steps": "number",
+        "untested": "boolean"
+      },
+      "schemaVersion": "number",
+      "screenshots": [
+        "string"
+      ]
+    },
+    "runs list": {
+      "counts": {
+        "active": "number",
+        "all": "number",
+        "finished": "number",
+        "finishedToday": "number",
+        "look": "number",
+        "lookTotal": "number",
+        "queued": "number",
+        "running": "number",
+        "spentToday": "number",
+        "total": "number"
+      },
+      "nextCursor": "null",
+      "runs": [
+        {
+          "batchId": "string",
+          "blockedKind": "null",
+          "capEnforcement": "string",
+          "catalog": "object",
+          "costUsd": "number",
+          "createdAt": "string",
+          "durationMs": "number",
+          "effort": "string",
+          "entryIndex": "number",
+          "finishedAt": "string",
+          "goal": "string",
+          "id": "string",
+          "interruptedBy": "null",
+          "mode": "string",
+          "model": "string",
+          "outcome": "string",
+          "outcomeCode": "null",
+          "personaId": "string",
+          "provider": "string",
+          "repeat": "number",
+          "startedAt": "string",
+          "status": "string",
+          "steps": "number",
+          "untested": "boolean"
+        }
+      ],
+      "schemaVersion": "number"
+    },
+    "runs show batch": {
+      "batch": {
+        "createdAt": "string",
+        "id": "string",
+        "request": {
+          "allowUntested": "boolean",
+          "source": "string",
+          "submission": "object"
+        }
+      },
+      "dir": "string",
+      "done": "boolean",
+      "runs": [
+        {
+          "batchId": "string",
+          "blockedKind": "null",
+          "capEnforcement": "string",
+          "catalog": "object",
+          "costUsd": "number",
+          "createdAt": "string",
+          "durationMs": "number",
+          "effort": "string",
+          "entryIndex": "number",
+          "finishedAt": "string",
+          "goal": "string",
+          "id": "string",
+          "interruptedBy": "null",
+          "mode": "string",
+          "model": "string",
+          "outcome": "string",
+          "outcomeCode": "null",
+          "personaId": "string",
+          "provider": "string",
+          "repeat": "number",
+          "startedAt": "string",
+          "status": "string",
+          "steps": "number",
+          "untested": "boolean"
+        }
+      ],
+      "schemaVersion": "number",
+      "summary": {
+        "batchId": "string",
+        "createdAt": "string",
+        "groups": [
+          "object"
+        ],
+        "notStarted": "number",
+        "schemaVersion": "number",
+        "totalCostUsd": "number",
+        "unknownCostRuns": "number",
+        "warnings": [
+          "string"
+        ]
+      }
+    },
+    "trace": {
+      "path": "string",
+      "runId": "string",
+      "schemaVersion": "number"
+    },
+    "suite remove": {
+      "action": "string",
+      "id": "string",
+      "path": "string",
+      "schemaVersion": "number"
+    },
+    "persona remove": {
+      "action": "string",
+      "id": "string",
+      "path": "string",
+      "schemaVersion": "number"
+    }
+  },
+  "errors": {
+    "usage": {
+      "code": "string",
+      "error": "string",
+      "schemaVersion": "number"
+    },
+    "not_found": {
+      "code": "string",
+      "error": "string",
+      "problems": [
+        "string"
+      ],
+      "schemaVersion": "number"
+    },
+    "confirmation_required": {
+      "code": "string",
+      "error": "string",
+      "schemaVersion": "number"
+    },
+    "cap_unenforceable": {
+      "code": "string",
+      "error": "string",
+      "estimate": {
+        "maxBatchUsd": "null",
+        "maxUsd": "number",
+        "plans": [
+          "object"
+        ],
+        "preflight": [
+          "string"
+        ]
+      },
+      "schemaVersion": "number"
+    }
+  }
+}
+`;

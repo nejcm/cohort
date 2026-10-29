@@ -1,25 +1,22 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { lstat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
 import { chromium, type Page } from 'playwright';
 import { checkProject, ConfigError, loadProjectConfig, saveStorageState } from './config/files.ts';
-import {
-  DEFAULT_MASKS,
-  resolveSubmission,
-  validateSubmission,
-  type ResolvedEntry,
-  type RunSubmission,
-} from './config/resolve.ts';
-import { runBatch, type BatchResult } from './core/batch.ts';
-import { preflight } from './core/estimate.ts';
+import { DEFAULT_MASKS, validateSubmission, type RunSubmission } from './config/resolve.ts';
+import { runBatch } from './core/batch.ts';
+import type { preflight } from './core/estimate.ts';
 import { compareRun, renderCompareMarkdown, renderCompareText } from './core/compare.ts';
 import { replayRun } from './core/replay.ts';
 import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
+import { writeAtomic } from './evidence/manifest.ts';
 import {
   rateText,
   renderBatchHtml,
@@ -33,34 +30,65 @@ import { CatalogError, loadCatalog, resolveModel } from './providers/catalog.ts'
 import { createProviders } from './providers/registry.ts';
 import { ProviderError, type Effort, type ProviderAdapter } from './providers/types.ts';
 import { GenerateError, generatePersona } from './personas/generate.ts';
+import { EditError } from './dashboard/files.ts';
+import { estimate } from './dashboard/operations.ts';
+import { QueueError, startBatch, type DetachedBatch } from './dashboard/runner.ts';
 import { isLoopback, startDashboard } from './dashboard/server.ts';
 import { initProject } from './config/init.ts';
 import { doctor } from './doctor.ts';
 import { scrubEnv } from './setup/run.ts';
-import { SecretStore } from './setup/secrets.ts';
+import { safeUrl, SecretStore } from './setup/secrets.ts';
+import {
+  CliError,
+  configCommand,
+  emit,
+  fileCommand,
+  modelsCommand,
+  readInput,
+  runsCommand,
+  type Context,
+  type Input,
+  type Values,
+  type Write,
+} from './commands.ts';
+
+export const DEFAULT_MAX_USD = 10;
 
 const USAGE = `Usage: cohort [options]
        cohort init [--template <id>]...
-       cohort doctor [--json]
-       cohort run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
-       cohort report <run-or-batch-id> [--format json|md|html]
-       cohort replay <run-id> [--json]
-       cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]
+       cohort doctor
+       cohort config show | edit --file <path>|- [--revision <sha256>]
+       cohort models list | show | edit --file <path>|- [--revision <sha256>]
+       cohort estimate (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
+       cohort run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options] [--detach]
+       cohort runs list [--limit <n>] [--filter active|look|finished] [--sort <key>] [--asc] [--search <text>]
+                        [--since <iso-date>] [--cursor <c>]
+       cohort runs show|wait|cancel <run-or-batch-id> [--timeout-ms <n>]
+       cohort report <run-or-batch-id> [--format json|md|html]  (--json implies json)
+       cohort replay <run-id>
+       cohort compare <run-id> --base <origin> --head <origin> [--markdown <file>]
        cohort trace <run-id>
        cohort login --url <url> --state <name>
-       cohort persona validate
-       cohort ui [--port <n>] [--host <address>]
+       cohort persona list | schema | templates | validate
+       cohort persona show|remove <id> [--yes]
+       cohort persona add [--force] | edit <id> [--revision <sha256>]  --file <path>|-
        cohort persona generate --url <url> --description <text> [--out <file>] [--model <provider>/<id>]
-                            [--effort low|medium|high] [--dollars <n>] [--allow-untested] [--json]
+                            [--effort low|medium|high] [--dollars <n>] [--allow-untested]
+       cohort suite list | show|remove <id> [--yes] | add [--force] | edit <id>  --file <path>|-
+       cohort suite add-entry <suite-id> --persona <id> [--goal <text>] [--url <url>] [--note <text>]
+       cohort ui [--port <n>] [--host <address>]
 
 Options:
   -h, --help     Show this help
   -v, --version  Show the version
+  --json         One JSON document on stdout, errors included; never prompts (docs/agents.md)
 
 Run options:
   --mode vision|text        --model <provider>/<id>   --effort low|medium|high
   --repeats <n>             --steps <n>               --time-ms <n>   --dollars <n>
-  --url <url>               --note <text>             --allow-untested   --json
+  --url <url>               --note <text>             --allow-untested
+  --max-usd <n>             batch ceiling, default $${DEFAULT_MAX_USD}
+  --allow-unpriced          run models with unknown prices (no enforceable dollar cap)
 `;
 
 interface Dependencies {
@@ -71,9 +99,10 @@ interface Dependencies {
   openTrace?: (tracePath: string) => Promise<number>;
   /** Replaces the manual step of `cohort login`; tests drive a headless browser through it. */
   login?: { headless: boolean; ready: (page: Page) => Promise<void> };
+  stdin?: Input;
+  /** Starts a detached batch; defaults to a background `cohort` process, tests run it in-process with a fake model. */
+  worker?: (batch: DetachedBatch) => Promise<{ batchId: string; runIds: string[] }>;
 }
-
-type Write = (text: string) => void;
 
 const RUN_OPTIONS = {
   persona: { type: 'string' },
@@ -100,9 +129,30 @@ const RUN_OPTIONS = {
   base: { type: 'string' },
   head: { type: 'string' },
   markdown: { type: 'string' },
+  'max-usd': { type: 'string' },
+  'allow-unpriced': { type: 'boolean' },
+  detach: { type: 'boolean' },
+  yes: { type: 'boolean' },
+  force: { type: 'boolean' },
+  file: { type: 'string' },
+  revision: { type: 'string' },
+  goal: { type: 'string' },
+  limit: { type: 'string' },
+  filter: { type: 'string' },
+  sort: { type: 'string' },
+  asc: { type: 'boolean' },
+  search: { type: 'string' },
+  since: { type: 'string' },
+  cursor: { type: 'string' },
+  'timeout-ms': { type: 'string' },
 } as const;
 
 const GENERATE_DOLLARS = 0.5;
+const WORKER = '_worker';
+// Shorter key values cannot be told apart from ordinary text, so commands that hand keys to a provider refuse them.
+const MIN_SECRET_LENGTH = 8;
+// Exit 1 means the command ran and the result is a failure; every other refusal exits 2.
+const FAILURE_CODES = new Set(['provider_error', 'timeout']);
 
 function readVersion(): string {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -119,7 +169,8 @@ function parse(argv: string[], write: Write) {
   } catch (error) {
     if (!(error instanceof TypeError && 'code' in error && String(error.code).startsWith('ERR_PARSE_ARGS_')))
       throw error;
-    write(`${error.message}\n\n${USAGE}`);
+    if (argv.includes('--json')) emit(write, { error: error.message, code: 'usage' });
+    else write(`${error.message}\n\n${USAGE}`);
     return null;
   }
 }
@@ -129,78 +180,156 @@ export async function run(
   write: Write = (text) => process.stdout.write(text),
   deps: Dependencies = {},
 ): Promise<number> {
+  const env = deps.env ?? process.env;
+  const keys = [...Object.values(createProviders(env)), ...Object.values(deps.providers ?? {})]
+    .flatMap((provider) => env[provider.keyEnv] ?? [])
+    .filter((key) => key.length >= MIN_SECRET_LENGTH);
+  return main(argv, (text) => write(redactOutput(text, keys)), deps);
+}
+
+function refuseShortKeys(env: NodeJS.ProcessEnv, providers: Record<string, ProviderAdapter>): void {
+  const problems = Object.values(providers)
+    .filter((provider) => (env[provider.keyEnv] ?? '').length > 0)
+    .filter((provider) => (env[provider.keyEnv] ?? '').length < MIN_SECRET_LENGTH)
+    .map((provider) => `${provider.keyEnv} is shorter than ${MIN_SECRET_LENGTH} characters`);
+  if (problems.length > 0) throw new CliError('invalid', problems[0]!, { problems });
+}
+
+// Values are redacted inside parsed JSON so escaped keys are caught and field names stay intact.
+function redactOutput(text: string, keys: readonly string[]): string {
+  const present = keys.filter((key) => text.includes(key) || text.includes(JSON.stringify(key).slice(1, -1)));
+  if (present.length === 0) return text;
+  const json = text.trimStart().startsWith('{');
+  const redact = (value: unknown): unknown =>
+    typeof value === 'string'
+      ? present.reduce((out, key) => out.split(key).join('[env]'), value)
+      : Array.isArray(value)
+        ? value.map(redact)
+        : value !== null && typeof value === 'object'
+          ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, redact(item)]))
+          : value;
+  if (json)
+    try {
+      return `${JSON.stringify(redact(JSON.parse(text)))}\n`;
+    } catch {}
+  return redact(text) as string;
+}
+
+async function main(argv: string[], write: Write, deps: Dependencies): Promise<number> {
   const parsed = parse(argv, write);
   if (!parsed) return 2;
   const { values, positionals } = parsed;
   if (values.version) {
-    write(`${readVersion()}\n`);
+    if (values.json) emit(write, { version: readVersion() });
+    else write(`${readVersion()}\n`);
     return 0;
   }
   if (values.help || positionals.length === 0) {
-    write(USAGE);
+    if (values.json) emit(write, { usage: USAGE });
+    else write(USAGE);
     return 0;
   }
+  try {
+    return await dispatch(positionals, values, write, deps);
+  } catch (error) {
+    const failure = classify(error);
+    if (!failure) throw error;
+    if (values.json) emit(write, { error: (error as Error).message, ...failure.detail });
+    else {
+      write(`Error: ${(error as Error).message}\n`);
+      if (typeof failure.detail.command === 'string') write(`run: ${failure.detail.command}\n`);
+    }
+    return failure.exit;
+  }
+}
+
+const of = (code: string, extra: Record<string, unknown> = {}) => ({
+  exit: FAILURE_CODES.has(code) ? 1 : 2,
+  detail: { code, ...extra },
+});
+
+function classify(error: unknown): { exit: number; detail: Record<string, unknown> } | null {
+  if (error instanceof CliError) return of(error.code, error.detail);
+  if (error instanceof EditError)
+    return of(error.status === 404 ? 'not_found' : error.status === 409 ? 'conflict' : 'invalid', {
+      problems: error.problems,
+    });
+  if (error instanceof ConfigError) return of('invalid', { problems: error.problems });
+  if (error instanceof CatalogError) return of('invalid');
+  if (error instanceof BundleError) return of(error.code);
+  if (error instanceof QueueError) return of('queue_full');
+  if (error instanceof GenerateError || error instanceof ProviderError) return of('provider_error');
+  return null;
+}
+
+async function dispatch(positionals: string[], values: Values, write: Write, deps: Dependencies): Promise<number> {
   const [command, id, ...extra] = positionals;
+  const json = values.json === true;
+  const ctx: Context = {
+    root: deps.cwd ?? process.cwd(),
+    values,
+    write,
+    json,
+    providers: deps.providers ?? createProviders(deps.env ?? process.env),
+    stdin: deps.stdin ?? process.stdin,
+    ...(deps.signal ? { signal: deps.signal } : {}),
+  };
+  if (['run', 'ui', WORKER].includes(command!) || (command === 'persona' && id === 'generate'))
+    refuseShortKeys(deps.env ?? process.env, ctx.providers);
   if (command === 'init' && id === undefined) {
-    try {
-      const { created, kept } = await initProject(deps.cwd ?? process.cwd(), values.template);
+    const { created, kept } = await initProject(ctx.root, values.template as string[] | undefined);
+    if (json) emit(write, { created, kept });
+    else {
       for (const path of created) write(`created ${path}\n`);
       for (const path of kept) write(`kept ${path} (exists)\n`);
       write('next: cohort doctor\n');
-      return 0;
-    } catch (error) {
-      if (!(error instanceof ConfigError)) throw error;
-      write(`Error: ${error.message}\n`);
-      return 2;
     }
+    return 0;
   }
   if (command === 'doctor' && id === undefined) {
     const env = deps.env ?? process.env;
-    const checks = await doctor(deps.cwd ?? process.cwd(), env, deps.providers ?? createProviders(env));
-    if (values.json) write(`${JSON.stringify({ checks })}\n`);
+    const checks = await doctor(ctx.root, env, ctx.providers);
+    if (json) emit(write, { checks });
     else for (const check of checks) write(`${check.level.padEnd(5)} ${check.message}\n`);
     return checks.some((check) => check.level === 'error') ? 2 : 0;
   }
-  if (command === 'run' && id === undefined) return runCommand(values, write, deps);
+  if (command === WORKER && id === undefined) return workerCommand(ctx, deps);
+  if (command === 'run' && id === undefined) return runCommand(values, write, deps, ctx);
+  if (command === 'estimate' && id === undefined) return estimateCommand(ctx);
   if (command === 'ui' && id === undefined) return uiCommand(values, write, deps);
-  if (command === 'login' && id === undefined)
-    return loginCommand(values, write, deps).catch((error: unknown) => {
-      if (!(error instanceof ConfigError)) throw error;
-      write(`Error: ${error.message}\n`);
-      return 2;
-    });
+  if (command === 'login' && id === undefined) return loginCommand(values, write, deps);
+  if (command === 'config' && ['show', 'edit'].includes(id!) && extra.length === 0) return configCommand(id!, ctx);
+  if (command === 'models' && ['list', 'show', 'edit'].includes(id!) && extra.length === 0)
+    return modelsCommand(id!, ctx);
+  if (command === 'runs' && extra.length <= 1) return runsCommand(id, extra[0], ctx);
   if (['report', 'replay', 'compare', 'trace'].includes(command!) && id !== undefined && extra.length === 0) {
-    try {
-      if (command === 'report') return await reportCommand(id, values.format ?? 'md', write, deps);
-      if (command === 'replay') return await replayCommand(id, values.json === true, write, deps);
-      if (command === 'compare') return await compareCommand(id, values, write, deps);
-      return await traceCommand(id, deps);
-    } catch (error) {
-      if (!(error instanceof BundleError || error instanceof ConfigError)) throw error;
-      write(values.json ? `${JSON.stringify({ error: error.message })}\n` : `Error: ${error.message}\n`);
-      return 2;
+    if (command === 'report') {
+      if (json && (values.format ?? 'json') !== 'json')
+        throw new CliError('usage', '--json prints the report as JSON; drop --format or use --format json');
+      return reportCommand(id, (values.format as string | undefined) ?? (json ? 'json' : 'md'), write, deps);
     }
+    if (command === 'replay') return replayCommand(id, json, write, deps);
+    if (command === 'compare') return compareCommand(id, values, write, deps);
+    return traceCommand(id, json, write, deps);
   }
-  if (command === 'persona' && (id === 'validate' || id === 'generate') && extra.length === 0) {
-    try {
-      return id === 'validate' ? await validateCommand(write, deps) : await generateCommand(values, write, deps);
-    } catch (error) {
-      const invalid = error instanceof ConfigError || error instanceof CatalogError;
-      if (!invalid && !(error instanceof GenerateError || error instanceof ProviderError)) throw error;
-      write(values.json ? `${JSON.stringify({ error: error.message })}\n` : `Error: ${error.message}\n`);
-      return invalid ? 2 : 1;
-    }
-  }
+  if (command === 'persona' && (id === 'validate' || id === 'generate') && extra.length === 0)
+    return id === 'validate' ? validateCommand(json, write, deps) : generateCommand(values, write, deps);
+  if ((command === 'persona' || command === 'suite') && extra.length <= 1)
+    return fileCommand(command, id, extra[0], ctx);
+  if (json) throw new CliError('usage', `unknown command: ${positionals.join(' ')}`);
   write(`Unknown command: ${positionals.join(' ')}\n\n${USAGE}`);
   return 2;
 }
 
 async function reportCommand(id: string, format: string, write: Write, deps: Dependencies): Promise<number> {
-  if (!['json', 'md', 'html'].includes(format)) throw new BundleError('--format must be json, md, or html');
+  if (!['json', 'md', 'html'].includes(format)) throw new CliError('usage', '--format must be json, md, or html');
   const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
   const text = await readBundleFile(dir, 'report.json');
   if (text === null)
-    throw new BundleError(`${id} has no report.json; it is still running, or its process stopped before finalizing`);
+    throw new CliError(
+      'not_ready',
+      `${id} has no report.json; it is still running, or its process stopped before finalizing`,
+    );
   if (format === 'json') write(text);
   else if (kind === 'batch') {
     const report = JSON.parse(text) as BatchReport;
@@ -219,11 +348,8 @@ async function replayCommand(id: string, json: boolean, write: Write, deps: Depe
     ...(deps.signal ? { signal: deps.signal } : {}),
   });
   const passed = report.replay.status === 'passed';
-  write(
-    json
-      ? `${JSON.stringify({ runId: id, replay: report.replay })}\n`
-      : `${output.trimEnd()}\nreplay ${id}: ${report.replay.status}\n`,
-  );
+  if (json) emit(write, { runId: id, replay: report.replay });
+  else write(`${output.trimEnd()}\nreplay ${id}: ${report.replay.status}\n`);
   return passed ? 0 : 1;
 }
 
@@ -241,22 +367,22 @@ async function compareCommand(
     ...(deps.signal ? { signal: deps.signal } : {}),
   });
   if (values.markdown) await writeFile(resolvePath(cwd, values.markdown), renderCompareMarkdown(result));
-  write(values.json ? `${JSON.stringify(result)}\n` : renderCompareText(result));
+  if (values.json) emit(write, result);
+  else write(renderCompareText(result));
   return result.outcome === 'regression' ? 1 : 0;
 }
 
-async function validateCommand(write: Write, deps: Dependencies): Promise<number> {
+async function validateCommand(json: boolean, write: Write, deps: Dependencies): Promise<number> {
   const { personas, suites, problems } = await checkProject(deps.cwd ?? process.cwd());
-  for (const problem of problems) write(`error: ${problem}\n`);
-  write(`${personas} valid persona(s), ${suites} suite(s), ${problems.length} problem(s)\n`);
+  if (json) emit(write, { personas, suites, problems });
+  else {
+    for (const problem of problems) write(`error: ${problem}\n`);
+    write(`${personas} valid persona(s), ${suites} suite(s), ${problems.length} problem(s)\n`);
+  }
   return problems.length === 0 ? 0 : 2;
 }
 
-async function generateCommand(
-  values: Record<string, string | string[] | boolean | undefined>,
-  write: Write,
-  deps: Dependencies,
-): Promise<number> {
+async function generateCommand(values: Values, write: Write, deps: Dependencies): Promise<number> {
   const { url, description, out } = values as Record<string, string | undefined>;
   if (!url || !description) throw new ConfigError('persona generate requires --url and --description');
   const dollars = values.dollars === undefined ? GENERATE_DOLLARS : Number(values.dollars);
@@ -303,7 +429,7 @@ async function generateCommand(
         ? `reported $${reported.toFixed(4)}`
         : 'cost unknown; dollar cap unenforceable';
   const { id, markdown, usage, capEnforcement } = generated;
-  if (values.json) write(`${JSON.stringify({ id, markdown, saved: outPath, cost, capEnforcement, usage })}\n`);
+  if (values.json) emit(write, { id, markdown, saved: outPath, cost, capEnforcement, usage });
   else {
     write(markdown);
     const named = !outPath || outPath.endsWith(`/${id}.md`) ? '' : `; rename it to ${id}.md to run it`;
@@ -319,11 +445,9 @@ async function uiCommand(
 ): Promise<number> {
   const host = values.host as string | undefined;
   const port = values.port === undefined ? 0 : Number(values.port);
-  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-    write('Error: --port must be an integer in [0, 65535]\n');
-    return 2;
-  }
-  if (host !== undefined && !isLoopback(host))
+  if (!Number.isInteger(port) || port < 0 || port > 65_535)
+    throw new CliError('usage', '--port must be an integer in [0, 65535]');
+  if (host !== undefined && !isLoopback(host) && !values.json)
     write(
       `warning: listening on ${host} over plain HTTP. This service holds your LLM provider keys and launches browsers; anyone who can reach it and has the token can spend on your keys. This is not a secure remote deployment.\n`,
     );
@@ -334,14 +458,29 @@ async function uiCommand(
     ...(host === undefined ? {} : { host }),
     port,
   });
-  write(
-    `dashboard: ${dashboard.url}\nThe token in this URL grants full access; keep it private. Press Ctrl-C to stop.\n`,
-  );
-  await new Promise<void>((resolve) => {
-    if (deps.signal?.aborted) resolve();
-    deps.signal?.addEventListener('abort', () => resolve(), { once: true });
-  });
-  await dashboard.close();
+  // The tokened URL is a credential, so JSON callers (often agents) get a private file for a person to open instead.
+  const urlFile = `.cohort/auth/dashboard-${randomUUID()}.url`;
+  const urlPath = join(deps.cwd ?? process.cwd(), urlFile);
+  try {
+    if (values.json) {
+      await mkdir(dirname(urlPath), { recursive: true, mode: 0o700 });
+      await writeAtomic(urlPath, `${dashboard.url}\n`);
+      emit(write, { origin: dashboard.origin, pid: process.pid, urlFile });
+    } else
+      write(
+        `dashboard: ${dashboard.url}\nThe token in this URL grants full access; keep it private. Press Ctrl-C to stop.\n`,
+      );
+    await new Promise<void>((resolve) => {
+      if (deps.signal?.aborted) resolve();
+      deps.signal?.addEventListener('abort', () => resolve(), { once: true });
+    });
+  } finally {
+    try {
+      if (values.json) await rm(urlPath, { force: true });
+    } finally {
+      await dashboard.close();
+    }
+  }
   return 0;
 }
 
@@ -364,6 +503,10 @@ async function loginCommand(
   if (!url || !state) throw new ConfigError('login requires --url and --state');
   if (!/^https?:\/\//u.test(url) || !URL.canParse(url)) throw new ConfigError('--url must be an http or https URL');
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/u.test(state)) throw new ConfigError(`invalid storage state name: ${state}`);
+  if (!deps.login && (values.json || !(deps.stdin ?? process.stdin).isTTY))
+    throw new CliError('blocked', 'cohort login needs a person at a headed browser and terminal; ask one to run it', {
+      command: `cohort login --url '${safeUrl(url, new SecretStore())}' --state ${state}`,
+    });
   const browser = await chromium.launch({ headless: deps.login?.headless ?? false });
   let saved: { cookies: unknown[]; origins: unknown[] };
   try {
@@ -376,9 +519,17 @@ async function loginCommand(
     await browser.close();
   }
   await saveStorageState(deps.cwd ?? process.cwd(), state, saved);
-  write(
-    `saved .cohort/auth/${state}.json (${saved.cookies.length} cookie(s), ${saved.origins.length} origin(s)). It is a credential: keep .cohort/auth out of git. Reference it with storageState: ${state}\n`,
-  );
+  if (values.json)
+    emit(write, {
+      state,
+      path: `.cohort/auth/${state}.json`,
+      cookies: saved.cookies.length,
+      origins: saved.origins.length,
+    });
+  else
+    write(
+      `saved .cohort/auth/${state}.json (${saved.cookies.length} cookie(s), ${saved.origins.length} origin(s)). It is a credential: keep .cohort/auth out of git. Reference it with storageState: ${state}\n`,
+    );
   return 0;
 }
 
@@ -391,15 +542,21 @@ function showTrace(tracePath: string): Promise<number> {
   });
 }
 
-async function traceCommand(id: string, deps: Dependencies): Promise<number> {
+async function traceCommand(id: string, json: boolean, write: Write, deps: Dependencies): Promise<number> {
   const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
   if (kind !== 'run') throw new BundleError('cohort trace takes a run ID, not a batch ID');
   const tracePath = join(dir, 'trace.zip');
-  if (!(await lstat(tracePath).catch(() => null))?.isFile()) throw new BundleError(`${id} has no trace.zip`);
+  if (!(await lstat(tracePath).catch(() => null))?.isFile())
+    throw new BundleError(`${id} has no trace.zip`, 'not_found');
+  // The viewer is a desktop window; JSON callers get the private file's path instead.
+  if (json) {
+    emit(write, { runId: id, path: tracePath });
+    return 0;
+  }
   return (deps.openTrace ?? showTrace)(tracePath);
 }
 
-function submissionFrom(values: Record<string, string | string[] | boolean | undefined>): RunSubmission {
+function submissionFrom(values: Values): RunSubmission {
   const selectors = (['persona', 'tag', 'suite'] as const).filter((key) => values[key] !== undefined);
   if (selectors.length > 1) throw new ConfigError('choose one of --persona, --tag, --suite');
   const number = (key: string): number | undefined =>
@@ -437,68 +594,159 @@ function submissionFrom(values: Record<string, string | string[] | boolean | und
   });
 }
 
-async function runCommand(
-  values: Record<string, string | string[] | boolean | undefined>,
-  write: Write,
-  deps: Dependencies,
-): Promise<number> {
-  const projectRoot = deps.cwd ?? process.cwd();
+type Plan = ReturnType<typeof preflight>;
+
+function budgetLine(plan: Plan): string {
+  return plan.maxBatchUsd === null
+    ? 'maximum batch budget: unenforceable (some models have unknown prices)'
+    : `maximum batch budget: $${plan.maxBatchUsd.toFixed(2)}`;
+}
+
+function costRefusal(plan: Plan, values: Values): { maxUsd: number; refusal: CliError | null } {
+  const maxUsd = values['max-usd'] === undefined ? DEFAULT_MAX_USD : Number(values['max-usd']);
+  if (!(Number.isFinite(maxUsd) && maxUsd > 0 && maxUsd <= 1000))
+    throw new CliError('usage', '--max-usd must be in (0, 1000]');
+  const preview = { preflight: plan.lines, plans: plan.plans, maxBatchUsd: plan.maxBatchUsd, maxUsd };
+  if (plan.maxBatchUsd === null && values['allow-unpriced'] !== true)
+    return {
+      maxUsd,
+      refusal: new CliError(
+        'cap_unenforceable',
+        'a model has unknown prices, so the dollar cap cannot be enforced; add dated prices to .cohort/models.yml or pass --allow-unpriced',
+        { estimate: preview },
+      ),
+    };
+  if (plan.maxBatchUsd !== null && plan.maxBatchUsd > maxUsd)
+    return {
+      maxUsd,
+      refusal: new CliError(
+        'over_budget',
+        `maximum batch budget $${plan.maxBatchUsd.toFixed(2)} exceeds the $${maxUsd} ceiling; lower --repeats or --dollars, or raise --max-usd`,
+        { estimate: preview },
+      ),
+    };
+  return { maxUsd, refusal: null };
+}
+
+async function estimateCommand(ctx: Context): Promise<number> {
+  const { plan } = await estimate(
+    ctx.root,
+    ctx.providers,
+    submissionFrom(ctx.values),
+    ctx.values['allow-untested'] === true,
+  );
+  const { maxUsd, refusal } = costRefusal(plan, ctx.values);
+  if (ctx.json)
+    emit(ctx.write, {
+      preflight: plan.lines,
+      plans: plan.plans,
+      maxBatchUsd: plan.maxBatchUsd,
+      maxUsd,
+      refusal: refusal ? { code: refusal.code, error: refusal.message } : null,
+    });
+  else {
+    ctx.write(`${plan.lines.join('\n')}\n${budgetLine(plan)}\n`);
+    ctx.write(refusal ? `cohort run would refuse: ${refusal.message}\n` : `within the $${maxUsd} ceiling\n`);
+  }
+  return 0;
+}
+
+async function workerCommand(ctx: Context, deps: Dependencies): Promise<number> {
+  const batch = JSON.parse(await readInput({ ...ctx, values: { file: '-' } })) as DetachedBatch;
+  const started = await startBatch(
+    {
+      projectRoot: ctx.root,
+      providers: ctx.providers,
+      env: deps.env ?? process.env,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    },
+    batch,
+  );
+  ctx.write(`${JSON.stringify({ batchId: started.batchId, runIds: started.runIds })}\n`);
+  await started.done;
+  return 0;
+}
+
+// A detached batch needs a process that outlives this one; the child owns the batch in the index and exits when done.
+function spawnWorker(projectRoot: string, env: NodeJS.ProcessEnv, batch: DetachedBatch) {
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), WORKER, '--json'], {
+    cwd: projectRoot,
+    env,
+    detached: true,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  // Entries travel over a pipe, never argv or the index, because a start URL may carry credentials.
+  child.stdin.end(JSON.stringify(batch));
+  return new Promise<{ batchId: string; runIds: string[] }>((resolve, reject) => {
+    let text = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      text += chunk;
+      const end = text.indexOf('\n');
+      if (end < 0) return;
+      child.stdout.destroy();
+      child.unref();
+      const reply = JSON.parse(text.slice(0, end)) as {
+        batchId: string;
+        runIds: string[];
+        error?: string;
+        code?: string;
+      };
+      if (reply.error) reject(new CliError(reply.code ?? 'internal', reply.error));
+      else resolve(reply);
+    });
+    child.once('error', reject);
+    child.once('exit', (code) =>
+      reject(new CliError('internal', `the batch process exited (${code}) before starting the batch`)),
+    );
+  });
+}
+
+async function runCommand(values: Values, write: Write, deps: Dependencies, ctx: Context): Promise<number> {
+  const projectRoot = ctx.root;
   const env = deps.env ?? process.env;
-  const providers = deps.providers ?? createProviders(env);
-  let entries: ResolvedEntry[];
-  let batch: BatchResult;
-  const fail = (error: unknown): number => {
-    if (!(error instanceof ConfigError || error instanceof CatalogError)) throw error;
-    write(values.json ? `${JSON.stringify({ error: error.message })}\n` : `Error: ${error.message}\n`);
-    return 2;
-  };
-  try {
-    const submission = submissionFrom(values);
-    const [project, catalog] = await Promise.all([loadProjectConfig(projectRoot), loadCatalog(projectRoot)]);
-    entries = await resolveSubmission(submission, {
-      projectRoot,
-      project,
-      catalog,
-      providers,
+  const { providers } = ctx;
+  const submission = submissionFrom(values);
+  const { entries, plan } = await estimate(projectRoot, providers, submission, values['allow-untested'] === true);
+  if (!values.json) write(`${plan.lines.join('\n')}\n${budgetLine(plan)}\n`);
+  const { maxUsd, refusal } = costRefusal(plan, values);
+  if (refusal) throw refusal;
+  if (values.detach) {
+    const request = {
+      submission: submission.url ? { ...submission, url: safeUrl(submission.url, new SecretStore()) } : submission,
       allowUntested: values['allow-untested'] === true,
-    });
-  } catch (error) {
-    return fail(error);
+      source: 'cli',
+    };
+    const started = await (deps.worker ?? ((batch) => spawnWorker(projectRoot, env, batch)))({ entries, request });
+    if (values.json)
+      emit(write, { ...started, preflight: plan.lines, plans: plan.plans, maxBatchUsd: plan.maxBatchUsd, maxUsd });
+    else write(`batch ${started.batchId} started in the background; next: cohort runs wait ${started.batchId}\n`);
+    return 0;
   }
-  const plan = preflight(entries);
-  const budget =
-    plan.maxBatchUsd === null
-      ? 'maximum batch budget: unenforceable (some models have unknown prices)'
-      : `maximum batch budget: $${plan.maxBatchUsd.toFixed(2)}`;
-  if (!values.json) write(`${plan.lines.join('\n')}\n${budget}\n`);
-  try {
-    batch = await runBatch({
-      projectRoot,
-      entries,
-      providers,
-      env,
-      ...(deps.signal ? { signal: deps.signal } : {}),
-      onRunStart: values.json
-        ? undefined
-        : (started) => write(`run ${started.runId} (${started.personaId}, repeat ${started.repeat + 1})\n`),
-    });
-  } catch (error) {
-    return fail(error);
-  }
+  const batch = await runBatch({
+    projectRoot,
+    entries,
+    providers,
+    env,
+    ...(deps.signal ? { signal: deps.signal } : {}),
+    onRunStart: values.json
+      ? undefined
+      : (started) => write(`run ${started.runId} (${started.personaId}, repeat ${started.repeat + 1})\n`),
+  });
   const exitCode = batch.skipped === 0 && batch.runs.every((item) => item.outcome.state === 'completed') ? 0 : 1;
   if (values.json)
-    write(
-      `${JSON.stringify({
-        batchId: batch.batchId,
-        preflight: plan.lines,
-        maxBatchUsd: plan.maxBatchUsd,
-        runs: batch.runs,
-        skipped: batch.skipped,
-        summary: batch.summary,
-        reportDir: batch.reportDir,
-        exitCode,
-      })}\n`,
-    );
+    emit(write, {
+      batchId: batch.batchId,
+      preflight: plan.lines,
+      plans: plan.plans,
+      maxBatchUsd: plan.maxBatchUsd,
+      maxUsd,
+      runs: batch.runs,
+      skipped: batch.skipped,
+      summary: batch.summary,
+      reportDir: batch.reportDir,
+      exitCode,
+    });
   else {
     for (const item of batch.runs) {
       const detail =
@@ -525,7 +773,10 @@ if (import.meta.main) {
       // Bounded and key-free; COHORT_DEBUG=1 adds the stack.
       const keys = Object.values(createProviders()).flatMap((provider) => process.env[provider.keyEnv] ?? []);
       const text = process.env.COHORT_DEBUG === '1' ? String((error as Error)?.stack ?? error) : firstLine(error);
-      process.stderr.write(`cohort: unexpected error: ${scrubEnv(text, new SecretStore(), keys)}\n`);
+      const scrubbed = scrubEnv(text, new SecretStore(), keys);
+      process.stderr.write(`cohort: unexpected error: ${scrubbed}\n`);
+      if (process.argv.includes('--json'))
+        emit((out) => process.stdout.write(out), { error: firstLine(scrubbed), code: 'internal' });
       return 2;
     },
   );

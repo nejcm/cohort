@@ -1,4 +1,5 @@
-import { lstat, mkdir, readdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { chmod, lstat, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
@@ -9,17 +10,19 @@ import {
   readBundleFile,
   readBundleJson,
   readSteps,
+  writeBatchReports,
   writeRunReports,
 } from '../evidence/bundle.ts';
 import { writeManifest, type RunManifest } from '../evidence/manifest.ts';
-import { browserActionCount, type RunReport } from '../evidence/report.ts';
+import { browserActionCount, buildBatchReport, type RunReport } from '../evidence/report.ts';
 import type { StepRecord } from '../evidence/steps.ts';
 import type { ModelCatalogEntry } from '../providers/catalog.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
-import { reportColumns, type LabDb, type RunEvent, type RunRow } from './db.ts';
+import { LabDb, reportColumns, type BatchRow, type RunEvent, type RunRow } from './db.ts';
 
 const MAX_QUEUED_RUNS = 100;
 const MAX_EVENT_BYTES = 4096;
+const CANCEL_POLL_MS = 200;
 
 export class QueueError extends Error {
   override name = 'QueueError';
@@ -50,18 +53,22 @@ interface ResolvedConfigFile {
 const now = (): string => new Date().toISOString();
 const relativeDir = (runId: string): string => `.cohort/runs/${runId}`;
 
-/** In-process FIFO over runBatch: one batch at a time, every lifecycle event persisted before it is broadcast. */
+/** In-process FIFO over runBatch; events are persisted before broadcast, and cancel requests in the index are polled. */
 export class RunQueue {
   private readonly pending: QueuedBatch[] = [];
   private readonly controllers = new Map<string, AbortController>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private active: Promise<void> | null = null;
   private closed = false;
+  private readonly poll: NodeJS.Timeout;
 
   private readonly options: QueueOptions;
 
   constructor(options: QueueOptions) {
     this.options = options;
+    this.poll = setInterval(() => {
+      for (const runId of this.options.db.cancelRequested()) if (this.controllers.has(runId)) this.cancel(runId);
+    }, CANCEL_POLL_MS).unref();
   }
 
   get queuedRuns(): number {
@@ -78,7 +85,7 @@ export class RunQueue {
     const runIds: string[] = [];
     const createdAt = now();
     db.transaction(() => {
-      db.insertBatch(batchId, request, createdAt);
+      db.insertBatch(batchId, request, createdAt, { pid: process.pid, start: processStart(process.pid) });
       for (const entry of entries)
         for (let repeat = 0; repeat < entry.request.repeats; repeat += 1) {
           const runId = newId('run');
@@ -125,7 +132,11 @@ export class RunQueue {
 
   async close(): Promise<void> {
     this.closed = true;
-    for (const batch of this.pending.splice(0)) for (const runId of batch.runIds) this.cancel(runId);
+    clearInterval(this.poll);
+    for (const batch of this.pending.splice(0)) {
+      for (const runId of batch.runIds) this.cancel(runId);
+      await finalizeBatch(this.options.projectRoot, this.options.db, batch.batchId);
+    }
     for (const controller of this.controllers.values()) controller.abort('process');
     await this.idle();
   }
@@ -175,6 +186,7 @@ export class RunQueue {
     } finally {
       await Promise.all(finishing);
       for (const runId of batch.runIds) this.controllers.delete(runId);
+      await finalizeBatch(this.options.projectRoot, db, batch.batchId);
     }
   }
 
@@ -229,10 +241,52 @@ function queuedRow(batchId: string, runId: string, entry: ResolvedEntry, repeat:
   };
 }
 
+// Boot ID plus start time in clock ticks: a reused PID gets a different value.
+export function processStart(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+    return `${boot}:${stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]}`;
+  } catch {
+    return null;
+  }
+}
+
+function ownerAlive(batch: Pick<BatchRow, 'owner_pid' | 'owner_start'>): boolean {
+  if (batch.owner_pid === null) return false;
+  try {
+    process.kill(batch.owner_pid, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') return false;
+  }
+  // shortcut: without /proc (macOS, Windows) a reused PID still looks alive; add a ps-based start time there if it bites.
+  return batch.owner_start === null || processStart(batch.owner_pid) === batch.owner_start;
+}
+
+// Writes the batch report from its run reports when the owner never did, then marks the batch finished.
+async function finalizeBatch(projectRoot: string, db: LabDb, batchId: string): Promise<void> {
+  const dir = join(projectRoot, relativeDir(batchId));
+  if ((await readBundleFile(dir, 'report.json').catch(() => null)) === null) {
+    const rows = db.batchRuns(batchId);
+    const reports: RunReport[] = [];
+    for (const row of rows) {
+      const report = await readBundleJson<RunReport>(join(projectRoot, relativeDir(row.id)), 'report.json').catch(
+        () => null,
+      );
+      if (report) reports.push(report);
+    }
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await writeBatchReports(dir, buildBatchReport(batchId, reports, rows.length - reports.length));
+  }
+  db.finishBatch(batchId);
+}
+
 /** Marks runs a crashed process left behind as interrupted; a started run gets a bounded agent_error report. Nothing resumes. */
 export async function recoverInterrupted(projectRoot: string, db: LabDb): Promise<string[]> {
   const recovered: string[] = [];
   for (const row of db.runsWithStatus('queued', 'running')) {
+    const batch = db.batch(row.batch_id);
+    if (batch && ownerAlive(batch)) continue;
     recovered.push(row.id);
     if (row.status === 'queued') {
       db.updateRun(row.id, { status: 'interrupted', interrupted_by: 'process', finished_at: now() });
@@ -250,6 +304,8 @@ export async function recoverInterrupted(projectRoot: string, db: LabDb): Promis
     db.updateRun(row.id, { ...reportColumns(report), status, finished_at: now() });
     db.appendEvent(row.id, 'run.finished', { runId: row.id, status });
   }
+  for (const batch of db.unfinishedOwnedBatches())
+    if (!ownerAlive(batch)) await finalizeBatch(projectRoot, db, batch.id);
   return recovered;
 }
 
@@ -341,8 +397,8 @@ async function writeRecovered(dir: string, row: RunRow, report: RunReport, steps
   });
 }
 
-/** Adds finalized run bundles on disk (for example from `cohort run`) that the index does not know yet. */
-export async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
+// Adds finalized run bundles on disk (for example from `cohort run`) that the index does not know yet.
+async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
   let added = 0;
   const names = await readdir(join(projectRoot, '.cohort', 'runs')).catch(() => []);
   for (const name of names.filter((candidate) => candidate.startsWith('run_')).toSorted()) {
@@ -393,4 +449,56 @@ export async function indexRuns(projectRoot: string, db: LabDb): Promise<number>
     }
   }
   return added;
+}
+
+/** Opens `.cohort/index.sqlite` owner-only, recovers runs whose owning process is gone, and indexes bundles on disk. */
+export async function openIndex(projectRoot: string): Promise<LabDb> {
+  await mkdir(join(projectRoot, '.cohort'), { recursive: true });
+  await chmod(join(projectRoot, '.cohort'), 0o700);
+  const dbPath = join(projectRoot, '.cohort', 'index.sqlite');
+  await writeFile(dbPath, '', { flag: 'a', mode: 0o600 });
+  const db = new LabDb(dbPath);
+  try {
+    // Files left by an older or umask-created index keep their mode unless tightened.
+    for (const suffix of ['', '-wal', '-shm'])
+      await chmod(`${dbPath}${suffix}`, 0o600).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    await recoverInterrupted(projectRoot, db);
+    await indexRuns(projectRoot, db);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+export interface DetachedBatch {
+  entries: ResolvedEntry[];
+  request: unknown;
+}
+
+/** Indexes and starts one batch in this process; `done` settles once its batch report is written and the index closed. */
+export async function startBatch(
+  options: Omit<QueueOptions, 'db'> & { signal?: AbortSignal },
+  batch: DetachedBatch,
+): Promise<{ batchId: string; runIds: string[]; done: Promise<void> }> {
+  const db = await openIndex(options.projectRoot);
+  const queue = new RunQueue({ ...options, db });
+  let ids: { batchId: string; runIds: string[] };
+  try {
+    ids = queue.enqueue(batch.entries, batch.request);
+  } catch (error) {
+    await queue.close();
+    db.close();
+    throw error;
+  }
+  options.signal?.addEventListener('abort', () => void queue.close(), { once: true });
+  return {
+    ...ids,
+    done: queue
+      .idle()
+      .then(() => queue.close())
+      .finally(() => db.close()),
+  };
 }

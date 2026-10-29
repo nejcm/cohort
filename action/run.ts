@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Inputs arrive as environment variables, never interpolated into a shell, and keys stay in the job environment.
-const FLAGS = ['persona', 'tag', 'suite', 'url', 'note', 'model', 'effort', 'repeats'] as const;
+const FLAGS = ['persona', 'tag', 'suite', 'url', 'note', 'model', 'effort', 'repeats', 'max-usd'] as const;
 const STATES = ['completed', 'abandoned', 'blocked', 'agent_error', 'limit_reached'] as const;
 
 interface RunJson {
@@ -28,10 +28,11 @@ const args = compare
 if (compare) args.push('--markdown', markdownPath);
 else {
   for (const flag of FLAGS) {
-    const value = env[`INPUT_${flag.toUpperCase()}`];
+    const value = env[`INPUT_${flag.toUpperCase().replace('-', '_')}`];
     if (value) args.push(`--${flag}`, value);
   }
   if (env.INPUT_ALLOW_UNTESTED === 'true') args.push('--allow-untested');
+  if (env.INPUT_ALLOW_UNPRICED === 'true') args.push('--allow-unpriced');
 }
 
 const child = spawn(env.COHORT_BIN ?? 'cohort', args, { stdio: ['ignore', 'pipe', 'inherit'] });

@@ -50,6 +50,10 @@ const MIGRATIONS = [
     payload_json TEXT NOT NULL,
     PRIMARY KEY(run_id, sequence)
   );`,
+  `ALTER TABLE batches ADD COLUMN owner_pid INTEGER;
+  ALTER TABLE batches ADD COLUMN finished_at TEXT;
+  ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;`,
+  `ALTER TABLE batches ADD COLUMN owner_start TEXT;`,
 ];
 
 export type RunStatus = 'queued' | 'running' | 'finished' | 'cancelled' | 'interrupted';
@@ -85,6 +89,17 @@ export interface RunRow {
   artifact_dir: string;
   report_path: string | null;
   config_hash: string;
+  cancel_requested_at?: string | null;
+}
+
+export interface BatchRow {
+  id: string;
+  created_at: string;
+  request_json: string;
+  /** Process that executes the batch; null for batches indexed from files. */
+  owner_pid: number | null;
+  owner_start: string | null;
+  finished_at: string | null;
 }
 
 export interface RunEvent {
@@ -189,6 +204,8 @@ export class LabDb {
     };
     MIGRATIONS.slice(version).forEach((sql, index) =>
       this.transaction(() => {
+        // Another process may have migrated since the version was read.
+        if (this.schemaVersion >= version + index + 1) return;
         this.db.exec(sql);
         this.db.prepare('INSERT INTO schema_migrations VALUES (?, ?)').run(version + index + 1, now());
       }),
@@ -196,8 +213,9 @@ export class LabDb {
   }
 
   get schemaVersion(): number {
-    return (this.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number })
-      .version;
+    return (
+      this.db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as { version: number }
+    ).version;
   }
 
   transaction<T>(work: () => T): T {
@@ -212,10 +230,43 @@ export class LabDb {
     }
   }
 
-  insertBatch(id: string, request: unknown, createdAt = now()): void {
+  insertBatch(
+    id: string,
+    request: unknown,
+    createdAt = now(),
+    owner: { pid: number; start: string | null } | null = null,
+  ): void {
     this.db
-      .prepare('INSERT OR IGNORE INTO batches (id, created_at, request_json) VALUES (?, ?, ?)')
-      .run(id, createdAt, JSON.stringify(request));
+      .prepare(
+        'INSERT OR IGNORE INTO batches (id, created_at, request_json, owner_pid, owner_start) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(id, createdAt, JSON.stringify(request), owner?.pid ?? null, owner?.start ?? null);
+  }
+
+  unfinishedOwnedBatches(): BatchRow[] {
+    return this.db
+      .prepare('SELECT * FROM batches WHERE finished_at IS NULL AND owner_pid IS NOT NULL')
+      .all() as unknown as BatchRow[];
+  }
+
+  finishBatch(id: string): void {
+    this.db.prepare('UPDATE batches SET finished_at = ? WHERE id = ? AND finished_at IS NULL').run(now(), id);
+  }
+
+  /** Marks queued or running runs for their owner to cancel; returns the IDs that were still active. */
+  requestCancel(ids: readonly string[]): string[] {
+    const mark = this.db.prepare(
+      `UPDATE runs SET cancel_requested_at = COALESCE(cancel_requested_at, ?) WHERE id = ? AND ${ACTIVE}`,
+    );
+    return ids.filter((id) => mark.run(now(), id).changes > 0);
+  }
+
+  cancelRequested(): string[] {
+    return (
+      this.db.prepare(`SELECT id FROM runs WHERE cancel_requested_at IS NOT NULL AND ${ACTIVE}`).all() as {
+        id: string;
+      }[]
+    ).map((row) => row.id);
   }
 
   insertRun(row: Omit<RunRow, 'steps'> & { steps?: number }): boolean {
@@ -242,12 +293,8 @@ export class LabDb {
     return this.db.prepare('SELECT 1 FROM runs WHERE id = ?').get(id) !== undefined;
   }
 
-  batch(id: string): { id: string; created_at: string; request_json: string } | null {
-    return (
-      (this.db.prepare('SELECT * FROM batches WHERE id = ?').get(id) as
-        | { id: string; created_at: string; request_json: string }
-        | undefined) ?? null
-    );
+  batch(id: string): BatchRow | null {
+    return (this.db.prepare('SELECT * FROM batches WHERE id = ?').get(id) as BatchRow | undefined) ?? null;
   }
 
   batchRuns(batchId: string): RunRow[] {

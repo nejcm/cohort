@@ -1,24 +1,35 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, writeFile } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isIP, type AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ConfigError, listIds, loadProjectConfig, personaSchema, type SuiteEntry } from '../config/files.ts';
+import { ConfigError, loadProjectConfig, personaSchema, type SuiteEntry } from '../config/files.ts';
 import { personaTemplates } from '../config/init.ts';
-import { DEFAULT_MASKS, resolveSubmission, validateSubmission } from '../config/resolve.ts';
-import { preflight } from '../core/estimate.ts';
-import { BundleError, bundleDir, readBundleFile } from '../evidence/bundle.ts';
+import { DEFAULT_MASKS, validateSubmission } from '../config/resolve.ts';
+import { BundleError, readBundleFile } from '../evidence/bundle.ts';
 import type { RunManifest } from '../evidence/manifest.ts';
 import { GenerateError, generatePersona } from '../personas/generate.ts';
-import { catalogHash, CatalogError, loadCatalog, resolveModel } from '../providers/catalog.ts';
+import { CatalogError, loadCatalog, resolveModel } from '../providers/catalog.ts';
 import { createProviders } from '../providers/registry.ts';
 import { EFFORTS, ProviderError, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { SecretStore, safeUrl } from '../setup/secrets.ts';
-import { LabDb, RUN_FILTERS, RUN_SORTS, type RunQuery, type RunRow } from './db.ts';
+import type { RunRow } from './db.ts';
 import { appendSuiteEntry, createEditable, EditError, readEditable, saveEditable } from './files.ts';
-import { indexRuns, QueueError, recoverInterrupted, RunQueue } from './runner.ts';
+import {
+  batchDetail,
+  configView,
+  estimate,
+  listRunsPage,
+  modelList,
+  personaSummaries,
+  runDetail,
+  runDirOf,
+  SHOT,
+  suiteSummaries,
+} from './operations.ts';
+import { openIndex, QueueError, RunQueue } from './runner.ts';
 
 export interface DashboardOptions {
   projectRoot: string;
@@ -51,11 +62,10 @@ class HttpError extends Error {
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 50 * 1024 * 1024;
-const MAX_PAGE = 100;
 const HEARTBEAT_MS = 15_000;
+const EVENT_POLL_MS = 500;
 const MAX_SSE_BUFFER = 1024 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
-const SHOT = /^shot-[0-9]{4}$/u;
 
 export const CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -125,48 +135,7 @@ const text = (value: unknown, name: string): string => {
   return value;
 };
 
-function publicRun(row: RunRow) {
-  return {
-    id: row.id,
-    batchId: row.batch_id,
-    entryIndex: row.entry_index,
-    repeat: row.repeat_index,
-    personaId: row.persona_id,
-    goal: row.goal,
-    mode: row.mode,
-    provider: row.provider,
-    model: row.model,
-    effort: row.effort,
-    catalog: {
-      version: row.catalog_version,
-      hash: row.catalog_hash,
-      entry: JSON.parse(row.catalog_entry_json) as unknown,
-    },
-    untested: row.model_untested === 1,
-    status: row.status,
-    outcome: row.outcome_state,
-    blockedKind: row.blocked_kind,
-    outcomeCode: row.outcome_code,
-    interruptedBy: row.interrupted_by,
-    createdAt: row.created_at,
-    startedAt: row.started_at,
-    finishedAt: row.finished_at,
-    steps: row.steps,
-    durationMs: row.duration_ms,
-    costUsd: row.estimated_cost_usd,
-    capEnforcement: row.cap_enforcement,
-  };
-}
-
 const defaultAssets = (): string => fileURLToPath(new URL('../../dist/ui/', import.meta.url));
-
-async function screenshotIds(dir: string): Promise<string[]> {
-  const names = await readdir(join(dir, 'screenshots')).catch(() => []);
-  return names
-    .map((name) => name.replace(/\.png$/u, ''))
-    .filter((name) => SHOT.test(name))
-    .toSorted();
-}
 
 // Manifest paths are data from disk: plain segments only, and every directory on the way must be a real directory.
 async function bundlePath(dir: string, relative: string): Promise<string> {
@@ -216,23 +185,10 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
   const assetsDir = options.assetsDir ?? defaultAssets();
   const token = randomBytes(32).toString('base64url');
   const expected = Buffer.from(`Bearer ${token}`);
-  await mkdir(join(projectRoot, '.cohort'), { recursive: true });
-  await chmod(join(projectRoot, '.cohort'), 0o700);
-  const dbPath = join(projectRoot, '.cohort', 'index.sqlite');
-  await writeFile(dbPath, '', { flag: 'a', mode: 0o600 });
-  const db = new LabDb(dbPath);
-  // Files left by an older or umask-created index keep their mode unless tightened.
-  for (const suffix of ['', '-wal', '-shm'])
-    await chmod(`${dbPath}${suffix}`, 0o600).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT') throw error;
-    });
-  await recoverInterrupted(projectRoot, db);
-  await indexRuns(projectRoot, db);
+  const db = await openIndex(projectRoot);
   const queue = new RunQueue({ projectRoot, db, providers, env });
   const streams = new Set<ServerResponse>();
   let port = 0;
-
-  const available = (id: string): boolean => providers[id]?.available() === true;
 
   const routes: [
     string,
@@ -243,64 +199,21 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       'GET',
       /^\/api\/config$/u,
       async (_m, _q, response) => {
-        const project = await loadProjectConfig(projectRoot);
-        json(response, 200, {
-          defaults: {
-            model: project.model,
-            effort: project.effort ?? null,
-            mode: project.mode ?? 'vision',
-            repeats: project.repeats ?? 3,
-            limits: project.limits ?? {},
-            allowedOrigins: project.allowedOrigins ?? [],
-          },
-          providers: Object.fromEntries(Object.keys(providers).map((id) => [id, available(id)])),
-        });
+        json(response, 200, configView(await loadProjectConfig(projectRoot), providers));
       },
     ],
     [
       'GET',
       /^\/api\/models$/u,
       async (_m, _q, response) => {
-        const catalog = await loadCatalog(projectRoot);
-        json(response, 200, {
-          catalog: { version: catalog.version, hash: catalogHash(catalog) },
-          providers: Object.keys(providers).map((id) => ({ id, available: available(id) })),
-          models: catalog.models
-            .filter((entry) => available(entry.provider))
-            .map((entry) => ({
-              id: `${entry.provider}/${entry.id}`,
-              provider: entry.provider,
-              label: entry.label,
-              visionCapable: entry.visionCapable,
-              supportedEffortLevels: entry.supportedEffortLevels,
-              defaultEffort: entry.defaultEffort,
-              pricesPerMTok: entry.pricesPerMTok,
-              pricingVerifiedAt: entry.pricingVerifiedAt,
-              untested: entry.untested,
-              enabled: entry.visionCapable !== null && entry.supportedEffortLevels.length > 0,
-            })),
-        });
+        json(response, 200, modelList(await loadCatalog(projectRoot), providers));
       },
     ],
     [
       'GET',
       /^\/api\/personas$/u,
       async (_m, _q, response) => {
-        const ids = await listIds(projectRoot, 'personas', '.md');
-        const personas = await Promise.all(ids.map((id) => readEditable(projectRoot, 'personas', id)));
-        json(response, 200, {
-          personas: personas.map(({ id, parsed, error }) => {
-            const persona = parsed as { name?: string; tags?: string[]; goal?: string; setup?: string } | null;
-            return {
-              id,
-              name: persona?.name ?? null,
-              tags: persona?.tags ?? [],
-              goal: persona?.goal ?? null,
-              setup: persona?.setup ?? null,
-              error,
-            };
-          }),
-        });
+        json(response, 200, { personas: await personaSummaries(projectRoot) });
       },
     ],
     [
@@ -402,14 +315,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       'GET',
       /^\/api\/suites$/u,
       async (_m, _q, response) => {
-        const ids = await listIds(projectRoot, 'suites', '.yml');
-        const suites = await Promise.all(ids.map((id) => readEditable(projectRoot, 'suites', id)));
-        json(response, 200, {
-          suites: suites.map(({ id, parsed, error }) => {
-            const suite = parsed as { name?: string; entries?: unknown[] } | null;
-            return { id, name: suite?.name ?? null, entries: suite?.entries?.length ?? 0, error };
-          }),
-        });
+        json(response, 200, { suites: await suiteSummaries(projectRoot) });
       },
     ],
     [
@@ -436,16 +342,13 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       async (_m, request, response) => {
         const body = await readJson(request);
         const submission = validateSubmission(body.submission);
-        const [project, catalog] = await Promise.all([loadProjectConfig(projectRoot), loadCatalog(projectRoot)]);
-        const entries = await resolveSubmission(submission, {
+        // A preview lists untested models (inherited ones included) so the dialog can ask for consent before dispatch.
+        const { entries, plan } = await estimate(
           projectRoot,
-          project,
-          catalog,
           providers,
-          // A preview lists untested models (inherited ones included) so the dialog can ask for consent before dispatch.
-          allowUntested: body.preview === true || body.allowUntested === true,
-        });
-        const plan = preflight(entries);
+          submission,
+          body.preview === true || body.allowUntested === true,
+        );
         if (body.preview === true) return void json(response, 200, { ...plan });
         json(response, 202, {
           ...queue.enqueue(entries, {
@@ -463,42 +366,19 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       /^\/api\/runs$/u,
       async (_m, request, response) => {
         const params = new URL(request.url!, 'http://local').searchParams;
-        const limit = Math.min(MAX_PAGE, Math.max(1, Number(params.get('limit') ?? 50) || 50));
-        const sort = params.get('sort') ?? 'created';
-        const filter = params.get('f') || undefined;
-        if (!Object.hasOwn(RUN_SORTS, sort)) throw new HttpError(400, 'invalid sort');
-        if (filter && !Object.hasOwn(RUN_FILTERS, filter)) throw new HttpError(400, 'invalid filter');
-        const query: RunQuery = {
-          sort: sort as RunQuery['sort'],
-          asc: params.get('dir') === 'asc',
-          filter: filter as RunQuery['filter'],
-          text: params.get('q')?.trim(),
-        };
-        const cursor = params.get('cursor');
-        if (cursor) {
-          let after: unknown;
-          try {
-            after = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-          } catch {}
-          if (
-            !Array.isArray(after) ||
-            after.length !== 2 ||
-            !['string', 'number'].includes(typeof after[0]) ||
-            typeof after[1] !== 'string'
-          )
-            throw new HttpError(400, 'invalid cursor');
-          query.after = after as [string | number, string];
-        }
-        const rows = db.listRuns(limit, query);
-        const last = rows.at(-1);
-        json(response, 200, {
-          runs: rows.map(publicRun),
-          nextCursor:
-            rows.length === limit && last
-              ? Buffer.from(JSON.stringify([last.sort_key, last.id])).toString('base64url')
-              : null,
-          counts: db.runCounts(query.text ?? '', params.get('since') ?? new Date().toISOString().slice(0, 10)),
-        });
+        json(
+          response,
+          200,
+          listRunsPage(db, {
+            limit: Number(params.get('limit') ?? 50),
+            sort: params.get('sort') ?? undefined,
+            asc: params.get('dir') === 'asc',
+            filter: params.get('f') ?? undefined,
+            text: params.get('q') ?? undefined,
+            cursor: params.get('cursor') ?? undefined,
+            since: params.get('since') ?? undefined,
+          }),
+        );
       },
     ],
     [
@@ -506,21 +386,8 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       /^\/api\/runs\/([^/]+)$/u,
       async (match, _q, response) => {
         const row = indexed(match[1]!);
-        const dir = await runDir(row.id);
-        const report = dir ? await readBundleFile(dir, 'report.json') : null;
-        const manifest = dir ? await readBundleFile(dir, 'manifest.json') : null;
         json(response, 200, {
-          run: publicRun(row),
-          report: report ? (JSON.parse(report) as unknown) : null,
-          artifacts: manifest
-            ? (JSON.parse(manifest) as RunManifest).artifacts.map(({ path, mediaType, bytes, sensitivity }) => ({
-                id: path,
-                mediaType,
-                bytes,
-                sensitivity,
-              }))
-            : [],
-          screenshots: dir ? await screenshotIds(dir) : [],
+          ...(await runDetail(projectRoot, row)),
           lastEventId: db.eventsAfter(row.id, 0).at(-1)?.sequence ?? 0,
         });
       },
@@ -531,7 +398,8 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       async (match, request, response) => {
         await readJson(request);
         const row = indexed(match[1]!);
-        if (!queue.cancel(row.id)) throw new HttpError(409, `${row.id} is not queued or running`);
+        if (!queue.cancel(row.id) && db.requestCancel([row.id]).length === 0)
+          throw new HttpError(409, `${row.id} is not queued or running`);
         json(response, 202, { id: row.id, cancelling: true });
       },
     ],
@@ -552,7 +420,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
         const row = indexed(match[1]!);
         const shot = decodeURIComponent(match[2]!);
         if (!SHOT.test(shot)) throw new HttpError(404, 'unknown screenshot');
-        const dir = await runDir(row.id);
+        const dir = await runDirOf(projectRoot, row.id);
         if (!dir) throw new HttpError(404, 'unknown screenshot');
         await sendFile(response, dir, `screenshots/${shot}.png`, 'image/png', null);
       },
@@ -563,7 +431,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       async (match, _q, response) => {
         const row = indexed(match[1]!);
         const artifactId = decodeURIComponent(match[2]!);
-        const dir = await runDir(row.id);
+        const dir = await runDirOf(projectRoot, row.id);
         const manifest = dir ? await readBundleFile(dir, 'manifest.json') : null;
         const artifact = manifest
           ? (JSON.parse(manifest) as RunManifest).artifacts.find((item) => item.path === artifactId)
@@ -585,16 +453,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       async (match, _q, response) => {
         const batch = db.batch(decodeURIComponent(match[1]!));
         if (!batch) throw new HttpError(404, 'unknown batch');
-        const dir = await bundleDir(projectRoot, batch.id).then(
-          ({ dir: found }) => found,
-          () => null,
-        );
-        const summary = dir ? await readBundleFile(dir, 'report.json') : null;
-        json(response, 200, {
-          batch: { id: batch.id, createdAt: batch.created_at, request: JSON.parse(batch.request_json) as unknown },
-          runs: db.batchRuns(batch.id).map(publicRun),
-          summary: summary ? (JSON.parse(summary) as unknown) : null,
-        });
+        json(response, 200, await batchDetail(projectRoot, db, batch));
       },
     ],
   ];
@@ -603,13 +462,6 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     const row = db.run(decodeURIComponent(encoded));
     if (!row) throw new HttpError(404, 'unknown run');
     return row;
-  }
-
-  async function runDir(runId: string): Promise<string | null> {
-    return bundleDir(projectRoot, runId).then(
-      ({ dir }) => dir,
-      () => null,
-    );
   }
 
   function stream(runId: string, lastId: number, response: ServerResponse): void {
@@ -632,8 +484,13 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     const heartbeat = setInterval(() => {
       if (!response.writableEnded) response.write(': ping\n\n');
     }, HEARTBEAT_MS);
+    // Runs owned by another process (a detached `cohort run`) only reach this stream through the index.
+    const tail = setInterval(() => {
+      for (const event of db.eventsAfter(runId, sent)) write(event);
+    }, EVENT_POLL_MS);
     response.on('close', () => {
       clearInterval(heartbeat);
+      clearInterval(tail);
       unsubscribe();
       streams.delete(response);
     });

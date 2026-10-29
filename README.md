@@ -38,23 +38,30 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 | --- | --- |
 | `cohort init [--template <id>]...` | Create `.cohort/` without overwriting anything; `--template` adds the named [persona templates](docs/personas.md#templates) instead of the default three |
 | `cohort doctor [--json]` | Check the setup; exit 2 on any error |
-| `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--allow-untested`, `--json` |
+| `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--max-usd` (batch ceiling, default $10), `--allow-unpriced`, `--allow-untested`, `--detach`, `--json` |
+| `cohort estimate <selector> [run options]` | Price a batch and show whether `run` would refuse it; never calls a model |
+| `cohort runs list \| show \| wait \| cancel [<run-or-batch-id>]` | List, inspect, wait for, or cancel runs, including detached ones and those started from the dashboard |
 | `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
 | `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
 | `cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` | Replay an approved run on two deployments with confirmation; writes one advisory PR comment body ([details](docs/operating.md#comparing-base-and-head)) |
 | `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
 | `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
 | `cohort persona validate` | Check every persona and suite, reporting all problems |
+| `cohort persona\|suite list \| show \| add \| edit \| remove` | Manage persona and suite files with validation, atomic writes, and revision checks; `suite add-entry` appends an entry |
+| `cohort config show\|edit`, `cohort models list\|show\|edit` | Effective defaults, key presence, and runnable models; `edit` validates and atomically replaces `config.yml` or `models.yml` |
 | `cohort persona generate --url <url> --description <text> [--out <file>]` | One metered call over a landing page; preview unless `--out` |
 | `cohort ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1` |
 
-Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration. `cohort compare` exits `1` only for a confirmed regression.
+Every command takes `--json` and never prompts, so a coding agent can drive the whole lab; see [docs/agents.md](docs/agents.md).
+
+Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration, or a refusal such as a batch over its dollar ceiling (JSON errors carry a stable `code`). `cohort compare` exits `1` only for a confirmed regression.
 
 Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
 
 ## Documentation
 
 - [Operating the lab](docs/operating.md): keys, models, costs and limits, blockers, replay bindings, base/head comparison, artifacts, retention and deletion, diagnostics.
+- [Driving cohort from an agent](docs/agents.md): command map, JSON output, error codes, cost safety, background runs, and an AGENTS.md snippet.
 - [Personas and suites](docs/personas.md): formats, templates, prompt layers, generator guidance.
 - [Setup modules and saved login](docs/setup-and-login.md): custom tools for one-time codes, storage state, routes, blocker detection.
 - [GitHub Action](docs/github-action.md): the thin Action, a workflow that never uploads traces, and a pull-request comparison workflow.
@@ -74,6 +81,8 @@ The MVP ends with screening by outside developers. Add-ons follow in this order,
 1. Crawler and suggestions: an `explore` mode that proposes personas and replayable tests from observed paths.
 2. PR regression hardening: `cohort compare` and the Action's `compare-run` already replay an approved run on base and head with confirmation and one advisory comment. Still to come: approved assertions, per-artifact hashes for downloaded bundles, preview provenance, scoped preparation and cleanup, a separate comment publisher, and a PR-head recheck before posting.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
+
+An agent-operable CLI is available: every dashboard action has a `--json` command, runs can be detached and waited on, and batches are capped at $10 by default ([docs/agents.md](docs/agents.md)). Still to come: a recorded session of a real coding agent driving a live provider.
 
 Keyboard-only personas and small-screen packs are available; see [docs/personas.md](docs/personas.md#scenario-packs).
 

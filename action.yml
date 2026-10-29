@@ -40,6 +40,13 @@ inputs:
     description: Set to "true" to allow untested catalog entries.
     required: false
     default: 'false'
+  max-usd:
+    description: Optional dollar ceiling for the batch estimate (cohort run --max-usd; default 10).
+    required: false
+  allow-unpriced:
+    description: Set to "true" to run models with unknown prices, which the dollar ceiling cannot cap.
+    required: false
+    default: 'false'
   working-directory:
     description: Project directory that contains .cohort/.
     required: false
@@ -118,6 +125,8 @@ runs:
         INPUT_EFFORT: ${{ inputs.effort }}
         INPUT_REPEATS: ${{ inputs.repeats }}
         INPUT_ALLOW_UNTESTED: ${{ inputs.allow-untested }}
+        INPUT_MAX_USD: ${{ inputs.max-usd }}
+        INPUT_ALLOW_UNPRICED: ${{ inputs.allow-unpriced }}
         INPUT_COMPARE_RUN: ${{ inputs.compare-run }}
         INPUT_BASE_URL: ${{ inputs.base-url }}
         INPUT_HEAD_URL: ${{ inputs.head-url }}

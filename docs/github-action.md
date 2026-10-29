@@ -55,6 +55,8 @@ jobs:
 | `model`, `effort` | Optional `<provider>/<id>` and `low`/`medium`/`high`; same precedence as `cohort run` |
 | `repeats` | Optional repetitions per entry |
 | `allow-untested` | `true` to allow untested catalog entries |
+| `max-usd` | Dollar ceiling for the batch estimate (default `10`); a larger estimate refuses with `over_budget` |
+| `allow-unpriced` | `true` to run models with unknown prices; without it they refuse with `cap_unenforceable` |
 | `working-directory` | Directory that contains `.cohort/` (default `.`) |
 | `install-browser` | `false` to skip `playwright install --with-deps chromium` |
 | `package` | npm spec to install instead of the matching release, for testing a release-candidate tarball |
@@ -66,7 +68,7 @@ Inputs reach the CLI as separate arguments through environment variables; they a
 
 `batch-id`, `report-path` (the batch `report.html`), `exit-code`, `runs`, and per-outcome counts: `completed`, `abandoned`, `blocked`, `agent-error`, `limit-reached`. With `compare-run`: `outcome` (`unchanged`, `fixed`, `regression`, or `inconclusive`) and `markdown-path`, the comment body in `$RUNNER_TEMP`; both are empty when compare stopped on invalid configuration.
 
-The step's exit code is the CLI's: `0` all runs completed, `1` the batch ran but some run did not complete, `2` invalid configuration. For compare, `1` means a confirmed regression and every other outcome is `0`. Advisory workflows use `continue-on-error: true` and decide from `exit-code`, as in the examples.
+The step's exit code is the CLI's: `0` all runs completed, `1` the batch ran but some run did not complete, `2` invalid configuration or a cost refusal. For compare, `1` means a confirmed regression and every other outcome is `0`. Advisory workflows use `continue-on-error: true` and decide from `exit-code`, as in the examples.
 
 ## Pull-request comparison
 

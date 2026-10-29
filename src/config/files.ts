@@ -2,12 +2,20 @@ import { createHash, randomBytes } from 'node:crypto';
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { parse } from 'yaml';
-import { validate, type JsonSchema } from '../core/schema.ts';
+import { schemaProblems, type JsonSchema } from '../core/schema.ts';
 import { localeProblems } from './locale.ts';
 import { EFFORTS, type Effort } from '../providers/types.ts';
 
 export class ConfigError extends Error {
   override name = 'ConfigError';
+  /** Every problem found; the message joins them. */
+  readonly problems: string[];
+
+  constructor(message: string | string[]) {
+    const problems = typeof message === 'string' ? [message] : message;
+    super(problems.join('; '));
+    this.problems = problems;
+  }
 }
 
 export interface Limits {
@@ -282,8 +290,8 @@ export function sha256(data: string | Buffer): string {
 }
 
 function checked<T>(schema: JsonSchema, value: unknown, source: string): T {
-  const error = validate(schema, value, source);
-  if (error) throw new ConfigError(error);
+  const problems = schemaProblems(schema, value, source);
+  if (problems.length > 0) throw new ConfigError(problems);
   return value as T;
 }
 
@@ -332,13 +340,12 @@ async function setupPath(projectRoot: string, declaringDir: string, value: strin
   return path;
 }
 
+export function parseProjectConfig(content: string, source = '.cohort/config.yml'): ProjectConfig {
+  return checked<ProjectConfig>(projectSchema, parseYaml(content, source), source);
+}
+
 export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfig> {
-  const source = '.cohort/config.yml';
-  return checked<ProjectConfig>(
-    projectSchema,
-    parseYaml(await readContained(projectRoot, ['.cohort'], 'config.yml'), source),
-    source,
-  );
+  return parseProjectConfig(await readContained(projectRoot, ['.cohort'], 'config.yml'));
 }
 
 /** Parses and validates persona Markdown without touching the file system; `setup` stays as written. */
@@ -346,11 +353,15 @@ export function parsePersona(content: string, source: string): Omit<Persona, 'se
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/u.exec(content);
   if (!match) throw new ConfigError(`${source}: missing YAML frontmatter`);
   // The leading newline makes YAML error line numbers match the file.
-  const front = checked<Omit<Persona, 'body' | 'hash'>>(personaSchema, parseYaml(`\n${match[1]!}`, source), source);
-  const [localeProblem] = localeProblems(front, source);
-  if (localeProblem) throw new ConfigError(localeProblem);
+  const front = parseYaml(`\n${match[1]!}`, source) as Omit<Persona, 'body' | 'hash'>;
+  const schema = schemaProblems(personaSchema, front, source);
   const body = match[2]!.trim();
-  if (!body) throw new ConfigError(`${source}: persona body is empty`);
+  const problems = [
+    ...schema,
+    ...(schema.length === 0 ? localeProblems(front, source) : []),
+    ...(body ? [] : [`${source}: persona body is empty`]),
+  ];
+  if (problems.length > 0) throw new ConfigError(problems);
   return { ...front, body, hash: sha256(content) };
 }
 
@@ -388,7 +399,7 @@ export async function loadPersonasByTag(projectRoot: string, tag: string): Promi
   return matching;
 }
 
-const message = (error: unknown): string => (error instanceof ConfigError ? error.message : String(error));
+const messages = (error: unknown): string[] => (error instanceof ConfigError ? error.problems : [String(error)]);
 
 /** Loads every persona and suite, collecting each problem instead of stopping at the first. */
 export async function checkProject(
@@ -400,7 +411,7 @@ export async function checkProject(
   for (const personaId of personaIds)
     await loadPersona(projectRoot, personaId).then(
       () => valid.add(personaId),
-      (error: unknown) => problems.push(message(error)),
+      (error: unknown) => problems.push(...messages(error)),
     );
   const suiteIds = await listIds(projectRoot, 'suites', '.yml');
   for (const suiteId of suiteIds)
@@ -410,7 +421,7 @@ export async function checkProject(
           if (!personaIds.includes(entry.persona))
             problems.push(`.cohort/suites/${suiteId}.yml entries[${index}]: unknown persona ${entry.persona}`);
         }),
-      (error: unknown) => problems.push(message(error)),
+      (error: unknown) => problems.push(...messages(error)),
     );
   return { personas: valid.size, suites: suiteIds.length, problems };
 }

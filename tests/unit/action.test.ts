@@ -98,7 +98,14 @@ test('the Action script passes inputs as argv and maps the JSON result to output
       runs: [{ outcome: { state: 'completed' } }, { outcome: { state: 'blocked' } }, { outcome: { state: 'blocked' } }],
     },
     1,
-    { INPUT_SUITE: 'smoke; echo pwned $(id)', INPUT_MODEL: '', INPUT_REPEATS: '2', INPUT_ALLOW_UNTESTED: 'true' },
+    {
+      INPUT_SUITE: 'smoke; echo pwned $(id)',
+      INPUT_MODEL: '',
+      INPUT_REPEATS: '2',
+      INPUT_MAX_USD: '3',
+      INPUT_ALLOW_UNTESTED: 'true',
+      INPUT_ALLOW_UNPRICED: 'true',
+    },
   );
   const { outputs } = result;
   assert.equal(result.code, 1);
@@ -109,7 +116,10 @@ test('the Action script passes inputs as argv and maps the JSON result to output
     'smoke; echo pwned $(id)',
     '--repeats',
     '2',
+    '--max-usd',
+    '3',
     '--allow-untested',
+    '--allow-unpriced',
   ]);
   assert.deepEqual(Object.keys(outputs).toSorted(), [...OUTPUTS].toSorted());
   assert.equal(outputs['batch-id'], 'batch_x');

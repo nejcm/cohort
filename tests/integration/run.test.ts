@@ -381,9 +381,22 @@ test('preflight prints model, untested status, cost estimate, and batch budget; 
     'openai/fresh-model',
     '--allow-untested',
   ]);
-  assert.equal(confirmed.code, 0);
-  assert.match(confirmed.out, /untested: yes; cost unknown; dollar cap unenforceable/u);
-  assert.match(confirmed.out, /maximum batch budget: unenforceable/u);
+  assert.equal(confirmed.code, 2, 'unknown prices leave the dollar cap unenforceable');
+  assert.match(confirmed.out, /unknown prices, so the dollar cap cannot be enforced/u);
+  assert.equal(await runCount(), runs);
+  const allowed = await lab([
+    '--persona',
+    'guest',
+    '--url',
+    `${fixture.url}/`,
+    '--model',
+    'openai/fresh-model',
+    '--allow-untested',
+    '--allow-unpriced',
+  ]);
+  assert.equal(allowed.code, 0);
+  assert.match(allowed.out, /untested: yes; cost unknown; dollar cap unenforceable/u);
+  assert.match(allowed.out, /maximum batch budget: unenforceable/u);
 });
 
 test('a missing provider key or broken named state fails preflight with exit 2 and no runs', async () => {

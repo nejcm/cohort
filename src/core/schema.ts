@@ -19,57 +19,58 @@ export type JsonSchema = {
 
 // Supports exactly the keywords above; unknown keywords in a schema are ignored, so keep schemas within this subset.
 export function validate(schema: JsonSchema, value: unknown, path = '$'): string | null {
+  return schemaProblems(schema, value, path)[0] ?? null;
+}
+
+/** Every problem, not only the first; a value of the wrong type yields one problem and is not descended into. */
+export function schemaProblems(schema: JsonSchema, value: unknown, path = '$'): string[] {
   if (schema.oneOf) {
-    const matches = schema.oneOf.filter((option) => validate(option, value, path) === null).length;
-    return matches === 1 ? null : `${path}: must match exactly one schema (matched ${matches})`;
+    const matches = schema.oneOf.filter((option) => schemaProblems(option, value, path).length === 0).length;
+    return matches === 1 ? [] : [`${path}: must match exactly one schema (matched ${matches})`];
   }
-  if ('const' in schema && value !== schema.const) return `${path}: must equal ${JSON.stringify(schema.const)}`;
-  if (schema.enum && !schema.enum.includes(value)) return `${path}: must be one of ${schema.enum.join(', ')}`;
+  if ('const' in schema && value !== schema.const) return [`${path}: must equal ${JSON.stringify(schema.const)}`];
+  if (schema.enum && !schema.enum.includes(value)) return [`${path}: must be one of ${schema.enum.join(', ')}`];
   switch (schema.type) {
     case 'null':
-      return value === null ? null : `${path}: must be null`;
+      return value === null ? [] : [`${path}: must be null`];
     case 'boolean':
-      return typeof value === 'boolean' ? null : `${path}: must be a boolean`;
+      return typeof value === 'boolean' ? [] : [`${path}: must be a boolean`];
     case 'array': {
-      if (!Array.isArray(value)) return `${path}: must be a list`;
-      if (schema.minItems !== undefined && value.length < schema.minItems) return `${path}: too few items`;
+      if (!Array.isArray(value)) return [`${path}: must be a list`];
+      const found: string[] = [];
+      if (schema.minItems !== undefined && value.length < schema.minItems) found.push(`${path}: too few items`);
       if (schema.items)
-        for (const [index, item] of value.entries()) {
-          const error = validate(schema.items, item, `${path}[${index}]`);
-          if (error) return error;
-        }
+        for (const [index, item] of value.entries())
+          found.push(...schemaProblems(schema.items, item, `${path}[${index}]`));
       const repeat = schema.uniqueItems ? value.findIndex((item, index) => value.indexOf(item) !== index) : -1;
-      return repeat === -1 ? null : `${path}[${repeat}]: duplicate ${JSON.stringify(value[repeat])}`;
+      if (repeat !== -1) found.push(`${path}[${repeat}]: duplicate ${JSON.stringify(value[repeat])}`);
+      return found;
     }
     case 'string':
-      if (typeof value !== 'string') return `${path}: must be a string`;
-      if (schema.minLength !== undefined && value.length < schema.minLength) return `${path}: too short`;
-      if (schema.maxLength !== undefined && value.length > schema.maxLength) return `${path}: too long`;
-      if (schema.pattern && !new RegExp(schema.pattern, 'u').test(value)) return `${path}: does not match pattern`;
-      return null;
+      if (typeof value !== 'string') return [`${path}: must be a string`];
+      if (schema.minLength !== undefined && value.length < schema.minLength) return [`${path}: too short`];
+      if (schema.maxLength !== undefined && value.length > schema.maxLength) return [`${path}: too long`];
+      if (schema.pattern && !new RegExp(schema.pattern, 'u').test(value)) return [`${path}: does not match pattern`];
+      return [];
     case 'number':
     case 'integer':
-      if (typeof value !== 'number' || !Number.isFinite(value)) return `${path}: must be a number`;
-      if (schema.type === 'integer' && !Number.isInteger(value)) return `${path}: must be an integer`;
-      if (schema.minimum !== undefined && value < schema.minimum) return `${path}: below minimum`;
-      if (schema.maximum !== undefined && value > schema.maximum) return `${path}: above maximum`;
-      return null;
+      if (typeof value !== 'number' || !Number.isFinite(value)) return [`${path}: must be a number`];
+      if (schema.type === 'integer' && !Number.isInteger(value)) return [`${path}: must be an integer`];
+      if (schema.minimum !== undefined && value < schema.minimum) return [`${path}: below minimum`];
+      if (schema.maximum !== undefined && value > schema.maximum) return [`${path}: above maximum`];
+      return [];
     case 'object': {
-      if (typeof value !== 'object' || value === null || Array.isArray(value)) return `${path}: must be an object`;
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return [`${path}: must be an object`];
       const record = value as Record<string, unknown>;
-      for (const key of schema.required ?? []) if (!(key in record)) return `${path}.${key}: required`;
+      const found = (schema.required ?? []).filter((key) => !(key in record)).map((key) => `${path}.${key}: required`);
       for (const [key, item] of Object.entries(record)) {
         const property = schema.properties?.[key];
-        if (!property) {
-          if (schema.additionalProperties === false) return `${path}.${key}: unknown property`;
-          continue;
-        }
-        const error = validate(property, item, `${path}.${key}`);
-        if (error) return error;
+        if (property) found.push(...schemaProblems(property, item, `${path}.${key}`));
+        else if (schema.additionalProperties === false) found.push(`${path}.${key}: unknown property`);
       }
-      return null;
+      return found;
     }
     default:
-      return null;
+      return [];
   }
 }

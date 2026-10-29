@@ -11,7 +11,7 @@ Keys, models, costs, limits, blockers, replay bindings, base/head comparison, ar
 
 ## Models
 
-The shipped catalog (`src/providers/catalog.json`) has one candidate entry and it is disabled: no model has been verified against a live API yet. To run, add an entry to `.cohort/models.yml`:
+The shipped catalog (`src/providers/catalog.json`) has one candidate entry and it is disabled: no model has been verified against a live API yet. To run, add an entry to `.cohort/models.yml` (by hand, or validated with `cohort models edit --file -`):
 
 ```yaml
 version: local-2026-10
@@ -35,7 +35,8 @@ Defaults per run: 40 tool attempts, 10 minutes wall time (setup and provider wai
 
 - Before a batch, `cohort run` and the run dialog print an estimated cost range and the maximum batch budget. The estimate uses an unmeasured, conservative token budget per call; it is not an invoice.
 - With prices, each provider call reserves an upper bound first and is refused if it cannot fit the remaining budget. A cancelled or failed call keeps its reservation, because it may be billed.
-- Without prices (`null`), the dollar cap cannot be enforced. The CLI, dashboard, and reports say "cost unknown; dollar cap unenforceable"; only the step and time caps bound spend. Add dated prices to restore enforcement.
+- Without prices (`null`), the dollar cap cannot be enforced. The CLI, dashboard, and reports say "cost unknown; dollar cap unenforceable"; only the step and time caps bound spend. Add dated prices to restore enforcement. `cohort run` refuses such a batch (`cap_unenforceable`) unless given `--allow-unpriced`.
+- `cohort run` also refuses a batch whose maximum cost exceeds `--max-usd` (default $10, at most $1000) with `over_budget`. `cohort estimate` shows the same check without running anything.
 - Persona generation has its own budget (`--dollars`, default $0.50).
 
 ## Outcomes and blockers
@@ -80,11 +81,14 @@ Each run writes `.cohort/runs/<run-id>/`; each batch writes `.cohort/runs/<batch
 | `report.{json,md,html}`, `resolved-config.json` | Outcome, claims, cost, resolved request | Redacted; URLs keep origin and path only |
 | `manifest.json` | Inventory and configuration hashes, written last | No secrets |
 | `.cohort/auth/<name>.json` | Saved login storage state | A credential |
-| `.cohort/index.sqlite*` | Dashboard index of redacted events | Redacted |
+| `.cohort/auth/dashboard-<id>.url` | Dashboard URL with its token, written by `cohort ui --json` while it runs | A credential |
+| `.cohort/index.sqlite*` | Index of runs and redacted events, shared by `cohort ui`, `cohort run --detach`, and `cohort runs` | Redacted |
 
 `cohort init` writes `.cohort/.gitignore` so `runs/`, `auth/`, and `index.sqlite*` stay out of git; `cohort doctor` checks this with `git check-ignore`. Treat every artifact as sensitive until reviewed.
 
-A run directory without `manifest.json` was not finalized: it is still running, or its process was killed. `SIGINT` and `SIGTERM` finalize runs as interrupted; a hard kill cannot. `cohort doctor` lists such directories, and `cohort ui` marks the ones it indexed as interrupted with a bounded report. Nothing resumes or spends again.
+`cohort run --detach` hands the batch to a background `cohort` process that records its PID and start time in the index; `cohort runs wait|cancel` and the dashboard coordinate through the index ([agents.md](agents.md#background-runs)).
+
+A run directory without `manifest.json` was not finalized: it is still running, or its process was killed. `SIGINT` and `SIGTERM` finalize runs as interrupted; a hard kill cannot. `cohort doctor` lists such directories, and `cohort ui` and `cohort runs wait` mark indexed ones whose owning process is gone as interrupted with a bounded report. Nothing resumes or spends again.
 
 ## Retention and deletion
 
@@ -93,11 +97,11 @@ There is no automatic retention. Delete what you no longer need:
 ```sh
 rm -rf .cohort/runs/run_20261028_123523_6a126b   # one run
 rm -rf .cohort/runs                              # all runs and batch reports
-rm -f .cohort/index.sqlite*                      # dashboard index; rebuilt from finalized runs on next cohort ui
+rm -f .cohort/index.sqlite .cohort/index.sqlite-wal .cohort/index.sqlite-shm  # dashboard index; rebuilt on next cohort ui
 rm -f .cohort/auth/<name>.json                   # a saved login
 ```
 
-Stop `cohort ui` before deleting the index. In CI, set an artifact retention period and exclude `trace.zip`; see [github-action.md](github-action.md).
+Stop `cohort ui` and any detached batch (`cohort runs list --filter active`) before deleting the index. Leave `.cohort/index.sqlite-edit-lock` in place: it is the cross-process edit lock. In CI, set an artifact retention period and exclude `trace.zip`; see [github-action.md](github-action.md).
 
 ## Diagnostics
 

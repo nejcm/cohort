@@ -169,10 +169,10 @@ after(async () => {
 test('the database migrates once, enforces foreign keys, and indexes CLI runs', async () => {
   const path = join(await mkdtemp(join(tmpdir(), 'lab-db-')), 'lab.db');
   const db = new LabDb(path);
-  assert.equal(db.schemaVersion, 1);
+  assert.equal(db.schemaVersion, 3);
   db.close();
   const reopened = new LabDb(path);
-  assert.equal(reopened.schemaVersion, 1);
+  assert.equal(reopened.schemaVersion, 3);
   assert.throws(() => reopened.appendEvent('run_missing', 'run.queued', {}), /FOREIGN KEY/u);
   reopened.close();
   const { runs } = (await call('GET', '/api/runs')).json();
