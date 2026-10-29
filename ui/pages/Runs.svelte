@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import Ticks from '../components/Ticks.svelte';
   import Icon from '../components/Icon.svelte';
   import Skeleton from '../components/Skeleton.svelte';
   import { api, badge, initials, statusLabel, tint, tone, usd, words, type Journey, type RunSummary } from '../lib/api.ts';
@@ -150,6 +151,7 @@
 <div class="page-head">
   <div class="title"><h1>Runs</h1></div>
   {#if counts && counts.total > 0}
+    <p class="spend" title="Reported or estimated">Spent today {usd(counts.spentToday)}</p>
     <p class="sub">
       {#if counts.running + counts.queued > 0}{counts.running} running, {counts.queued} queued.{/if}
       {#if worst}
@@ -161,7 +163,6 @@
         <strong>{stuck.personaId}</strong> was blocked or cancelled on every recent run of “{stuck.goal}”
       {/if}
     </p>
-    <p class="spend">Spent today <span class="fig">{usd(counts.spentToday)}</span>, reported or estimated</p>
   {/if}
 </div>
 {#if error}
@@ -178,7 +179,8 @@
 {:else if counts}
   <dl class="kpis" aria-label="Runs at a glance">
     <div>
-      <dt>Needs a look</dt><dd class:warn={counts.lookTotal > 0}>{#if counts.lookTotal > 0}<span class="tick" aria-hidden="true"></span>{/if}{counts.lookTotal}</dd>
+      <dt>Needs a look</dt><dd class:warn={counts.lookTotal > 0}>{counts.lookTotal}</dd>
+      <dd><Ticks value={counts.lookTotal} max={counts.total} tone="warn" /></dd>
       <dd class="note">blocked, limit reached, failed</dd>
     </div>
     <div>
@@ -187,6 +189,7 @@
     </div>
     <div>
       <dt>Finished today</dt><dd>{counts.finishedToday}</dd>
+      <dd><Ticks value={counts.finishedToday} max={counts.total} /></dd>
       <dd class="note">of {counts.total} runs</dd>
     </div>
     <div>
@@ -227,6 +230,7 @@
                 </td>
                 <td class="num">
                   <span class="fig rate">{rate(journey)}</span>
+                  <Ticks value={journey.completed} max={journey.counted || 1} count={10} size="sm" />
                   <span class="of">{journey.completed} of {journey.counted}{journey.blocked ? `, ${journey.blocked} blocked` : ''}</span>
                 </td>
                 <td class="num" class:muted={!journey.friction}>{journey.friction ?? '—'}<span class="ph"> friction</span></td>
