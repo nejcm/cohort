@@ -1,4 +1,4 @@
-import { isAlias, isScalar, parseDocument, stringify, visit } from 'yaml';
+import { isAlias, isScalar, isSeq, parseDocument, stringify, visit } from 'yaml';
 import { localeProblems } from '../../src/config/locale.ts';
 import { validate, type JsonSchema } from '../../src/core/schema.ts';
 
@@ -41,6 +41,21 @@ export function setAt(source: string, path: Path, value: unknown, markdown: bool
   return `---\n${edit(match[1]!, path, value)}---\n${source.slice(match[0].length)}`;
 }
 
+/** Moves list item `from` to `to` in the YAML at `path`, keeping each item's comments. */
+export function moveAt(yaml: string, path: Path, from: number, to: number): string {
+  const document = parseDocument(yaml);
+  const list = document.getIn(path, true);
+  if (document.errors.length > 0 || !isSeq(list)) throw new Error(`${path.join('.')} is not a list`);
+  // The parser hangs the first item's leading comment on the list; move it with the item.
+  const first = list.items[0] as { commentBefore?: string | null } | undefined;
+  if (first && list.commentBefore) {
+    first.commentBefore = first.commentBefore ? `${list.commentBefore}\n${first.commentBefore}` : list.commentBefore;
+    list.commentBefore = null;
+  }
+  list.items.splice(to, 0, ...list.items.splice(from, 1));
+  return String(document);
+}
+
 export const bodyOf = (source: string): string => source.slice(FRONTMATTER.exec(source)?.[0].length ?? 0);
 
 export function withBody(source: string, body: string): string {
@@ -55,7 +70,7 @@ export function personaMarkdown(persona: Record<string, unknown>, body: string):
 }
 
 export interface Field {
-  path: string[];
+  path: Path;
   label: string;
   schema: JsonSchema;
   required: boolean;
@@ -66,7 +81,7 @@ const words = (keys: string[]): string => {
   return text.charAt(0).toUpperCase() + text.slice(1);
 };
 
-function leaves(schema: JsonSchema, path: string[], label: string[]): Field[] {
+function leaves(schema: JsonSchema, path: Path, label: string[]): Field[] {
   return Object.entries(schema.properties ?? {}).flatMap(([key, child]) => {
     if ('const' in child) return [];
     if (child.type === 'object') return leaves(child, [...path, key], [...label, key]);
@@ -81,23 +96,27 @@ function leaves(schema: JsonSchema, path: string[], label: string[]): Field[] {
   });
 }
 
-/** Form fields for a frontmatter schema: top-level values first, then one group per nested object. */
-export function fieldGroups(schema: JsonSchema, omit: readonly string[]): { legend: string; fields: Field[] }[] {
+/** Form fields for a schema: top-level values first, then one group per nested object; paths start with `prefix`. */
+export function fieldGroups(
+  schema: JsonSchema,
+  omit: readonly string[],
+  prefix: Path = [],
+): { legend: string; fields: Field[] }[] {
   const top = Object.entries(schema.properties ?? {}).filter(([key]) => !omit.includes(key));
   const flat = leaves(
     { ...schema, properties: Object.fromEntries(top.filter(([, child]) => child.type !== 'object')) },
-    [],
+    prefix,
     [],
   );
   return [
     { legend: 'Details', fields: flat },
     ...top
       .filter(([, child]) => child.type === 'object')
-      .map(([key, child]) => ({ legend: words([key]), fields: leaves(child, [key], []) })),
+      .map(([key, child]) => ({ legend: words([key]), fields: leaves(child, [...prefix, key], []) })),
   ];
 }
 
-export const multiline = (schema: JsonSchema): boolean => (schema.maxLength ?? 0) > 200;
+export const multiline = (schema: JsonSchema): boolean => (schema.maxLength ?? 0) > 200 && !schema.pattern;
 
 function mismatch(schema: JsonSchema, value: unknown, at: string): string | null {
   if (value === undefined) return null;
@@ -119,9 +138,9 @@ function mismatch(schema: JsonSchema, value: unknown, at: string): string | null
   return null;
 }
 
-/** Why the form cannot represent this file, or null when every frontmatter value has a field. */
-export function formProblem(source: string, schema: JsonSchema): string | null {
-  const yaml = FRONTMATTER.exec(source)?.[1];
+/** Why the form cannot represent this file, or null when every (frontmatter) value has a field. */
+export function formProblem(source: string, schema: JsonSchema, markdown = true): string | null {
+  const yaml = markdown ? FRONTMATTER.exec(source)?.[1] : source;
   if (yaml === undefined) return 'the file has no --- frontmatter block';
   const document = parseDocument(yaml);
   if (document.errors.length > 0) return `the frontmatter is not valid YAML: ${document.errors[0]!.message}`;
@@ -133,18 +152,20 @@ export function formProblem(source: string, schema: JsonSchema): string | null {
   return mismatch(schema, document.toJS() ?? {}, '');
 }
 
+const pathText = (path: Path): string => path.map((key) => (typeof key === 'number' ? `[${key}]` : `.${key}`)).join('');
+
 /** The part of a validation error that names `path` (or its list item `index`), such as `too short` for `x.md.name: too short`. */
-export function fieldError(error: string, path: string[], index?: number): string | null {
-  const item = index === undefined ? '' : `\\[${index}\\]`;
-  return new RegExp(`\\.${path.join('\\.')}${item}: (.*)$`, 'u').exec(error)?.[1] ?? null;
+export function fieldError(error: string, path: Path, index?: number): string | null {
+  const at = pathText(index === undefined ? path : [...path, index]).replace(/[.[\]]/gu, '\\$&');
+  return new RegExp(`${at}: (.*)$`, 'u').exec(error)?.[1] ?? null;
 }
 
 /** Checks each field's frontmatter value against its schema, plus locale and time zone; errors use the server's `.path: message` form. */
-export function fieldProblems(source: string, fields: Field[]): string[] {
-  const front = readAt(source, [], true);
+export function fieldProblems(source: string, fields: Field[], markdown = true): string[] {
+  const front = readAt(source, [], markdown);
   const fieldErrors = fields.flatMap((field) => {
     const value = valueAt(front, field.path);
-    const at = `.${field.path.join('.')}`;
+    const at = pathText(field.path);
     if (value === undefined) return field.required ? [`${at}: required`] : [];
     const { items: itemSchema, ...list } = field.schema;
     if (!Array.isArray(value) || !itemSchema)

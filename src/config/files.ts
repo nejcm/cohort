@@ -235,7 +235,7 @@ export const personaSchema: JsonSchema = {
   },
 };
 
-const suiteSchema: JsonSchema = {
+export const suiteSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['schemaVersion', 'id', 'name', 'entries'],

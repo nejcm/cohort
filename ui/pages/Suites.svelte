@@ -1,9 +1,11 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import Skeleton from '../components/Skeleton.svelte';
-  import { api } from '../lib/api.ts';
+  import { api, type Models, type ProjectDefaults } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
   import Editor from '../components/Editor.svelte';
+  import SuiteForm from '../components/SuiteForm.svelte';
+  import type { JsonSchema } from '../../src/core/schema.ts';
 
   let { id }: { id: string | undefined } = $props();
   let suites = $state<{ id: string; name: string | null; entries: number; error: string | null }[]>([]);
@@ -14,6 +16,10 @@
   let creating = $state(false);
   let draft = $state('');
   let draftError = $state('');
+  let draftInvalid = $state(false);
+  let schema = $state<JsonSchema | null>(null);
+  let models = $state<Models | null>(null);
+  let config = $state<ProjectDefaults | null>(null);
 
   const template = (persona: string): string => `schemaVersion: 1
 id: new-suite
@@ -38,9 +44,17 @@ entries:
 
   $effect(() => {
     if (id === 'new' && !templated)
-      api<{ personas: { id: string }[] }>('GET', '/api/personas').then(
-        (found) => {
+      Promise.all([
+        api<{ personas: { id: string }[] }>('GET', '/api/personas'),
+        api<{ schema: JsonSchema }>('GET', '/api/suite-schema'),
+        api<Models>('GET', '/api/models'),
+        api<ProjectDefaults>('GET', '/api/config'),
+      ]).then(
+        ([found, foundSchema, foundModels, foundConfig]) => {
           personaIds = found.personas.map((persona) => persona.id);
+          schema = foundSchema.schema;
+          models = foundModels;
+          config = foundConfig;
           draft = template(personaIds[0] ?? 'your-persona-id');
           templated = true;
         },
@@ -82,22 +96,29 @@ entries:
 {#if id === 'new'}
   <form class="editor" onsubmit={create} aria-labelledby="create-title">
     <div class="editor-head">
-      <h2 id="create-title">Suite source</h2>
+      <h2 id="create-title">Suite</h2>
       <span class="hint mono">.cohort/suites/&lt;id&gt;.yml</span>
     </div>
     {#if draftError}<div class="banner error" role="alert"><div class="body"><span>{draftError}</span></div></div>{/if}
-    {#if templated}
-      <label class="sr-only" for="suite-source">YAML</label>
-      <textarea id="suite-source" class="source short" spellcheck="false" bind:value={draft}></textarea>
+    {#if templated && schema}
+      <SuiteForm
+        bind:source={draft}
+        {schema}
+        personas={personaIds}
+        {models}
+        projectMode={config?.defaults.mode}
+        error={draftError}
+        idPrefix="suite"
+        bind:invalid={draftInvalid}
+      />
     {:else if !error}
       <Skeleton label="Loading the suite template" />
     {/if}
     <div class="editor-foot">
       <span>New suites cannot reference setup code; add one by editing the file locally.</span>
-      <button type="submit" class="primary sm" disabled={!templated || creating} aria-busy={creating}><Icon name="check" />Validate and create</button>
+      <button type="submit" class="primary sm" disabled={!templated || creating || draftInvalid} aria-busy={creating}><Icon name="check" />Validate and create</button>
     </div>
   </form>
-  {#if personaIds.length > 0}<p class="hint">Personas you can list: {personaIds.join(', ')}</p>{/if}
 {:else if !loaded}
   {#if !error}<Skeleton label="Loading suites" />{/if}
 {:else if suites.length === 0}

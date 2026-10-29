@@ -1,11 +1,11 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { api, ApiError, type Editable, type Models, type ProjectDefaults } from '../lib/api.ts';
-  import ModelPicker from './ModelPicker.svelte';
   import PersonaForm from './PersonaForm.svelte';
   import Skeleton from './Skeleton.svelte';
+  import SuiteForm from './SuiteForm.svelte';
   import type { JsonSchema } from '../../src/core/schema.ts';
-  import { readAt, setAt } from '../lib/source.ts';
+  import { readAt } from '../lib/source.ts';
 
   let { kind, id, onsaved }: { kind: 'personas' | 'suites'; id: string; onsaved: () => void } = $props();
 
@@ -14,6 +14,7 @@
   let models = $state<Models | null>(null);
   let config = $state<ProjectDefaults | null>(null);
   let schema = $state<JsonSchema | null>(null);
+  let personas = $state<string[]>([]);
   let error = $state('');
   let message = $state('');
   let conflict = $state(false);
@@ -24,12 +25,6 @@
   const file = $derived(`.cohort/${kind}/${id}.${kind === 'personas' ? 'md' : 'yml'}`);
   const dirty = $derived(loaded !== null && source !== loaded.source);
   const setup = $derived(readAt(source, kind === 'personas' ? ['setup'] : ['defaults', 'setup'], markdown));
-  const entries = $derived(kind === 'suites' ? ((readAt(source, ['entries'], false) as { persona?: string }[] | null) ?? []) : []);
-  const mode = $derived(
-    ((kind === 'suites' ? readAt(source, ['defaults', 'mode'], false) : null) ?? config?.defaults.mode ?? 'vision') as
-      | 'vision'
-      | 'text',
-  );
 
   async function load(): Promise<void> {
     try {
@@ -43,9 +38,14 @@
   }
 
   $effect(() => {
-    if (kind === 'personas')
-      api<{ schema: JsonSchema }>('GET', '/api/persona-schema').then(
-        (found) => (schema = found.schema),
+    schema = null;
+    api<{ schema: JsonSchema }>('GET', `/api/${kind === 'personas' ? 'persona' : 'suite'}-schema`).then(
+      (found) => (schema = found.schema),
+      (caught: Error) => (error = caught.message),
+    );
+    if (kind === 'suites')
+      api<{ personas: { id: string }[] }>('GET', '/api/personas').then(
+        (found) => (personas = found.personas.map((persona) => persona.id)),
         (caught: Error) => (error = caught.message),
       );
   });
@@ -63,20 +63,6 @@
       (caught: Error) => (error = caught.message),
     );
   });
-
-  const field = (path: (string | number)[]) => ({
-    get: (): string => String(readAt(source, path, markdown) ?? ''),
-    set: (value: string): void => {
-      if (value === String(readAt(source, path, markdown) ?? '')) return;
-      try {
-        source = setAt(source, path, value || undefined, markdown);
-      } catch (caught) {
-        error = `Fix the YAML before using the picker: ${(caught as Error).message}`;
-      }
-    },
-  });
-  const topModel = field(['defaults', 'model']);
-  const topEffort = field(['defaults', 'effort']);
 
   async function save(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -134,7 +120,7 @@
           bind:source
           {schema}
           {models}
-          {mode}
+          mode={config?.defaults.mode}
           inheritedModels={config ? [config.defaults.model] : []}
           {error}
           idPrefix="editor"
@@ -144,45 +130,21 @@
     {:else if !error}
       <Skeleton label="Loading {file}" lines={4} />
     {/if}
-  {:else if !loaded}
-    {#if !error}<Skeleton label="Loading {file}" lines={4} />{/if}
-  {:else}
-    {#if models}
-      <div class="metered-body">
-        <fieldset>
-          <legend>Suite defaults</legend>
-          <div class="form-grid cols-4">
-            <ModelPicker
-              {models}
-              {mode}
-              bind:model={topModel.get, topModel.set}
-              bind:effort={topEffort.get, topEffort.set}
-              inherited="persona or project"
-              idPrefix="suites-default"
-            />
-          </div>
-        </fieldset>
-        {#each entries as entry, index (index)}
-          {@const entryModel = field(['entries', index, 'model'])}
-          {@const entryEffort = field(['entries', index, 'effort'])}
-          <fieldset>
-            <legend>Entry {index + 1}: {entry.persona ?? '?'}</legend>
-            <div class="form-grid cols-4">
-              <ModelPicker
-                {models}
-                {mode}
-                bind:model={entryModel.get, entryModel.set}
-                bind:effort={entryEffort.get, entryEffort.set}
-                inherited="suite default"
-                idPrefix="entry-{index}"
-              />
-            </div>
-          </fieldset>
-        {/each}
-      </div>
-    {/if}
-    <label class="sr-only" for="editor-source">Source</label>
-    <textarea id="editor-source" class="source" spellcheck="false" bind:value={source}></textarea>
+  {:else if schema && loaded}
+    {#key id}
+      <SuiteForm
+        bind:source
+        {schema}
+        {personas}
+        {models}
+        projectMode={config?.defaults.mode}
+        {error}
+        idPrefix="editor"
+        bind:invalid
+      />
+    {/key}
+  {:else if !error}
+    <Skeleton label="Loading {file}" lines={4} />
   {/if}
   <div class="editor-foot">
     {#if message}<p class="notice good" role="status">{message}</p>{:else}<span>{markdown ? 'Markdown + YAML frontmatter' : 'YAML'} · {file}</span>{/if}

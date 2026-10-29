@@ -1178,6 +1178,56 @@ progress.prog::-moz-progress-bar {
   border-top: var(--bw) solid var(--line);
   padding-top: var(--s-5);
 }
+.app fieldset .form-grid + .form-grid {
+  margin-top: var(--s-4);
+}
+.app fieldset.entry {
+  border: var(--bw) solid var(--line-strong);
+  background: var(--surface);
+  padding: 0 var(--s-4);
+}
+.app fieldset.entry legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 0;
+}
+.app fieldset.entry .entry-body {
+  padding-bottom: var(--s-4);
+}
+.app fieldset.entry legend .link {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  padding-block: var(--s-3);
+  justify-content: flex-start;
+  gap: var(--s-2);
+  color: var(--fg);
+}
+.app fieldset.entry legend .link::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.app fieldset.entry legend .link[aria-expanded='true']::before {
+  transform: rotate(45deg);
+}
+.app fieldset.entry legend .title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app fieldset.entry .actions {
+  display: flex;
+  gap: var(--s-2);
+}
 
 .form-grid {
   display: grid;
@@ -2616,9 +2666,6 @@ body {
 }
 .form-actions.end {
   align-self: end;
-}
-.app textarea.source.short {
-  min-height: 200px;
 }
 .app .brand .stop {
   color: var(--brand);

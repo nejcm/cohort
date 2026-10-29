@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { follow, splitEvents, type LiveEvent } from '../../ui/lib/api.ts';
-import { parsePersona, personaSchema } from '../../src/config/files.ts';
+import { parsePersona, parseSuite, personaSchema, suiteSchema } from '../../src/config/files.ts';
 import {
   bodyOf,
   fieldError,
   fieldGroups,
   fieldProblems,
   formProblem,
+  moveAt,
+  multiline as isMultiline,
   readAt,
   setAt,
   withBody,
@@ -344,4 +346,52 @@ test('hostile form values round-trip through the Markdown file unchanged or are 
   assert.equal(parsePersona(multiline, 'x.md').name, 'Two\n---\nlines');
   assert.deepEqual(fieldProblems(setAt(FORM, ['name'], '   ', true), FIELDS), []);
   assert.throws(() => parsePersona(withBody(FORM, '\n  \n'), 'x.md'), /persona body is empty/u);
+});
+
+test('suite form fields carry list indexes, and form edits round-trip to a valid suite', () => {
+  const entrySchema = suiteSchema.properties!.entries!.items!;
+  const fields = fieldGroups(entrySchema, ['model', 'effort'], ['entries', 1])[0]!.fields;
+  assert.deepEqual(
+    fields.map((field) => field.path),
+    [
+      ['entries', 1, 'persona'],
+      ['entries', 1, 'goal'],
+      ['entries', 1, 'url'],
+      ['entries', 1, 'note'],
+    ],
+  );
+  assert.deepEqual(
+    fields.map((field) => isMultiline(field.schema)),
+    [false, true, false, true],
+  );
+  const original = 'schemaVersion: 1\nid: s # keep\nname: S\nentries:\n  - persona: guest\n';
+  assert.equal(formProblem(original, suiteSchema, false), null);
+  assert.equal(formProblem('schemaVersion: 1\nentries: x\n', suiteSchema, false), 'entries is not a list');
+  let source = setAt(original, ['entries', 1], { persona: 'admin' }, false);
+  source = setAt(source, ['entries', 1, 'url'], 'ftp://x', false);
+  source = setAt(source, ['defaults', 'repeats'], 3, false);
+  const problems = fieldProblems(source, fields, false);
+  assert.equal(
+    problems.map((error) => fieldError(error, ['entries', 1, 'url'])).find(Boolean),
+    'does not match pattern',
+  );
+  assert.equal(fieldError('new suite.entries[0].goal: too short', ['entries', 0, 'goal']), 'too short');
+  assert.equal(fieldError('new suite.entries[0].goal: too short', ['entries', 1, 'goal']), null);
+  source = setAt(source, ['entries', 1, 'url'], 'https://example.test/', false);
+  assert.deepEqual(fieldProblems(source, fields, false), []);
+  assert.match(source, /^id: s # keep$/mu);
+  const suite = parseSuite(source, 'x.yml');
+  assert.deepEqual(suite.entries[1], { persona: 'admin', url: 'https://example.test/' });
+  assert.equal(suite.defaults.repeats, 3);
+});
+
+test('moving a list item keeps the comments of every item', () => {
+  const yaml = 'entries:\n  # first\n  - persona: a # a note\n  # second\n  - persona: b # b note\n';
+  const moved = moveAt(yaml, ['entries'], 1, 0);
+  assert.equal(moved, 'entries:\n  # second\n  - persona: b # b note\n  # first\n  - persona: a # a note\n');
+  const nested = moveAt('entries:\n  # above\n  - # inside\n    persona: a\n  - persona: b\n', ['entries'], 1, 0);
+  assert.match(nested, /# above/u);
+  assert.match(nested, /# inside/u);
+  assert.deepEqual(readAt(nested, ['entries'], false), [{ persona: 'b' }, { persona: 'a' }]);
+  assert.throws(() => moveAt('entries: x\n', ['entries'], 0, 1), /entries is not a list/u);
 });
