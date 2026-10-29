@@ -43,7 +43,8 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 | `cohort runs list \| show \| wait \| cancel [<run-or-batch-id>]` | List (`--filter`, `--search`, `--sort`, `--asc`, `--since`), inspect, wait for (`--timeout-ms`), or cancel runs, including detached ones and those started from the dashboard |
 | `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
 | `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
-| `cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` | Replay an approved run on two deployments with confirmation; writes one advisory PR comment body ([details](docs/operating.md#comparing-base-and-head)) |
+| `cohort compare <run-id> --base <origin> --head <origin> <provenance> --hooks <module> [--json]` | Replay an approved, hash-verified run on base and head with confirmation: `regression`, `no_regression`, or `inconclusive` ([details](docs/compare.md)) |
+| `cohort publish <compare-report.json> [--evidence <url>]` | Post or update the one advisory PR comment for a compare report, skipping a stale PR head; needs only `GITHUB_TOKEN` ([details](docs/compare.md#cohort-publish)) |
 | `cohort explore --url <url> [--steps\|--time-ms\|--dollars\|--max-usd] [--detach]` | One bounded exploration run that refuses destructive controls, then one metered call that suggests personas, goals, and replay tests citing observed steps; written only into the run bundle, saved with `cohort explore save <run-id> --persona\|--suite <id> --yes` ([details](docs/explore.md)) |
 | `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
 | `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
@@ -55,7 +56,7 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 
 Every command takes `--json` and never prompts, so a coding agent can drive the whole lab; see [docs/agents.md](docs/agents.md).
 
-Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration, or a refusal such as a batch over its dollar ceiling (JSON errors carry a stable `code`). `cohort compare` exits `1` only for a confirmed regression.
+Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration, or a refusal such as a batch over its dollar ceiling (JSON errors carry a stable `code`). `cohort compare` exits `1` only for a confirmed regression; `cohort publish` exits `1` when the GitHub API fails.
 
 Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
 
@@ -80,7 +81,7 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 The MVP ends with screening by outside developers. Add-ons follow in this order, each only after the previous one is useful:
 
 1. Crawler and suggestions: `cohort explore` proposes personas, goals, and replayable tests from observed paths ([docs/explore.md](docs/explore.md)). Still to come: a crawler view in the dashboard.
-2. PR regression hardening: `cohort compare` and the Action's `compare-run` already replay an approved run on base and head with confirmation and one advisory comment. Still to come: approved assertions, per-artifact hashes for downloaded bundles, preview provenance, scoped preparation and cleanup, a separate comment publisher, and a PR-head recheck before posting.
+2. PR regression: `cohort compare` replays a hash-pinned approved run on base and head with provenance, verified scoped resets, and confirmation, and `cohort publish` posts one comment after rechecking the PR head ([docs/compare.md](docs/compare.md)). Still to come: validation on real apps and previews.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
 
 An agent-operable CLI is available: every dashboard action has a `--json` command, runs can be detached and waited on, and batches are capped at $10 by default ([docs/agents.md](docs/agents.md)). Still to come: a recorded session of a real coding agent driving a live provider.

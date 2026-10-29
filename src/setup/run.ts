@@ -7,7 +7,7 @@ const CLEANUP_BUDGET_MS = 10_000;
 
 export type Cleanup = () => Promise<void>;
 
-function settleWithin<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+export function settleWithin<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   return Promise.race([
     work,
     new Promise<never>((_, reject) => {

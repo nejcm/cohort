@@ -41,8 +41,6 @@ const OUTPUTS = [
   'blocked',
   'agent-error',
   'limit-reached',
-  'outcome',
-  'markdown-path',
 ];
 
 async function stubAction(
@@ -128,32 +126,6 @@ test('the Action script passes inputs as argv and maps the JSON result to output
   assert.doesNotMatch(result.stdout, /sk-action-canary/u);
 });
 
-test('the Action runs compare when compare-run is set and exposes the outcome and comment path', async () => {
-  const result = await stubAction({ runId: 'run_x', outcome: 'regression', executions: [] }, 1, {
-    INPUT_COMPARE_RUN: 'run_x',
-    INPUT_BASE_URL: 'https://base.example',
-    INPUT_HEAD_URL: 'https://head.example $(id)',
-    INPUT_SUITE: 'ignored',
-  });
-  assert.equal(result.code, 1);
-  const markdown = join(result.dir, 'cohort-compare-run_x.md');
-  assert.deepEqual(result.argv, [
-    'compare',
-    'run_x',
-    '--base',
-    'https://base.example',
-    '--head',
-    'https://head.example $(id)',
-    '--json',
-    '--markdown',
-    markdown,
-  ]);
-  assert.deepEqual(
-    [result.outputs.outcome, result.outputs['markdown-path'], result.outputs['exit-code'], result.outputs['batch-id']],
-    ['regression', markdown, '1', ''],
-  );
-});
-
 test('the documented workflow keeps keys in secrets and never uploads traces or saved logins', async () => {
   const doc = await readFile(join(repoRoot, 'docs/github-action.md'), 'utf8');
   const block = /```yaml\n([\s\S]*?)```/u.exec(doc)?.[1];
@@ -173,23 +145,30 @@ test('the documented workflow keeps keys in secrets and never uploads traces or 
   );
 });
 
-test('the documented compare workflow checks out base, holds only pull-requests write, and updates one marked comment', async () => {
-  const doc = await readFile(join(repoRoot, 'docs/github-action.md'), 'utf8');
-  const blocks = [...doc.matchAll(/```yaml\n([\s\S]*?)```/gu)].map((match) => parse(match[1]!));
-  const workflow = blocks.find((block) => block.on === 'pull_request') as {
+test('the documented compare workflow is same-repo only, starts with no permissions, and keeps the write token from browsers', async () => {
+  const doc = await readFile(join(repoRoot, 'docs/compare.md'), 'utf8');
+  const blocks = [...doc.matchAll(/```yaml\n([\s\S]*?)```/gu)].map((match) => match[1]!);
+  const source = blocks.find((block) => block.includes('on: pull_request'))!;
+  assert.ok(source, 'docs/compare.md has a pull_request workflow');
+  assert.doesNotMatch(source, /secrets\.|pull_request_target/u, 'no job holds a secret');
+  const workflow = parse(source) as {
     permissions: Record<string, string>;
-    jobs: Record<string, { steps: Step[] }>;
+    jobs: Record<string, { if?: string; needs?: string; permissions: Record<string, string>; steps: Step[] }>;
   };
-  assert.ok(workflow, 'docs/github-action.md has a pull_request workflow');
-  assert.deepEqual(workflow.permissions, { contents: 'read', actions: 'read', 'pull-requests': 'write' });
-  const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
-  const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout'))!;
+  assert.deepEqual(workflow.permissions, {});
+  const { compare, publish } = workflow.jobs;
+  assert.equal(compare!.if, 'github.event.pull_request.head.repo.full_name == github.repository');
+  assert.deepEqual(compare!.permissions, { contents: 'read', actions: 'read' });
+  assert.deepEqual(publish!.permissions, { 'pull-requests': 'write' });
+  assert.equal(publish!.needs, 'compare');
+  const checkout = compare!.steps.find((step) => step.uses?.startsWith('actions/checkout'))!;
   assert.deepEqual(checkout.with, { ref: '${{ github.event.pull_request.base.sha }}', 'persist-credentials': false });
-  const lab = steps.find((step) => step.uses?.includes('cohort-lab'))!;
-  assert.equal(lab.env, undefined, 'compare needs no keys');
-  assert.deepEqual(Object.keys(lab.with!).toSorted(), ['base-url', 'compare-run', 'head-url']);
-  const comment = steps.find((step) => step.run?.includes('gh api'))!;
-  assert.doesNotMatch(comment.run!, /\$\{\{/u, 'values reach the shell only through env');
-  assert.match(comment.run!, /startswith\(\\"\$marker\\"\)/u);
-  assert.equal(comment.env!.GH_TOKEN, '${{ github.token }}');
+  const run = compare!.steps.find((step) => step.run?.includes('cohort compare'))!;
+  assert.doesNotMatch(run.run!, /\$\{\{/u, 'values reach the shell only through env');
+  for (const flag of ['--repo', '--pr', '--base-sha', '--head-sha', '--deployment', '--approved', '--hooks'])
+    assert.ok(run.run!.includes(flag), flag);
+  assert.ok(!publish!.steps.some((step) => step.uses?.startsWith('actions/checkout')), 'publish runs no project code');
+  const post = publish!.steps.find((step) => step.run?.includes('publish'))!;
+  assert.deepEqual(Object.keys(post.env!).toSorted(), ['EVIDENCE', 'GITHUB_TOKEN']);
+  assert.doesNotMatch(post.run!, /\$\{\{/u);
 });

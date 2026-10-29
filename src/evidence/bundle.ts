@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 import { join } from 'node:path';
-import { writeAtomic, writeManifest, type RunManifest } from './manifest.ts';
+import { inventory, writeAtomic, writeManifest, type RunManifest } from './manifest.ts';
 import {
   renderBatchHtml,
   renderBatchMarkdown,
@@ -59,6 +59,28 @@ export async function readBundleJson<T>(dir: string, name: string): Promise<T> {
   const text = await readBundleFile(dir, name);
   if (text === null) throw new BundleError(`${name} is missing`);
   return JSON.parse(text) as T;
+}
+
+// Files a recorded run writes; anything else (a planted playwright.config or node_modules) could run during replay.
+const RUN_FILES =
+  /^(report\.(json|md|html)|steps\.jsonl|resolved-config\.json|replay\.spec\.ts|trace\.zip|screenshots\/[\w.-]+\.png)$/u;
+
+/** Refuses a run bundle whose files differ from its manifest's SHA-256 hashes; returns the manifest. */
+export async function verifyBundle(dir: string): Promise<RunManifest> {
+  const manifest = await readBundleJson<RunManifest>(dir, 'manifest.json');
+  const { artifacts, rejected } = await inventory(dir);
+  if (rejected.length > 0) throw new BundleError(`${rejected[0]} is not a regular file`);
+  const listed = new Map(manifest.artifacts.map((artifact) => [artifact.path, artifact.sha256]));
+  for (const artifact of artifacts) {
+    if (!RUN_FILES.test(artifact.path)) throw new BundleError(`${artifact.path} is not a file a run writes`);
+    if (listed.get(artifact.path) !== artifact.sha256)
+      throw new BundleError(`${artifact.path} does not match its SHA-256 hash in manifest.json`);
+  }
+  const present = new Set(artifacts.map((artifact) => artifact.path));
+  // Uploaded bundles leave out the private trace; nothing reads it during replay.
+  const missing = [...listed.keys()].find((path) => !present.has(path) && path !== 'trace.zip');
+  if (missing) throw new BundleError(`${missing} is listed in manifest.json but missing`);
+  return manifest;
 }
 
 export async function readSteps(dir: string): Promise<StepRecord[]> {

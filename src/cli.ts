@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { lstat, mkdir, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,7 @@ import { DEFAULT_MASKS, validateSubmission, type RunSubmission } from './config/
 import type { preflight } from './core/estimate.ts';
 import { EXPLORE_GOAL, saveSuggestion, suggest, SUGGEST_DOLLARS, type ExploreSummary } from './core/explore.ts';
 import { compareRun, renderCompareMarkdown, renderCompareText } from './core/compare.ts';
+import { parseCompareReport, publishCompare, PublishError } from './core/publish.ts';
 import { replayRun } from './core/replay.ts';
 import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
 import { writeAtomic } from './evidence/manifest.ts';
@@ -69,7 +70,9 @@ const USAGE = `Usage: cohort [options]
        cohort runs show|wait|cancel <run-or-batch-id> [--timeout-ms <n>]
        cohort report <run-or-batch-id> [--format json|md|html]  (--json implies json)
        cohort replay <run-id>
-       cohort compare <run-id> --base <origin> --head <origin> [--markdown <file>]
+       cohort compare <run-id> --base <origin> --head <origin> --repo <owner/name> --pr <n> --base-sha <sha>
+                      --head-sha <sha> --deployment <id> --approved <sha256> --hooks <module> [--markdown <file>]
+       cohort publish <compare-report.json> [--evidence <https-url>]  (token from GITHUB_TOKEN)
        cohort trace <run-id>
        cohort login --url <url> --state <name>
        cohort persona list | schema | templates | validate
@@ -105,6 +108,7 @@ interface Dependencies {
   stdin?: Input;
   /** Starts a detached batch; defaults to a background `cohort` process, tests run it in-process with a fake model. */
   worker?: (batch: DetachedBatch) => Promise<{ batchId: string; runIds: string[] }>;
+  fetch?: typeof fetch;
 }
 
 const RUN_OPTIONS = {
@@ -132,6 +136,14 @@ const RUN_OPTIONS = {
   base: { type: 'string' },
   head: { type: 'string' },
   markdown: { type: 'string' },
+  repo: { type: 'string' },
+  pr: { type: 'string' },
+  'base-sha': { type: 'string' },
+  'head-sha': { type: 'string' },
+  deployment: { type: 'string' },
+  approved: { type: 'string' },
+  hooks: { type: 'string' },
+  evidence: { type: 'string' },
   'max-usd': { type: 'string' },
   'allow-unpriced': { type: 'boolean' },
   detach: { type: 'boolean' },
@@ -155,7 +167,7 @@ const WORKER = '_worker';
 // Shorter key values cannot be told apart from ordinary text, so commands that hand keys to a provider refuse them.
 const MIN_SECRET_LENGTH = 8;
 // Exit 1 means the command ran and the result is a failure; every other refusal exits 2.
-const FAILURE_CODES = new Set(['provider_error', 'timeout']);
+const FAILURE_CODES = new Set(['provider_error', 'timeout', 'publish_failed']);
 
 function readVersion(): string {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -261,6 +273,7 @@ function classify(error: unknown): { exit: number; detail: Record<string, unknow
   if (error instanceof CatalogError) return of('invalid');
   if (error instanceof BundleError) return of(error.code);
   if (error instanceof QueueError) return of('queue_full');
+  if (error instanceof PublishError) return of('publish_failed');
   if (error instanceof GenerateError || error instanceof ProviderError) return of('provider_error');
   return null;
 }
@@ -307,6 +320,7 @@ async function dispatch(positionals: string[], values: Values, write: Write, dep
   if (command === 'config' && ['show', 'edit'].includes(id!) && extra.length === 0) return configCommand(id!, ctx);
   if (command === 'models' && ['list', 'show', 'edit'].includes(id!) && extra.length === 0)
     return modelsCommand(id!, ctx);
+  if (command === 'publish' && id !== undefined && extra.length === 0) return publishCommand(id, values, write, deps);
   if (command === 'runs' && extra.length <= 1) return runsCommand(id, extra[0], ctx);
   if (['report', 'replay', 'compare', 'trace'].includes(command!) && id !== undefined && extra.length === 0) {
     if (command === 'report') {
@@ -359,16 +373,21 @@ async function replayCommand(id: string, json: boolean, write: Write, deps: Depe
   return passed ? 0 : 1;
 }
 
-async function compareCommand(
-  id: string,
-  values: { base?: string; head?: string; json?: boolean; markdown?: string },
-  write: Write,
-  deps: Dependencies,
-): Promise<number> {
+async function compareCommand(id: string, flags: Values, write: Write, deps: Dependencies): Promise<number> {
+  const values = flags as Record<string, string | undefined>;
   const cwd = deps.cwd ?? process.cwd();
   const result = await compareRun(cwd, id, {
     base: values.base,
     head: values.head,
+    provenance: {
+      repository: values.repo,
+      pullRequest: values.pr,
+      baseSha: values['base-sha'],
+      headSha: values['head-sha'],
+      deployment: values.deployment,
+      approved: values.approved,
+    },
+    hooks: values.hooks,
     env: deps.env ?? process.env,
     ...(deps.signal ? { signal: deps.signal } : {}),
   });
@@ -376,6 +395,26 @@ async function compareCommand(
   if (values.json) emit(write, result);
   else write(renderCompareText(result));
   return result.outcome === 'regression' ? 1 : 0;
+}
+
+async function publishCommand(path: string, values: Values, write: Write, deps: Dependencies): Promise<number> {
+  const env = deps.env ?? process.env;
+  const evidence = values.evidence as string | undefined;
+  if (evidence !== undefined && !/^https:\/\/[^\s()<>[\]]+$/u.test(evidence))
+    throw new CliError('usage', '--evidence must be an https URL without spaces, parentheses, or angle brackets');
+  if (!env.GITHUB_TOKEN) throw new ConfigError('cohort publish needs GITHUB_TOKEN, a token that can comment');
+  const text = await readFile(resolvePath(deps.cwd ?? process.cwd(), path), 'utf8').catch(() => {
+    throw new CliError('not_found', `cannot read ${path}`);
+  });
+  const result = await publishCompare(parseCompareReport(text), {
+    token: env.GITHUB_TOKEN,
+    ...(env.GITHUB_API_URL ? { apiUrl: env.GITHUB_API_URL } : {}),
+    ...(evidence ? { evidenceUrl: evidence } : {}),
+    ...(deps.fetch ? { fetch: deps.fetch } : {}),
+  });
+  if (values.json) emit(write, result);
+  else write(`publish: ${result.action}${result.reason ? ` (${result.reason})` : ''}\n`);
+  return 0;
 }
 
 async function validateCommand(json: boolean, write: Write, deps: Dependencies): Promise<number> {

@@ -57,19 +57,18 @@ Secrets are passed as `COHORT_SECRET_<NAME>` and a storage state as `COHORT_STOR
 
 ## Comparing base and head
 
-`cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` replays one approved run against two deployments, such as production and a pull-request preview, and reports whether the journey regressed. No model is called and the run's bundle, including its replay status, is not changed.
+`cohort compare <run-id> --base <origin> --head <origin> <provenance> --hooks <module> [--json] [--markdown <file>]` replays one approved run against two deployments, such as production and a pull-request preview, and reports whether the journey regressed. No model is called and the run's bundle, including its replay status, is not changed. Provenance, hooks, hash checks, verdicts, and publishing are in [compare.md](compare.md); this section covers how each execution runs.
 
-- The run ID is the approval: any finalized run whose replay status is not `unsupported` and that has `replay.spec.ts`. The script is replayed exactly as recorded; nothing is re-planned or healed.
 - `--base` and `--head` must be bare `http(s)` origins: no path, query, fragment, or credentials. Each execution resolves the start URL as `cohort replay` does (setup module, then `COHORT_START_URL`, then the recorded URL) and then replaces only its origin, keeping the path, query, and fragment. Tokens therefore stay in setup bindings or `COHORT_START_URL`, never on the command line, and the printed origins hold nothing secret.
 - A setup module runs once per execution and can read the origin under test as `ctx.env('COHORT_COMPARE_ORIGIN')`, for example to seed an account on that deployment. Its returned `startUrl` origin is replaced like any other.
 - A replay script that still names the recorded origin in a `goto` is refused (exit 2): retargeting it would change the journey. Current scripts rebase such URLs onto the start URL.
 - Each execution's replay test is bounded by the shorter of the run's time limit and Playwright's 30 s default test timeout. Setup and cleanup keep the run's time limit, as in `cohort replay`.
 
-Confirmation, at most four executions: base and head run once. If both pass, the result is `unchanged`. If they differ, both run once more; a base pass and head fail in both rounds is `regression`, the reverse is `fixed`, and any change between rounds is `inconclusive` (flaky). Everything else is `inconclusive` with a reason: the journey also fails on base, or an execution could not run because setup failed or Playwright reported an environment error (`net::ERR_…`, a missing replay binding, a browser that will not launch). Environment and setup failures are never a regression.
+At most four executions: base, head, and, only when head fails, both once more. Only a base pass and head fail in both rounds is `regression`; base and head passing is `no_regression`; everything else is `inconclusive` with a reason, including a failing base, a flaky confirmation, or an execution that could not run because a hook, setup, or cleanup failed or Playwright reported an environment error (`net::ERR_…`, a missing replay binding, a browser that will not launch). Environment and setup failures are never a regression.
 
 Evidence per execution is text only: side, pass or fail, duration, and the first failing step with its error and locator, taken from Playwright output after the same redaction as `cohort replay`. No screenshots are saved, because replay types real values.
 
-Output is plain text by default; `--json` prints the structured result. `--markdown <file>` writes one advisory pull-request comment body that starts with `<!-- cohort-compare:<run-id> -->`, so a workflow can update the same comment on every push instead of adding new ones. Failure text in it is Markdown-escaped. Exit codes: `0` for `unchanged`, `fixed`, or `inconclusive`; `1` only for a confirmed `regression`; `2` for invalid invocation or configuration. [github-action.md](github-action.md#pull-request-comparison) has a workflow.
+Output is plain text by default; `--json` prints the structured result. `--markdown <file>` writes the advisory pull-request comment body that `cohort publish` posts; it starts with `<!-- cohort-compare:<run-id> -->`. Failure text in it is Markdown-escaped. Exit codes: `0` for `no_regression` or `inconclusive`; `1` only for a confirmed `regression`; `2` for invalid invocation, configuration, or a bundle that fails its hash checks. [compare.md](compare.md#trusted-workflow) has a workflow.
 
 ## Artifacts
 
@@ -81,7 +80,7 @@ Each run writes `.cohort/runs/<run-id>/`; each batch writes `.cohort/runs/<batch
 | `screenshots/` | Masked screenshots sent to the model | Masked for known secrets; may still show sensitive app content |
 | `steps.jsonl`, `replay.spec.ts` | Actions with `{{placeholder}}` bindings | Redacted |
 | `report.{json,md,html}`, `resolved-config.json` | Outcome, claims, cost, resolved request | Redacted; URLs keep origin and path only |
-| `manifest.json` | Inventory and configuration hashes, written last | No secrets |
+| `manifest.json` | Inventory with each file's SHA-256, and configuration hashes, written last | No secrets |
 | `.cohort/auth/<name>.json` | Saved login storage state | A credential |
 | `.cohort/auth/dashboard-<id>.url` | Dashboard URL with its token, written by `cohort ui --json` while it runs | A credential |
 | `.cohort/index.sqlite*` | Index of runs and redacted events, shared by `cohort ui`, `cohort run` (foreground and `--detach`), and `cohort runs` | Redacted |

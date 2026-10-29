@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_20261029_162811_ff74fb",
+  "batchId": "batch_20261029_162811_65afa5",
+  "repeat": 0,
+  "request": {
+    "selector": {
+      "kind": "persona",
+      "id": "guest"
+    },
+    "url": "http://127.0.0.1:38225/",
+    "mode": "vision",
+    "provider": "openai",
+    "model": "example-model",
+    "effort": "low",
+    "catalog": {
+      "version": "phase-0-unverified+example",
+      "hash": "sha256:63af94944a90e243cd441c8393abc7c768e021c23d2d89ec2891300d5e8b19f7",
+      "entry": {
+        "id": "example-model",
+        "provider": "openai",
+        "label": "Example model",
+        "visionCapable": true,
+        "supportedEffortLevels": [
+          "low"
+        ],
+        "defaultEffort": "low",
+        "pricesPerMTok": {
+          "input": 1,
+          "output": 4,
+          "cachedInput": 0.1,
+          "cacheWrite": 1
+        },
+        "pricingVerifiedAt": "2026-10-01",
+        "untested": false
+      }
+    },
+    "repeats": 3,
+    "limits": {
+      "steps": 4,
+      "timeMs": 30000,
+      "dollars": 2
+    }
+  },
+  "persona": {
+    "schemaVersion": 1,
+    "id": "guest",
+    "name": "Guest",
+    "tags": [
+      "guest"
+    ],
+    "device": {
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "touch": false
+    },
+    "locale": "en-US",
+    "timezone": "UTC",
+    "goal": "Request a stay.",
+    "body": "You are a first-time guest.",
+    "hash": "sha256:2669dea6cb535121df439ae5fb3831c89db238a4163bb2dc920f69bd6f1f5a32"
+  },
+  "suiteId": null,
+  "entryIndex": 0,
+  "task": "You are a first-time guest.\n\nGoal: Request a stay.",
+  "layers": {
+    "modelFrom": "project",
+    "effortFrom": "catalog_default",
+    "goal": "Request a stay.",
+    "goalFrom": "persona",
+    "urlFrom": "run",
+    "suiteNote": null,
+    "runNote": null
+  },
+  "setup": null,
+  "storageState": null,
+  "customTools": [],
+  "routes": [],
+  "startUrl": "http://127.0.0.1:38225/",
+  "startUrlComplete": true
+}

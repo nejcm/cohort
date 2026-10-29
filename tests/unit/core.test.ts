@@ -306,23 +306,21 @@ test('compare classification: only a consistent base pass and head fail is a reg
     while (!decision) decision = classify(world.slice(0, ++seen));
     assert.ok(seen <= 4, world.join());
     const key = world.slice(0, seen).join();
-    const expected = world.slice(0, seen).includes('error')
-      ? 'inconclusive'
-      : ({
-          'passed,passed': 'unchanged',
-          'failed,failed': 'inconclusive',
-          'passed,failed,passed,failed': 'regression',
-          'failed,passed,failed,passed': 'fixed',
-        }[key] ?? 'inconclusive');
+    const expected =
+      ({ 'passed,passed': 'no_regression', 'passed,failed,passed,failed': 'regression' } as Record<string, string>)[
+        key
+      ] ?? 'inconclusive';
     assert.equal(decision.outcome, expected, key);
     if (key.includes('error')) assert.equal(world.indexOf('error'), seen - 1, `${key} stops at the first error`);
+    if (world[0] === 'failed') assert.equal(seen, 1, `${key} stops at a baseline failure`);
   }
   assert.deepEqual(classify(['passed', 'error']), {
     outcome: 'inconclusive',
-    reason: 'head execution 2 could not run: setup or environment error',
+    reason: 'head execution 2 could not run',
   });
   assert.match(classify(['passed', 'failed', 'passed', 'passed'])!.reason, /flaky/u);
-  assert.match(classify(['failed', 'failed'])!.reason, /fails on base/u);
+  assert.match(classify(['passed', 'failed', 'failed'])!.reason, /base failed on confirmation/u);
+  assert.match(classify(['failed'])!.reason, /fails on base/u);
   assert.equal(classify(['passed', 'failed']), null);
 });
 
@@ -331,10 +329,20 @@ test('the compare comment starts with its marker and escapes failure text', () =
     runId: 'run_20260101_000000_abcdef',
     base: 'https://base.example',
     head: 'https://head.example',
+    provenance: {
+      repository: 'o/r',
+      pullRequest: 7,
+      baseSha: 'a'.repeat(40),
+      headSha: 'b'.repeat(40),
+      deployment: 'dpl_<x>',
+      approved: `sha256:${'c'.repeat(64)}`,
+    },
     outcome: 'regression',
     reason: 'the journey passed on base and failed on head in both rounds',
     executions: [{ side: 'head', status: 'failed', durationMs: 1200, failure: 'Error: <img src=x> | `x`\nnext' }],
   });
   assert.ok(markdown.startsWith('<!-- cohort-compare:run_20260101_000000_abcdef -->\n'));
   assert.match(markdown, /\| 1 \| head \| failed \| 1\.2 s \| Error: \\<img src=x\\> \\\| \\`x\\` next \|/u);
+  assert.match(markdown, /`bbbbbbbbbbbb`, deployment dpl_\\<x\\>/u);
+  assert.match(markdown, /private workflow artifacts, visible only to people with read access/u);
 });

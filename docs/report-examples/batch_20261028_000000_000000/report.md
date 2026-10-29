@@ -26,9 +26,9 @@ Total cost: $0.0084. Runs not started: 0.
 
 | Run | Outcome | Cost |
 | --- | --- | --- |
-| [run_20261029_144719_393178](../run_20261029_144719_393178/report.md) | completed (agent_reported) | $0.0012 |
-| [run_20261029_144720_c7d2e7](../run_20261029_144720_c7d2e7/report.md) | abandoned by the agent | $0.0012 |
-| [run_20261029_144720_1b4cfa](../run_20261029_144720_1b4cfa/report.md) | blocked: oauth (agent-declared, unverified) | $0.0012 |
-| [run_20261029_144721_30b83c](../run_20261029_144721_30b83c/report.md) | limit reached: steps (4 of 4; not a UX failure) | $0.0048 |
-| [run_20261029_144723_2e20cc](../run_20261029_144723_2e20cc/report.md) | cancelled by user (not an agent or UX failure) | $0.0000 (+$0.0103 unsettled) |
-| [run_20261029_144723_f51ffc](../run_20261029_144723_f51ffc/report.md) | agent error: browser_error (not a UX failure) | $0.0000 |
+| [run_20261029_162810_889750](../run_20261029_162810_889750/report.md) | completed (agent_reported) | $0.0012 |
+| [run_20261029_162811_ff74fb](../run_20261029_162811_ff74fb/report.md) | abandoned by the agent | $0.0012 |
+| [run_20261029_162811_75f07f](../run_20261029_162811_75f07f/report.md) | blocked: oauth (agent-declared, unverified) | $0.0012 |
+| [run_20261029_162812_1e10c7](../run_20261029_162812_1e10c7/report.md) | limit reached: steps (4 of 4; not a UX failure) | $0.0048 |
+| [run_20261029_162814_9737a4](../run_20261029_162814_9737a4/report.md) | cancelled by user (not an agent or UX failure) | $0.0000 (+$0.0103 unsettled) |
+| [run_20261029_162814_3a9e3a](../run_20261029_162814_3a9e3a/report.md) | agent error: browser_error (not a UX failure) | $0.0000 |

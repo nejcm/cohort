@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { lstat, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { sha256 } from '../config/files.ts';
 import { extname, join, posix } from 'node:path';
 import type { ResolvedModel } from '../providers/catalog.ts';
 import type { Effort } from '../providers/types.ts';
@@ -10,6 +11,7 @@ export interface ManifestArtifact {
   path: string;
   mediaType: string;
   bytes: number;
+  sha256: string;
   sensitivity: Sensitivity;
 }
 
@@ -82,6 +84,7 @@ export async function inventory(outDir: string): Promise<{ artifacts: ManifestAr
           path,
           mediaType: MEDIA_TYPES[extname(name)] ?? 'application/octet-stream',
           bytes: info.size,
+          sha256: sha256(await readFile(join(outDir, path))),
           sensitivity: sensitivityOf(path),
         });
       else rejected.push(path);

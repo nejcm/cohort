@@ -73,6 +73,8 @@ Every JSON document has `schemaVersion: 1`. The version changes only when a fiel
 | `runs show` / `runs wait` on a run | `run`, `report`, `artifacts[]`, `screenshots[]`, `dir`, `done` |
 | `runs show` / `runs wait` on a batch | `batch`, `runs[]`, `summary`, `dir`, `done` |
 | `runs cancel` | `id`, `cancelling[]` |
+| `compare` | `runId`, `base`, `head`, `provenance`, `outcome` (`regression`, `no_regression`, `inconclusive`), `reason`, `executions[]` ([compare.md](compare.md)) |
+| `publish` | `action` (`created`, `updated`, `skipped`), `reason`, `commentId` |
 | `report --json` | the report itself, with its own `schemaVersion`; `--json` with `--format md` or `html` is a `usage` error |
 
 ## Exit codes and errors
@@ -98,6 +100,7 @@ Errors look like `{"schemaVersion":1,"error":"<message>","code":"<code>", ...}`.
 | `not_ready` | 2 | The run has no report yet |
 | `provider_error` | 1 | The model provider failed (persona generation) |
 | `timeout` | 1 | `runs wait` reached `--timeout-ms`; wait again |
+| `publish_failed` | 1 | `cohort publish` got an error or no response from the GitHub API |
 | `internal` | 2 | A bug; the message is scrubbed. `COHORT_DEBUG=1` adds the stack on stderr |
 
 ## Cost safety

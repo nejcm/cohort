@@ -29,6 +29,8 @@ interface ReplayOptions {
 }
 
 interface ExecuteOptions extends ReplayOptions {
+  /** Extra values to redact from the output, such as those compare hooks read. */
+  scrubValues?: readonly string[];
   /** Replaces the start URL's origin, keeping its path, query, and fragment. */
   origin?: string;
   timeoutMs?: number;
@@ -81,6 +83,7 @@ export async function executeReplay(
     scrubEnv(text, secrets, [
       ...providerKeys,
       ...envRead,
+      ...(options.scrubValues ?? []),
       ...Object.entries(env).flatMap(([name, value]) =>
         value && (name === 'COHORT_START_URL' || name === 'COHORT_TOOL_TOKEN' || name.startsWith('COHORT_SECRET_'))
           ? [value]
