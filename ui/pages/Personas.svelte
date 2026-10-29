@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import { api, initials, tint, usd, type Models } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
   import Editor from '../components/Editor.svelte';
@@ -20,6 +21,8 @@
   let { id }: { id: string | undefined } = $props();
   let personas = $state<Summary[]>([]);
   let error = $state('');
+  let loaded = $state(false);
+  let creating = $state(false);
 
   const TEMPLATE = `---
 schemaVersion: 1
@@ -56,6 +59,7 @@ Describe who this person is and how they behave.
   async function list(): Promise<void> {
     try {
       personas = (await api<{ personas: Summary[] }>('GET', '/api/personas')).personas;
+      loaded = true;
     } catch (caught) {
       error = (caught as Error).message;
     }
@@ -92,6 +96,7 @@ Describe who this person is and how they behave.
   async function create(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     draftError = '';
+    creating = true;
     try {
       const saved = await api<{ id: string }>('POST', '/api/personas', { source: draft });
       draft = TEMPLATE;
@@ -101,6 +106,8 @@ Describe who this person is and how they behave.
       navigate(`/personas/${encodeURIComponent(saved.id)}`);
     } catch (caught) {
       draftError = (caught as Error).message;
+    } finally {
+      creating = false;
     }
   }
 
@@ -137,7 +144,7 @@ Describe who this person is and how they behave.
   <div class="page-head">
     <div class="title"><h1>Personas</h1></div>
     <div class="actions"><a class="button" href="/personas/new"><Icon name="plus" />New persona</a></div>
-    <p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <span class="mono">.cohort/personas/</span>, each a Markdown file with YAML frontmatter.</p>
+    {#if loaded}<p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <span class="mono">.cohort/personas/</span>, each a Markdown file with YAML frontmatter.</p>{/if}
   </div>
 {/if}
 {#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
@@ -175,10 +182,12 @@ Describe who this person is and how they behave.
       {/if}
       {#if schema}
         {#key draftKey}<PersonaForm bind:source={draft} bind:invalid={draftInvalid} {schema} {models} error={draftError} idPrefix="draft" />{/key}
+      {:else if !error}
+        <Skeleton label="Loading the persona form" lines={4} />
       {/if}
       <div class="editor-foot">
         <span>New personas cannot reference setup code; add one by editing the file locally.</span>
-        <button type="submit" class="primary sm" disabled={draftInvalid || !!draftSetup}><Icon name="check" />Validate and create</button>
+        <button type="submit" class="primary sm" disabled={!schema || draftInvalid || !!draftSetup || creating} aria-busy={creating}><Icon name="check" />Validate and create</button>
       </div>
     </form>
     <form class="metered" onsubmit={generate} aria-labelledby="generate-title" aria-busy={generating}>
@@ -207,6 +216,15 @@ Describe who this person is and how they behave.
         </div>
       </div>
     </form>
+  </div>
+{:else if !loaded}
+  {#if !error}<Skeleton label="Loading personas" />{/if}
+{:else if personas.length === 0}
+  <div class="empty">
+    <Icon name="persona" size={24} />
+    <strong>No personas yet.</strong>
+    <p>A persona describes who uses the app and what they want to get done.</p>
+    <a class="button" href="/personas/new"><Icon name="plus" />New persona</a>
   </div>
 {:else}
   <div class="split">

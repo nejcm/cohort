@@ -3,6 +3,7 @@
   import { stringify } from 'yaml';
   import { api, ApiError, type Editable } from '../lib/api.ts';
   import { personaMarkdown } from '../lib/source.ts';
+  import Skeleton from './Skeleton.svelte';
 
   let { resolved }: { resolved: { request: { url?: string; note?: string }; persona: Record<string, unknown> } } =
     $props();
@@ -13,6 +14,8 @@
   let personaMissing = $state(false);
   let message = $state('');
   let error = $state('');
+  let loaded = $state(false);
+  let busy = $state<'preview' | 'save' | null>(null);
 
   const personaId = $derived(String(resolved.persona.id));
   const entry = $derived({
@@ -27,6 +30,7 @@
       (result) => {
         suites = result.suites;
         suiteId = result.suites[0]?.id ?? '';
+        loaded = true;
       },
       (caught: Error) => (error = caught.message),
     );
@@ -35,6 +39,7 @@
   async function preview(): Promise<void> {
     error = '';
     message = '';
+    busy = 'preview';
     try {
       suite = await api<Editable>('GET', `/api/suites/${encodeURIComponent(suiteId)}`);
       personaMissing = await api('GET', `/api/personas/${encodeURIComponent(personaId)}`).then(
@@ -46,12 +51,15 @@
       );
     } catch (caught) {
       error = (caught as Error).message;
+    } finally {
+      busy = null;
     }
   }
 
   async function save(): Promise<void> {
     if (!suite) return;
     error = '';
+    busy = 'save';
     try {
       if (personaMissing)
         await api('POST', '/api/personas', { source: persona }).catch((caught: ApiError) => {
@@ -65,6 +73,8 @@
         caught instanceof ApiError && caught.status === 409
           ? `${(caught as Error).message} Preview again to load the current file.`
           : (caught as Error).message;
+    } finally {
+      busy = null;
     }
   }
 </script>
@@ -72,7 +82,9 @@
 <section class="section" aria-labelledby="adhoc-title">
   <div class="section-head"><h2 id="adhoc-title">Save to suite</h2><span class="hint">Ad-hoc run</span></div>
   <div class="card gap">
-    {#if suites.length === 0}
+    {#if !loaded}
+      {#if !error}<Skeleton label="Loading suites" lines={2} />{/if}
+    {:else if suites.length === 0}
       <p class="hint">No suites exist yet; create a <code>.cohort/suites/&lt;id&gt;.yml</code> file first.</p>
     {:else}
       <div class="form-grid">
@@ -81,7 +93,7 @@
             {#each suites as item (item.id)}<option value={item.id}>{item.name ?? item.id}</option>{/each}
           </select>
         </label>
-        <div class="form-actions end"><button type="button" onclick={preview}><Icon name="eye" />Preview entry</button></div>
+        <div class="form-actions end"><button type="button" disabled={busy !== null} aria-busy={busy === 'preview'} onclick={preview}><Icon name="eye" />Preview entry</button></div>
       </div>
       {#if suite}
         <p>Appends this entry to <code>.cohort/suites/{suite.id}.yml</code>:</p>
@@ -91,7 +103,7 @@
           <pre class="diff">{#each persona.trimEnd().split('\n') as line, index (index)}<span class="add">+ {line}</span>{/each}</pre>
         {/if}
         <div class="form-actions">
-          <button type="button" class="primary" onclick={save}><Icon name="plus" />Save</button>
+          <button type="button" class="primary" disabled={busy !== null} aria-busy={busy === 'save'} onclick={save}><Icon name="plus" />Save</button>
           <span class="notice">Appends one entry. Existing entries are unchanged.</span>
         </div>
       {/if}

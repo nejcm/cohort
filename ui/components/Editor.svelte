@@ -3,6 +3,7 @@
   import { api, ApiError, type Editable, type Models, type ProjectDefaults } from '../lib/api.ts';
   import ModelPicker from './ModelPicker.svelte';
   import PersonaForm from './PersonaForm.svelte';
+  import Skeleton from './Skeleton.svelte';
   import type { JsonSchema } from '../../src/core/schema.ts';
   import { readAt, setAt } from '../lib/source.ts';
 
@@ -52,6 +53,7 @@
   $effect(() => {
     void id;
     message = '';
+    loaded = null;
     void load();
     void Promise.all([api<Models>('GET', '/api/models'), api<ProjectDefaults>('GET', '/api/config')]).then(
       ([foundModels, foundConfig]) => {
@@ -139,7 +141,11 @@
           bind:invalid
         />
       {/key}
+    {:else if !error}
+      <Skeleton label="Loading {file}" lines={4} />
     {/if}
+  {:else if !loaded}
+    {#if !error}<Skeleton label="Loading {file}" lines={4} />{/if}
   {:else}
     {#if models}
       <div class="metered-body">
@@ -180,6 +186,6 @@
   {/if}
   <div class="editor-foot">
     {#if message}<p class="notice good" role="status">{message}</p>{:else}<span>{markdown ? 'Markdown + YAML frontmatter' : 'YAML'} · {file}</span>{/if}
-    <span class="mono">{source.split('\n').length} lines</span>
+    {#if loaded}<span class="mono">{source.split('\n').length} lines</span>{/if}
   </div>
 </form>

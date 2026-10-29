@@ -50,14 +50,17 @@ test('follow resumes after a dropped stream with Last-Event-ID and stops when th
   };
   try {
     const events: LiveEvent[] = [];
+    const links: boolean[] = [];
     await new Promise<void>((resolve) =>
       follow(
         'run_x',
         (event) => events.push(event),
         resolve,
+        (connected) => links.push(connected),
         () => 0,
       ),
     );
+    assert.deepEqual(links, [true, false, true]);
     assert.deepEqual(
       events.map((event) => [event.id, event.type]),
       [
@@ -102,6 +105,7 @@ test('follow reconnects after a clean close of an active run and stops once the 
         'run_x',
         (event) => events.push(event),
         resolve,
+        undefined,
         () => 0,
       ),
     );

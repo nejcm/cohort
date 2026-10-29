@@ -16,6 +16,7 @@
     type RunSummary,
   } from '../lib/api.ts';
   import AdhocSave from '../components/AdhocSave.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
 
   interface Claim {
     id: string;
@@ -71,6 +72,9 @@
   let image = $state<string | null>(null);
   let error = $state('');
   let notice = $state('');
+  let linked = $state(true);
+  let cancelling = $state(false);
+  let saving = $state<string | null>(null);
 
   const urls = new Map<string, string>();
   let settling: ReturnType<typeof setTimeout> | undefined;
@@ -155,7 +159,8 @@
     selected = null;
     let stop: (() => void) | undefined;
     void load().then(() => {
-      if (detail && isActive(detail.run.status)) stop = follow(id, onEvent, () => void settle());
+      if (detail && isActive(detail.run.status))
+        stop = follow(id, onEvent, () => void settle(), (connected) => (linked = connected));
       else void settle();
     });
     return () => {
@@ -176,17 +181,23 @@
         urls.set(shot, url);
         if (current === shot) image = url;
       },
-      (caught: Error) => (error = caught.message),
+      (caught: Error) => {
+        if (current === shot) image = null;
+        error = `Couldn't load screenshot ${shot}: ${caught.message}`;
+      },
     );
   });
 
   async function cancel(): Promise<void> {
+    cancelling = true;
     try {
       await api('POST', `/api/runs/${encodeURIComponent(id)}/cancel`, {});
       notice = 'Cancellation requested.';
       await load();
     } catch (caught) {
       error = (caught as Error).message;
+    } finally {
+      cancelling = false;
     }
   }
 
@@ -205,7 +216,12 @@
     ['report.json', 'JSON'],
   ];
   const has = (name: string): boolean => detail?.artifacts.some((artifact) => artifact.id === name) === true;
-  const save = (name: string): void => void download(artifactPath(id, name), name).catch((caught: Error) => (error = caught.message));
+  function save(name: string): void {
+    saving = name;
+    void download(artifactPath(id, name), name)
+      .catch((caught: Error) => (error = caught.message))
+      .finally(() => (saving = null));
+  }
   const TONES: Record<string, string> = { completed: 'tone-good', blocked: 'tone-warn', limit_reached: 'tone-warn', agent_error: 'tone-bad' };
   const run = $derived(detail?.run);
   const report = $derived(detail?.report ?? null);
@@ -223,10 +239,10 @@
       <div class="title">
         <h1 class="mono">{run.id}</h1>
         <span class="badge {badge(run.status, run.outcome, run.interruptedBy)}">{run.status}</span>
-        {#if isActive(run.status)}<span class="live">Live</span>{/if}
+        {#if isActive(run.status)}<span class="live" role="status">{linked ? 'Live' : 'Reconnecting…'}</span>{/if}
       </div>
       {#if isActive(run.status)}
-        <div class="actions"><button type="button" class="danger" onclick={cancel}><Icon name="stop" />Cancel run</button></div>
+        <div class="actions"><button type="button" class="danger" disabled={cancelling} aria-busy={cancelling} onclick={cancel}><Icon name="stop" />Cancel run</button></div>
       {/if}
     </div>
   {/if}
@@ -361,7 +377,7 @@
             <span class="label">Report</span>
             <div class="row">
               {#each REPORTS.filter(([name]) => has(name)) as [name, label] (name)}
-                <button type="button" aria-label="Report ({label})" onclick={() => save(name)}><Icon name="download" />{label}</button>
+                <button type="button" aria-label="Report ({label})" disabled={saving === name} aria-busy={saving === name} onclick={() => save(name)}><Icon name="download" />{label}</button>
               {/each}
             </div>
           </div>
@@ -369,7 +385,7 @@
         {#if has('replay.spec.ts')}
           <div class="dl-group">
             <span class="label">Replay script</span>
-            <div class="row"><button type="button" onclick={() => save('replay.spec.ts')}><Icon name="code" /><span class="mono">replay.spec.ts</span></button></div>
+            <div class="row"><button type="button" disabled={saving === 'replay.spec.ts'} aria-busy={saving === 'replay.spec.ts'} onclick={() => save('replay.spec.ts')}><Icon name="code" /><span class="mono">replay.spec.ts</span></button></div>
           </div>
         {/if}
         {#if has('trace.zip')}
@@ -379,7 +395,7 @@
               <strong id="trace-title">Trace <span class="badge private">private</span></strong>
               <p>The trace is private raw evidence that may contain secrets; never share or upload it.</p>
             </div>
-            <button type="button" class="danger" aria-label="Trace (private)" onclick={() => save('trace.zip')}><Icon name="download" />Download trace</button>
+            <button type="button" class="danger" aria-label="Trace (private)" disabled={saving === 'trace.zip'} aria-busy={saving === 'trace.zip'} onclick={() => save('trace.zip')}><Icon name="download" />Download trace</button>
           </div>
         {/if}
       </div>
@@ -389,4 +405,6 @@
   {#if run.personaId === 'adhoc-first-time-user' && resolved}
     <AdhocSave {resolved} />
   {/if}
+{:else if !error}
+  <Skeleton label="Loading run {id}" lines={4} />
 {/if}

@@ -1404,6 +1404,17 @@ progress.prog::-moz-progress-bar {
 .app tr.changed td {
   animation: row-flash 1600ms var(--ease) 1;
 }
+.steps > li {
+  transition:
+    opacity var(--dur-2) var(--ease),
+    transform var(--dur-2) var(--ease);
+}
+@starting-style {
+  .steps > li {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 
 .load-more {
   display: flex;
@@ -1551,14 +1562,37 @@ progress.prog::-moz-progress-bar {
   box-shadow: var(--shadow-3);
   overflow: hidden;
 }
+.app dialog,
+.app dialog::backdrop {
+  opacity: 0;
+  transition:
+    opacity 150ms var(--ease),
+    transform 150ms var(--ease),
+    overlay 150ms allow-discrete,
+    display 150ms allow-discrete;
+}
+.app dialog {
+  transform: translateY(6px) scale(0.99);
+}
 .app dialog::backdrop {
   background: var(--backdrop);
 }
-.app dialog[open] {
-  animation: dialog-in var(--dur-2) var(--ease);
-}
+.app dialog[open],
 .app dialog[open]::backdrop {
-  animation: fade-in var(--dur-2) var(--ease);
+  opacity: 1;
+  transition-duration: var(--dur-2);
+}
+.app dialog[open] {
+  transform: none;
+}
+@starting-style {
+  .app dialog[open],
+  .app dialog[open]::backdrop {
+    opacity: 0;
+  }
+  .app dialog[open] {
+    transform: translateY(6px) scale(0.99);
+  }
 }
 .app dialog > form {
   display: flex;
@@ -1679,6 +1713,11 @@ progress.prog::-moz-progress-bar {
 .skeleton.block {
   height: 240px;
   border-radius: var(--r-lg);
+}
+.loading {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4) 0;
 }
 
 /* ---------- 12. Run detail: outcome, claims, steps ---------- */
@@ -2468,17 +2507,6 @@ progress.prog::-moz-progress-bar {
   }
   to {
     background-color: transparent;
-  }
-}
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes dialog-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.99);
   }
 }
 @keyframes toast-in {

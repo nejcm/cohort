@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import { api, badge, initials, statusLabel, tint, usd, type RunSummary } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
 
@@ -13,6 +14,7 @@
   let text = $state('');
   let latest = 0;
   let busy = $state(false);
+  let changed = $state(new Set<string>());
 
   const COLUMNS: [string, string, string?][] = [
     ['id', 'Run and goal'],
@@ -69,6 +71,8 @@
         list = [...list, ...page.runs.filter((run) => !seen.has(run.id))];
         next = page.nextCursor;
       } while (next && list.length < keep);
+      const before = new Map(runs.map((run) => [run.id, statusLabel(run)]));
+      changed = new Set(list.filter((run) => before.has(run.id) && before.get(run.id) !== statusLabel(run)).map((run) => run.id));
       runs = list;
       counts = page.counts;
       cursor = next;
@@ -94,9 +98,9 @@
 
   $effect(() => {
     void load(false, 0);
-    // shortcut: refetches every loaded page every 3 s while runs are active; subscribe to a list event stream if that gets heavy.
+    // shortcut: refetches every loaded page every 3 s while runs are active or the last load failed; subscribe to a list event stream if that gets heavy.
     const timer = setInterval(() => {
-      if (counts && counts.running + counts.queued > 0 && !busy) void load();
+      if ((error || (counts && counts.running + counts.queued > 0)) && !busy) void load();
     }, 3000);
     return () => clearInterval(timer);
   });
@@ -129,11 +133,11 @@
 
 <div class="page-head">
   <div class="title"><h1>Runs</h1></div>
-  <p class="sub">{counts?.running ?? 0} running, {counts?.queued ?? 0} queued.</p>
+  {#if counts}<p class="sub">{counts.running} running, {counts.queued} queued.</p>{/if}
 </div>
 {#if error}
   <div class="banner error" role="alert">
-    <div class="body"><strong>Couldn't load runs.</strong><span>{error}</span></div>
+    <div class="body"><strong>Couldn't load runs.</strong><span>{error} Retrying every few seconds.</span></div>
   </div>
 {/if}
 {#if loaded && counts?.total === 0 && !error}
@@ -192,7 +196,7 @@
       </thead>
       <tbody>
         {#each runs as run (run.id)}
-          <tr>
+          <tr class:changed={changed.has(run.id)}>
             <td class="clip">
               <a class="rid" href="/runs/{encodeURIComponent(run.id)}">{run.id}</a>
               <span class="goal" title={run.goal}>{run.goal}</span>
@@ -226,4 +230,6 @@
     <span>Showing {runs.length} of {counts[(tab || 'all') as keyof typeof counts]} runs</span>
     {#if cursor}<button type="button" disabled={busy} onclick={() => load(true)}><Icon name="chevronDown" />Load more</button>{/if}
   </div>
+{:else if !error}
+  <Skeleton label="Loading runs" lines={4} />
 {/if}

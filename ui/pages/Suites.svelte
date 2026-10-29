@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import { api } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
   import Editor from '../components/Editor.svelte';
@@ -8,6 +9,9 @@
   let suites = $state<{ id: string; name: string | null; entries: number; error: string | null }[]>([]);
   let personaIds = $state<string[]>([]);
   let error = $state('');
+  let loaded = $state(false);
+  let templated = $state(false);
+  let creating = $state(false);
   let draft = $state('');
   let draftError = $state('');
 
@@ -22,6 +26,7 @@ entries:
   async function list(): Promise<void> {
     try {
       suites = (await api<{ suites: typeof suites }>('GET', '/api/suites')).suites;
+      loaded = true;
     } catch (caught) {
       error = (caught as Error).message;
     }
@@ -32,11 +37,12 @@ entries:
   });
 
   $effect(() => {
-    if (id === 'new' && !draft)
+    if (id === 'new' && !templated)
       api<{ personas: { id: string }[] }>('GET', '/api/personas').then(
         (found) => {
           personaIds = found.personas.map((persona) => persona.id);
           draft = template(personaIds[0] ?? 'your-persona-id');
+          templated = true;
         },
         (caught: Error) => (error = caught.message),
       );
@@ -45,13 +51,17 @@ entries:
   async function create(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     draftError = '';
+    creating = true;
     try {
       const saved = await api<{ id: string }>('POST', '/api/suites', { source: draft });
       draft = '';
+      templated = false;
       await list();
       navigate(`/suites/${encodeURIComponent(saved.id)}`);
     } catch (caught) {
       draftError = (caught as Error).message;
+    } finally {
+      creating = false;
     }
   }
 </script>
@@ -65,7 +75,7 @@ entries:
   <div class="page-head">
     <div class="title"><h1>Suites</h1></div>
     <div class="actions"><a class="button" href="/suites/new"><Icon name="plus" />New suite</a></div>
-    <p class="sub">{suites.length} {suites.length === 1 ? 'suite' : 'suites'} in <span class="mono">.cohort/suites/</span>. A suite is a list of persona and goal entries run together.</p>
+    {#if loaded}<p class="sub">{suites.length} {suites.length === 1 ? 'suite' : 'suites'} in <span class="mono">.cohort/suites/</span>. A suite is a list of persona and goal entries run together.</p>{/if}
   </div>
 {/if}
 {#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
@@ -76,15 +86,21 @@ entries:
       <span class="hint mono">.cohort/suites/&lt;id&gt;.yml</span>
     </div>
     {#if draftError}<div class="banner error" role="alert"><div class="body"><span>{draftError}</span></div></div>{/if}
-    <label class="sr-only" for="suite-source">YAML</label>
-    <textarea id="suite-source" class="source short" spellcheck="false" bind:value={draft}></textarea>
+    {#if templated}
+      <label class="sr-only" for="suite-source">YAML</label>
+      <textarea id="suite-source" class="source short" spellcheck="false" bind:value={draft}></textarea>
+    {:else if !error}
+      <Skeleton label="Loading the suite template" />
+    {/if}
     <div class="editor-foot">
       <span>New suites cannot reference setup code; add one by editing the file locally.</span>
-      <button type="submit" class="primary sm"><Icon name="check" />Validate and create</button>
+      <button type="submit" class="primary sm" disabled={!templated || creating} aria-busy={creating}><Icon name="check" />Validate and create</button>
     </div>
   </form>
   {#if personaIds.length > 0}<p class="hint">Personas you can list: {personaIds.join(', ')}</p>{/if}
-{:else if suites.length === 0 && !error}
+{:else if !loaded}
+  {#if !error}<Skeleton label="Loading suites" />{/if}
+{:else if suites.length === 0}
   <div class="empty">
     <Icon name="suites" size={24} />
     <strong>No suites yet.</strong>

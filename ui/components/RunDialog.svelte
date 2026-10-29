@@ -172,6 +172,7 @@
               <select id="run-target" bind:value={target}>
                 {#each targets as item (item)}<option value={item}>{item}</option>{/each}
               </select>
+              {#if models && targets.length === 0}<span class="hint">No {kind === 'tag' ? 'tagged personas' : `${kind}s`} yet.</span>{/if}
             </label>
           {/if}
           <label for="run-url"><span>URL <span class="opt">{kind === 'adhoc' ? 'required for ad-hoc' : 'optional'}</span></span>
@@ -268,8 +269,12 @@
               <span>Batch budget: at most <span class="num">{usd(preview.maxBatchUsd)}</span> <span class="muted">(sum of dollar caps)</span></span>
             {/if}
           </p>
+        {:else if !models}
+          {#if !loadError}<p class="budget muted">Loading models and personas…</p>{/if}
         {:else if ready}
           <p class="budget muted">Estimating…</p>
+        {:else}
+          <p class="budget muted">{kind === 'adhoc' ? 'Enter a URL and a goal to see the estimate.' : 'Nothing to run yet.'}</p>
         {/if}
       </section>
     </div>

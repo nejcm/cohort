@@ -194,6 +194,7 @@ export function follow(
   runId: string,
   onEvent: (event: LiveEvent) => void,
   onEnd: () => void,
+  onLink: (connected: boolean) => void = () => {},
   delay = (attempt: number) => Math.min(500 * 2 ** attempt, 10_000),
 ): () => void {
   const controller = new AbortController();
@@ -208,6 +209,7 @@ export function follow(
         });
         if (response.status >= 400 && response.status < 500) return onEnd();
         if (!response.ok || !response.body) throw new ApiError(response.status, 'event stream unavailable');
+        onLink(true);
         let buffer = '';
         for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
           attempt = 0;
@@ -225,6 +227,7 @@ export function follow(
         if (!run || !isActive(run.status)) return onEnd();
       } catch {
         if (controller.signal.aborted) return;
+        onLink(false);
       }
       await new Promise((resolve) => setTimeout(resolve, delay(attempt)));
     }
