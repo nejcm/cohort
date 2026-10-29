@@ -48,7 +48,7 @@ interface ResolvedConfigFile {
 }
 
 const now = (): string => new Date().toISOString();
-const relativeDir = (runId: string): string => `.lab/runs/${runId}`;
+const relativeDir = (runId: string): string => `.cohort/runs/${runId}`;
 
 /** In-process FIFO over runBatch: one batch at a time, every lifecycle event persisted before it is broadcast. */
 export class RunQueue {
@@ -255,8 +255,8 @@ export async function recoverInterrupted(projectRoot: string, db: LabDb): Promis
 
 async function plainRunDir(projectRoot: string, runId: string): Promise<string> {
   for (const path of [
-    join(projectRoot, '.lab'),
-    join(projectRoot, '.lab', 'runs'),
+    join(projectRoot, '.cohort'),
+    join(projectRoot, '.cohort', 'runs'),
     join(projectRoot, relativeDir(runId)),
   ]) {
     await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
@@ -341,10 +341,10 @@ async function writeRecovered(dir: string, row: RunRow, report: RunReport, steps
   });
 }
 
-/** Adds finalized run bundles on disk (for example from `lab run`) that the index does not know yet. */
+/** Adds finalized run bundles on disk (for example from `cohort run`) that the index does not know yet. */
 export async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
   let added = 0;
-  const names = await readdir(join(projectRoot, '.lab', 'runs')).catch(() => []);
+  const names = await readdir(join(projectRoot, '.cohort', 'runs')).catch(() => []);
   for (const name of names.filter((candidate) => candidate.startsWith('run_')).toSorted()) {
     if (db.hasRun(name)) continue;
     try {

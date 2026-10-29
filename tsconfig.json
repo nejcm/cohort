@@ -7,7 +7,7 @@
     "moduleResolution": "NodeNext",
     "types": ["node"],
     "resolveJsonModule": true,
-    "paths": { "synthetic-customer-lab": ["./src/index.ts"] },
+    "paths": { "cohort-lab": ["./src/index.ts"] },
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

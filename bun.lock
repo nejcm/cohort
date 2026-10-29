@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "synthetic-customer-lab",
+      "name": "cohort-lab",
       "dependencies": {
         "playwright": "1.64.1",
         "yaml": "2.9.1",

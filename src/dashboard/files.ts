@@ -27,7 +27,7 @@ export class EditError extends Error {
 
 const MAX_SOURCE_BYTES = 256 * 1024;
 const extension = (kind: Kind): string => (kind === 'personas' ? 'md' : 'yml');
-const sourceName = (kind: Kind, id: string): string => `.lab/${kind}/${id}.${extension(kind)}`;
+const sourceName = (kind: Kind, id: string): string => `.cohort/${kind}/${id}.${extension(kind)}`;
 
 function parse(kind: Kind, source: string, where: string): { id: string; setup: string | undefined; parsed: unknown } {
   if (Buffer.byteLength(source) > MAX_SOURCE_BYTES) throw new EditError(400, `${where}: larger than 256 KiB`);
@@ -45,9 +45,9 @@ function parse(kind: Kind, source: string, where: string): { id: string; setup: 
 }
 
 async function plainDirectory(projectRoot: string, kind: Kind): Promise<string> {
-  const dir = join(projectRoot, '.lab', kind);
+  const dir = join(projectRoot, '.cohort', kind);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  for (const path of [join(projectRoot, '.lab'), dir])
+  for (const path of [join(projectRoot, '.cohort'), dir])
     if (!(await lstat(path)).isDirectory()) throw new EditError(400, `${path} is not a plain directory`);
   return dir;
 }

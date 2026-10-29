@@ -9,7 +9,7 @@ import { loadSetupModule, SetupLoadError } from '../../src/setup/load.ts';
 import type { SetupContext } from '../../src/setup/types.ts';
 
 let root: string;
-const setupDir = (): string => join(root, '.lab', 'setup');
+const setupDir = (): string => join(root, '.cohort', 'setup');
 
 before(async () => {
   root = await mkdtemp(join(tmpdir(), 'lab-setup-'));
@@ -33,7 +33,7 @@ export default async (ctx: Ctx) => ({ startUrl: 'http://localhost' + path(ctx.sc
   assert.deepEqual(await setup({ scopeId: 'abc' } as SetupContext), { startUrl: 'http://localhost/?scope=abc' });
 });
 
-const env = (name: string): string => (name === 'LAB_FIXTURE_ORIGIN' ? 'http://127.0.0.1:9' : '');
+const env = (name: string): string => (name === 'COHORT_FIXTURE_ORIGIN' ? 'http://127.0.0.1:9' : '');
 
 test('loads the shipped example setup module', async () => {
   await copyFile(new URL('../../examples/setup/fixture.ts', import.meta.url), join(setupDir(), 'fixture.ts'));
@@ -43,10 +43,10 @@ test('loads the shipped example setup module', async () => {
   });
 });
 
-test('rejects setup modules outside .lab/setup, through symlinks, or without a default export', async () => {
+test('rejects setup modules outside .cohort/setup, through symlinks, or without a default export', async () => {
   await writeFile(join(root, 'outside.ts'), 'export default () => ({ startUrl: "x" });\n');
   await assert.rejects(loadSetupModule(root, join(root, 'outside.ts')), SetupLoadError);
-  await assert.rejects(loadSetupModule(root, join(setupDir(), '..', '..', 'outside.ts')), /inside \.lab\/setup/u);
+  await assert.rejects(loadSetupModule(root, join(setupDir(), '..', '..', 'outside.ts')), /inside \.cohort\/setup/u);
   await symlink(join(root, 'outside.ts'), join(setupDir(), 'link.ts'));
   await assert.rejects(loadSetupModule(root, join(setupDir(), 'link.ts')), /symlink/u);
   await writeFile(join(setupDir(), 'named.ts'), 'export const setup = 1;\n');
@@ -55,14 +55,14 @@ test('rejects setup modules outside .lab/setup, through symlinks, or without a d
   await assert.rejects(loadSetupModule(root, join(setupDir(), 'data.json')), /\.ts, \.js, or \.mjs/u);
 });
 
-test('rejects a symlinked .lab directory even when its setup module looks contained', async () => {
+test('rejects a symlinked .cohort directory even when its setup module looks contained', async () => {
   const outside = await mkdtemp(join(tmpdir(), 'lab-outside-'));
   const project = await mkdtemp(join(tmpdir(), 'lab-project-'));
   try {
     await mkdir(join(outside, 'setup'));
     await writeFile(join(outside, 'setup', 'evil.ts'), 'export default () => ({ startUrl: "x" });\n');
-    await symlink(outside, join(project, '.lab'));
-    await assert.rejects(loadSetupModule(project, join(project, '.lab', 'setup', 'evil.ts')), /symlink/u);
+    await symlink(outside, join(project, '.cohort'));
+    await assert.rejects(loadSetupModule(project, join(project, '.cohort', 'setup', 'evil.ts')), /symlink/u);
   } finally {
     await rm(outside, { recursive: true, force: true });
     await rm(project, { recursive: true, force: true });

@@ -40,66 +40,66 @@ before(async () => {
   fixture = await startFixture();
   root = await mkdtemp(join(tmpdir(), 'lab-run-'));
   await put(
-    '.lab/config.yml',
+    '.cohort/config.yml',
     'schemaVersion: 1\nmodel: openai/test-model\nrepeats: 1\nlimits: { steps: 10, timeMs: 30000 }\n',
   );
   await put(
-    '.lab/models.yml',
+    '.cohort/models.yml',
     `version: test\nmodels:\n${model('test-model', false, '{ input: 1, output: 4, cachedInput: 0.1 }')}${model('fresh-model', true, '{ input: null, output: null, cachedInput: null }')}${model('test-claude', false, '{ input: 1, output: 4, cachedInput: 0.1 }', 'anthropic')}`,
   );
   await put(
-    '.lab/personas/guest.md',
+    '.cohort/personas/guest.md',
     '---\nschemaVersion: 1\nid: guest\nname: Guest\ntags: [guest]\ndevice: { viewport: { width: 800, height: 600 }, touch: false }\nlocale: en-US\ntimezone: UTC\ngoal: Look around.\n---\n\nYou are a guest.\n',
   );
-  await mkdir(join(root, '.lab/setup'), { recursive: true });
-  await copyFile(join(repoRoot, 'examples/setup/fixture.ts'), join(root, '.lab/setup/fixture.ts'));
+  await mkdir(join(root, '.cohort/setup'), { recursive: true });
+  await copyFile(join(repoRoot, 'examples/setup/fixture.ts'), join(root, '.cohort/setup/fixture.ts'));
   await put(
-    '.lab/setup/secret.ts',
+    '.cohort/setup/secret.ts',
     `export default async (ctx) => {
   ctx.onCleanup(async () => { throw new Error('cleanup failed for ${CANARY}'); });
-  return { startUrl: ctx.env('LAB_FIXTURE_ORIGIN') + '/?scope=' + ctx.scopeId, secrets: { email: '${CANARY}' } };
+  return { startUrl: ctx.env('COHORT_FIXTURE_ORIGIN') + '/?scope=' + ctx.scopeId, secrets: { email: '${CANARY}' } };
 };
 `,
   );
-  await put('.lab/setup/broken.ts', "export default async () => { throw new Error('setup exploded'); };\n");
+  await put('.cohort/setup/broken.ts', "export default async () => { throw new Error('setup exploded'); };\n");
   const suite = (id: string, defaults: string): Promise<void> =>
     put(
-      `.lab/suites/${id}.yml`,
+      `.cohort/suites/${id}.yml`,
       `schemaVersion: 1\nid: ${id}\nname: ${id}\ndefaults:\n${defaults}entries:\n  - persona: guest\n`,
     );
   await suite('healthy', '  setup: ../setup/fixture.ts\n  repeats: 2\n');
   await suite('secret', '  setup: ../setup/secret.ts\n');
   await suite('broken', '  setup: ../setup/broken.ts\n');
   await put(
-    '.lab/setup/leaky.ts',
-    "export default async (ctx) => { throw new Error('login failed for ' + ctx.env('LAB_TEST_PASSWORD') + ' with sk-inline-key-123'); };\n",
+    '.cohort/setup/leaky.ts',
+    "export default async (ctx) => { throw new Error('login failed for ' + ctx.env('COHORT_TEST_PASSWORD') + ' with sk-inline-key-123'); };\n",
   );
   await suite('leaky', '  setup: ../setup/leaky.ts\n');
   await put(
-    '.lab/setup/leaky-env.ts',
-    "export default async (ctx) => { throw new Error('bad ' + ctx.env('LAB_LEAK')); };\n",
+    '.cohort/setup/leaky-env.ts',
+    "export default async (ctx) => { throw new Error('bad ' + ctx.env('COHORT_LEAK')); };\n",
   );
   await suite('leakyenv', '  setup: ../setup/leaky-env.ts\n');
-  await put('.lab/setup/hang.ts', 'export default () => new Promise(() => {});\n');
+  await put('.cohort/setup/hang.ts', 'export default () => new Promise(() => {});\n');
   await suite('hang', '  setup: ../setup/hang.ts\n');
-  await put('.lab/setup/hang-load.ts', 'await new Promise(() => {});\nexport default () => ({});\n');
+  await put('.cohort/setup/hang-load.ts', 'await new Promise(() => {});\nexport default () => ({});\n');
   await suite('hangload', '  setup: ../setup/hang-load.ts\n');
   await put(
-    '.lab/setup/stuck-fail.ts',
+    '.cohort/setup/stuck-fail.ts',
     "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); throw new Error('nope'); };\n",
   );
   await suite('stuckfail', '  setup: ../setup/stuck-fail.ts\n');
   await put(
-    '.lab/setup/stuck-cleanup.ts',
-    "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); return { startUrl: ctx.env('LAB_FIXTURE_ORIGIN') + '/' }; };\n",
+    '.cohort/setup/stuck-cleanup.ts',
+    "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); return { startUrl: ctx.env('COHORT_FIXTURE_ORIGIN') + '/' }; };\n",
   );
   await suite('stuckcleanup', '  setup: ../setup/stuck-cleanup.ts\n');
   await suite('badshape', `  url: ${fixture.url}/\n  storageState: badshape\n`);
-  await put('.lab/auth/badshape.json', '{ "cookies": [null], "origins": [] }');
+  await put('.cohort/auth/badshape.json', '{ "cookies": [null], "origins": [] }');
   await suite('authed', `  url: ${fixture.url}/lab/state?scope=authed\n  storageState: host\n`);
   await suite('badstate', `  url: ${fixture.url}/\n  storageState: corrupt\n`);
   await put(
-    '.lab/auth/host.json',
+    '.cohort/auth/host.json',
     JSON.stringify({
       cookies: [
         {
@@ -116,8 +116,8 @@ before(async () => {
       origins: [],
     }),
   );
-  await put('.lab/auth/corrupt.json', '{ nope');
-  await copyFile(join(repoRoot, 'examples/setup/fixture-auth.ts'), join(root, '.lab/setup/fixture-auth.ts'));
+  await put('.cohort/auth/corrupt.json', '{ nope');
+  await copyFile(join(repoRoot, 'examples/setup/fixture-auth.ts'), join(root, '.cohort/setup/fixture-auth.ts'));
   await suite('authcode', '  setup: ../setup/fixture-auth.ts\n  storageState: host\n  repeats: 2\n');
   await suite('expired', `  url: ${fixture.url}/lab/account?scope=expired\n  storageState: host\n`);
   await suite(
@@ -129,8 +129,8 @@ before(async () => {
     `  url: ${fixture.url}/\n  routes:\n    - match: "**/*"\n      action: fulfill\n      contentType: text/html\n      body: "<script>window.open('https://accounts.google.com/o/oauth2/auth')</script>"\n`,
   );
   await put(
-    '.lab/setup/override.ts',
-    "export default async (ctx) => ({ startUrl: ctx.env('LAB_FIXTURE_ORIGIN') + '/', tools: { fill: { description: 'x', inputSchema: { type: 'object' }, execute: async () => ({}) } } });\n",
+    '.cohort/setup/override.ts',
+    "export default async (ctx) => ({ startUrl: ctx.env('COHORT_FIXTURE_ORIGIN') + '/', tools: { fill: { description: 'x', inputSchema: { type: 'object' }, execute: async () => ({}) } } });\n",
   );
   await suite('override', '  setup: ../setup/override.ts\n');
   await suite('saved', `  url: ${fixture.url}/lab/state?scope=saved\n  storageState: saved-host\n`);
@@ -160,7 +160,7 @@ async function cli(argv: string[], options: LabOptions = {}): Promise<{ code: nu
     },
     {
       cwd: root,
-      env: options.env ?? { OPENAI_API_KEY: 'test-key', LAB_FIXTURE_ORIGIN: fixture.url },
+      env: options.env ?? { OPENAI_API_KEY: 'test-key', COHORT_FIXTURE_ORIGIN: fixture.url },
       ...(options.fake === false ? {} : { providers: (options.providers ?? { openai: provider }) as never }),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.openTrace ? { openTrace: options.openTrace } : {}),
@@ -172,7 +172,7 @@ async function cli(argv: string[], options: LabOptions = {}): Promise<{ code: nu
   return { code, out, json };
 }
 
-const runCount = async (): Promise<number> => (await readdir(join(root, '.lab/runs')).catch(() => [])).length;
+const runCount = async (): Promise<number> => (await readdir(join(root, '.cohort/runs')).catch(() => [])).length;
 
 test('a suite run repeats with one frozen request, fresh artifacts, and exit 0', async () => {
   turn = done;
@@ -190,7 +190,7 @@ test('a suite run repeats with one frozen request, fresh artifacts, and exit 0',
   }
   assert.deepEqual(configs[0].request, configs[1].request);
   assert.equal(configs[0].request.catalog.entry.id, 'test-model');
-  assert.equal(configs[0].setup.path, '.lab/setup/fixture.ts');
+  assert.equal(configs[0].setup.path, '.cohort/setup/fixture.ts');
   const sent = provider.requests.slice(sentBefore);
   assert.equal(sent.length, 2);
   assert.ok(sent.every((request) => request.model === 'test-model' && request.effort === 'low'));
@@ -277,7 +277,7 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   assert.match((await cli(['report', first.runId, '--format', 'html'])).out, /^<!doctype html>/u);
   for (const bad of ['../../etc', 'run_x', `${first.runId}/..`])
     assert.equal((await cli(['report', bad])).code, 2, bad);
-  const linked = join(root, '.lab/runs/run_20260101_000000_abcdef');
+  const linked = join(root, '.cohort/runs/run_20260101_000000_abcdef');
   await mkdir(linked);
   await writeFile(join(root, '.env.secret'), 'TOKEN=report-link-leak');
   await symlink(join(root, '.env.secret'), join(linked, 'report.json'));
@@ -312,18 +312,18 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   const configPath = join(first.outDir, 'resolved-config.json');
   const original = await readFile(configPath, 'utf8');
   const replayWith = async (setup: string, leak: string) => {
-    const path = `.lab/setup/replay-${createHash('sha256').update(setup).digest('hex').slice(0, 8)}.ts`;
+    const path = `.cohort/setup/replay-${createHash('sha256').update(setup).digest('hex').slice(0, 8)}.ts`;
     await put(path, setup);
     const config = JSON.parse(original);
     config.setup.path = path;
     config.request.limits.timeMs = 300;
     await writeFile(configPath, JSON.stringify(config));
-    const env = { OPENAI_API_KEY: 'sk-replay-provider-9', LAB_LEAK: leak, LAB_FIXTURE_ORIGIN: fixture.url };
+    const env = { OPENAI_API_KEY: 'sk-replay-provider-9', COHORT_LEAK: leak, COHORT_FIXTURE_ORIGIN: fixture.url };
     const hung = new Promise<null>((resolve) => setTimeout(resolve, 5000, null).unref());
     return Promise.race([cli(['replay', first.runId], { env }), hung]);
   };
   const leakSetup =
-    "export default async (ctx) => { throw new Error('bad ' + ctx.env('LAB_LEAK') + ' sk-replay-provider-9'); };\n";
+    "export default async (ctx) => { throw new Error('bad ' + ctx.env('COHORT_LEAK') + ' sk-replay-provider-9'); };\n";
   assert.deepEqual(await replayWith(leakSetup, 'replay-canary-77'), {
     code: 2,
     out: 'Error: replay setup failed: bad [env] [env]\n',
@@ -403,12 +403,12 @@ test('a missing provider key or broken named state fails preflight with exit 2 a
       'origins[0].indexedDB',
     ],
   ] as const) {
-    await put('.lab/auth/badshape.json', JSON.stringify(state));
+    await put('.cohort/auth/badshape.json', JSON.stringify(state));
     const nulled = await lab(['--suite', 'badshape', '--json']);
     assert.equal(nulled.code, 2);
     assert.match(nulled.json.error, new RegExp(`badshape\\.${field.replace(/[.[\]]/gu, '\\$&')}:`, 'u'));
   }
-  await put('.lab/auth/badshape.json', '{ "cookies": [null], "origins": [] }');
+  await put('.cohort/auth/badshape.json', '{ "cookies": [null], "origins": [] }');
   assert.equal(await runCount(), runs);
 });
 
@@ -481,7 +481,7 @@ test('a run whose bundle cannot be finalized still counts in batch metrics and c
   let calls = 0;
   turn = (request) => {
     if (calls++ === 1) {
-      const runs = join(root, '.lab/runs');
+      const runs = join(root, '.cohort/runs');
       const open = readdirSync(runs).filter(
         (name) => name.startsWith('run_') && !existsSync(join(runs, name, 'report.json')),
       );
@@ -577,7 +577,7 @@ test('bearer URLs are reduced to origin and path in resolved config', async () =
 });
 
 test('setup errors never echo environment values or provider keys', async () => {
-  const env = { OPENAI_API_KEY: 'sk-inline-key-123', LAB_TEST_PASSWORD: 'pw-canary-5151' };
+  const env = { OPENAI_API_KEY: 'sk-inline-key-123', COHORT_TEST_PASSWORD: 'pw-canary-5151' };
   const { code, out, json } = await lab(['--suite', 'leaky', '--json'], { env });
   assert.equal(code, 1);
   assert.doesNotMatch(out, /pw-canary|sk-inline/u);
@@ -586,7 +586,7 @@ test('setup errors never echo environment values or provider keys', async () => 
     ['line-one-77\nline-two-88', 'bad [env]'],
     ['42', 'error message withheld: it may contain an environment value'],
   ]) {
-    const leak = await lab(['--suite', 'leakyenv', '--json'], { env: { LAB_LEAK: value } });
+    const leak = await lab(['--suite', 'leakyenv', '--json'], { env: { COHORT_LEAK: value } });
     assert.equal(leak.json.runs[0].outcome.reason, reason);
   }
 });
@@ -714,7 +714,7 @@ test('a setup module signs in with storage state; its code tool rebinds just bef
 
   // Setup spends nearly the whole cap, so the tool bridge must have almost none left.
   await put(
-    '.lab/setup/slow-auth.ts',
+    '.cohort/setup/slow-auth.ts',
     "import auth from './fixture-auth.ts';\nexport default async (ctx) => {\n  await new Promise((resolve) => setTimeout(resolve, 1500));\n  return auth(ctx);\n};\n",
   );
   const configPath = join(first.outDir, 'resolved-config.json');
@@ -745,7 +745,7 @@ test('known identity, captcha, and payment destinations end as harness-detected 
   assert.equal(calls, 0, 'an expired login stops before any provider call');
   const outcome = expired.json.runs[0].outcome;
   assert.deepEqual([outcome.state, outcome.kind, outcome.detectedBy], ['blocked', 'oauth', 'harness']);
-  assert.match(outcome.reason, /accounts\.google\.com.*lab login/u);
+  assert.match(outcome.reason, /accounts\.google\.com.*cohort login/u);
   assert.equal(outcome.evidence.length, 1);
 
   const pay = await lab(['--persona', 'guest', '--url', `${fixture.url}/lab/payment`, '--json']);
@@ -804,16 +804,16 @@ test('route mocks and blocks apply inside the allowlist and are reported on ever
   assert.match(replay, /page\.route\("\*\*\/lab\/routed", \(route\) => route\.fulfill/u);
 });
 
-test('lab login saves a private named state that a suite uses without a setup module', async () => {
+test('cohort login saves a private named state that a suite uses without a setup module', async () => {
   const bad = await cli(['login', '--url', `${fixture.url}/`, '--state', '../escape']);
   assert.deepEqual([bad.code, bad.out], [2, 'Error: invalid storage state name: ../escape\n']);
   const login = await cli(['login', '--url', `${fixture.url}/lab/state?scope=login`, '--state', 'saved-host'], {
     login: { headless: true, ready: async () => {} },
   });
   assert.equal(login.code, 0, login.out);
-  assert.match(login.out, /saved \.lab\/auth\/saved-host\.json \(1 cookie\(s\), 1 origin\(s\)\)/u);
+  assert.match(login.out, /saved \.cohort\/auth\/saved-host\.json \(1 cookie\(s\), 1 origin\(s\)\)/u);
   assert.ok(!login.out.includes('lab_visited=1'));
-  const saved = join(root, '.lab/auth/saved-host.json');
+  const saved = join(root, '.cohort/auth/saved-host.json');
   assert.equal((await stat(saved)).mode & 0o777, 0o600);
   turn = done;
   assert.equal((await lab(['--suite', 'saved'])).code, 0);

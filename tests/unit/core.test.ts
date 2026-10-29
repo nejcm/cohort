@@ -161,7 +161,7 @@ test('generated replay binds secrets from the environment and skips failed steps
       ),
     ],
   );
-  assert.match(script, /page\.goto\(binding\('LAB_START_URL'\)\)/u);
+  assert.match(script, /page\.goto\(binding\('COHORT_START_URL'\)\)/u);
   assert.match(script, /getByLabel\("Email", \{ exact: true \}\)\.fill\(bind\("\{\{email\}\}"\)\)/u);
   assert.match(script, /selectOption\(\{ label: "Evening" \}\)/u);
   assert.match(script, /\.click\(\{ position: \{"x":4,"y":5\.5\} \}\)/u);
@@ -170,7 +170,7 @@ test('generated replay binds secrets from the environment and skips failed steps
   assert.ok(!script.includes('screenshot'), 'replay must not write unmasked images');
   assert.match(
     script,
-    /locale: "sl-SI",\n  timezoneId: "Europe\/Ljubljana",\n  \.\.\.\(process.env.LAB_STORAGE_STATE/u,
+    /locale: "sl-SI",\n  timezoneId: "Europe\/Ljubljana",\n  \.\.\.\(process.env.COHORT_STORAGE_STATE/u,
   );
 });
 

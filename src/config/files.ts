@@ -50,7 +50,7 @@ export interface Persona {
   model?: string;
   effort?: Effort;
   limits?: Partial<Limits>;
-  /** Absolute path, resolved from the declaring file and contained in `.lab/setup/`. */
+  /** Absolute path, resolved from the declaring file and contained in `.cohort/setup/`. */
   setup?: string;
   storageState?: string;
   body: string;
@@ -334,7 +334,7 @@ function checkLocaleAndZone(persona: { locale: string; timezone: string }, sourc
 async function setupPath(projectRoot: string, declaringDir: string, value: string, source: string): Promise<string> {
   const path = resolve(declaringDir, value);
   try {
-    await containedFile(projectRoot, path, ['.lab', 'setup']);
+    await containedFile(projectRoot, path, ['.cohort', 'setup']);
   } catch (error) {
     throw new ConfigError(`${source}.setup: ${(error as Error).message}`);
   }
@@ -342,10 +342,10 @@ async function setupPath(projectRoot: string, declaringDir: string, value: strin
 }
 
 export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfig> {
-  const source = '.lab/config.yml';
+  const source = '.cohort/config.yml';
   return checked<ProjectConfig>(
     projectSchema,
-    parseYaml(await readContained(projectRoot, ['.lab'], 'config.yml'), source),
+    parseYaml(await readContained(projectRoot, ['.cohort'], 'config.yml'), source),
     source,
   );
 }
@@ -369,7 +369,7 @@ async function requireFile(projectRoot: string, path: string, what: string): Pro
 }
 
 export async function listIds(projectRoot: string, dir: string, extension: string): Promise<string[]> {
-  const names = await readdir(join(projectRoot, '.lab', dir)).catch(() => []);
+  const names = await readdir(join(projectRoot, '.cohort', dir)).catch(() => []);
   return names
     .filter((name) => name.endsWith(extension))
     .map((name) => name.slice(0, -extension.length))
@@ -378,12 +378,12 @@ export async function listIds(projectRoot: string, dir: string, extension: strin
 
 export async function loadPersona(projectRoot: string, personaId: string): Promise<Persona> {
   if (!new RegExp(ID, 'u').test(personaId)) throw new ConfigError(`invalid persona id: ${personaId}`);
-  const source = `.lab/personas/${personaId}.md`;
+  const source = `.cohort/personas/${personaId}.md`;
   await requireFile(projectRoot, source, `persona ${personaId}`);
-  const persona = parsePersona(await readContained(projectRoot, ['.lab', 'personas'], `${personaId}.md`), source);
+  const persona = parsePersona(await readContained(projectRoot, ['.cohort', 'personas'], `${personaId}.md`), source);
   if (persona.id !== personaId) throw new ConfigError(`${source}: id ${persona.id} does not match the file name`);
   if (persona.setup)
-    persona.setup = await setupPath(projectRoot, join(projectRoot, '.lab', 'personas'), persona.setup, source);
+    persona.setup = await setupPath(projectRoot, join(projectRoot, '.cohort', 'personas'), persona.setup, source);
   return persona;
 }
 
@@ -418,7 +418,7 @@ export async function checkProject(
       (suite) =>
         suite.entries.forEach((entry, index) => {
           if (!personaIds.includes(entry.persona))
-            problems.push(`.lab/suites/${suiteId}.yml entries[${index}]: unknown persona ${entry.persona}`);
+            problems.push(`.cohort/suites/${suiteId}.yml entries[${index}]: unknown persona ${entry.persona}`);
         }),
       (error: unknown) => problems.push(message(error)),
     );
@@ -432,7 +432,7 @@ export function parseSuite(content: string, source: string): Suite {
   return suite;
 }
 
-/** Raw text of `.lab/<kind>/<id>.<ext>`, or null when absent; bad IDs, symlinks, and escapes are rejected. */
+/** Raw text of `.cohort/<kind>/<id>.<ext>`, or null when absent; bad IDs, symlinks, and escapes are rejected. */
 export async function readDeclared(
   projectRoot: string,
   kind: 'personas' | 'suites',
@@ -440,20 +440,20 @@ export async function readDeclared(
 ): Promise<string | null> {
   if (!new RegExp(ID, 'u').test(fileId)) throw new ConfigError(`invalid ${kind.slice(0, -1)} id: ${fileId}`);
   const name = `${fileId}.${kind === 'personas' ? 'md' : 'yml'}`;
-  if (!(await lstat(join(projectRoot, '.lab', kind, name)).catch(() => null))) return null;
-  return readContained(projectRoot, ['.lab', kind], name);
+  if (!(await lstat(join(projectRoot, '.cohort', kind, name)).catch(() => null))) return null;
+  return readContained(projectRoot, ['.cohort', kind], name);
 }
 
 export async function loadSuite(projectRoot: string, suiteId: string): Promise<Suite> {
   if (!new RegExp(ID, 'u').test(suiteId)) throw new ConfigError(`invalid suite id: ${suiteId}`);
-  const source = `.lab/suites/${suiteId}.yml`;
+  const source = `.cohort/suites/${suiteId}.yml`;
   await requireFile(projectRoot, source, `suite ${suiteId}`);
-  const suite = parseSuite(await readContained(projectRoot, ['.lab', 'suites'], `${suiteId}.yml`), source);
+  const suite = parseSuite(await readContained(projectRoot, ['.cohort', 'suites'], `${suiteId}.yml`), source);
   if (suite.id !== suiteId) throw new ConfigError(`${source}: id ${suite.id} does not match the file name`);
   if (suite.defaults.setup)
     suite.defaults.setup = await setupPath(
       projectRoot,
-      join(projectRoot, '.lab', 'suites'),
+      join(projectRoot, '.cohort', 'suites'),
       suite.defaults.setup,
       source,
     );
@@ -462,7 +462,7 @@ export async function loadSuite(projectRoot: string, suiteId: string): Promise<S
 
 export async function loadStorageState(projectRoot: string, name: string): Promise<Record<string, unknown>> {
   if (!new RegExp(ID, 'u').test(name)) throw new ConfigError(`invalid storage state name: ${name}`);
-  const content = await readContained(projectRoot, ['.lab', 'auth'], `${name}.json`);
+  const content = await readContained(projectRoot, ['.cohort', 'auth'], `${name}.json`);
   let value: unknown;
   try {
     value = JSON.parse(content);
@@ -472,13 +472,13 @@ export async function loadStorageState(projectRoot: string, name: string): Promi
   return checked<Record<string, unknown>>(storageStateSchema, value, `storage state ${name}`);
 }
 
-/** Writes `.lab/auth/<name>.json` owner-only and atomically; refuses symlinked directories. */
+/** Writes `.cohort/auth/<name>.json` owner-only and atomically; refuses symlinked directories. */
 export async function saveStorageState(projectRoot: string, name: string, state: unknown): Promise<string> {
   if (!new RegExp(ID, 'u').test(name)) throw new ConfigError(`invalid storage state name: ${name}`);
   checked(storageStateSchema, state, `storage state ${name}`);
-  const dir = join(projectRoot, '.lab', 'auth');
-  // Checked level by level so a symlinked .lab never gets an auth directory created through it.
-  for (const path of [join(projectRoot, '.lab'), dir]) {
+  const dir = join(projectRoot, '.cohort', 'auth');
+  // Checked level by level so a symlinked .cohort never gets an auth directory created through it.
+  for (const path of [join(projectRoot, '.cohort'), dir]) {
     await mkdir(path, { recursive: true, mode: 0o700 });
     if ((await lstat(path)).isSymbolicLink())
       throw new ConfigError(`symlink not allowed: ${relative(projectRoot, path)}`);

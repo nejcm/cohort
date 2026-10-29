@@ -146,102 +146,137 @@
 
 <dialog bind:this={dialog} aria-labelledby="run-dialog-title">
   <form onsubmit={start}>
-    <h2 id="run-dialog-title">New run</h2>
-    {#if loadError}<p class="error" role="alert">{loadError}</p>{/if}
-    <fieldset>
-      <legend>What to run</legend>
-      <label for="run-kind">Dispatch</label>
-      <select id="run-kind" bind:value={kind}>
-        <option value="persona">Persona</option>
-        <option value="tag">Tag</option>
-        <option value="suite">Suite</option>
-        <option value="adhoc">Ad-hoc first-time user</option>
-      </select>
-      {#if kind !== 'adhoc'}
-        <label for="run-target">{kind === 'persona' ? 'Persona' : kind === 'tag' ? 'Tag' : 'Suite'}</label>
-        <select id="run-target" bind:value={target}>
-          {#each targets as item (item)}<option value={item}>{item}</option>{/each}
-        </select>
-      {/if}
-      <label for="run-url">URL{kind === 'adhoc' ? '' : ' (optional)'}</label>
-      <input id="run-url" type="url" bind:value={url} required={kind === 'adhoc'} placeholder="inherit" />
-      <label for="run-note">{kind === 'adhoc' ? 'Goal' : 'Note (optional)'}</label>
-      <textarea id="run-note" rows="2" bind:value={note} required={kind === 'adhoc'}></textarea>
-    </fieldset>
-    <fieldset>
-      <legend>Overrides (blank inherits)</legend>
-      <label for="run-mode">Mode</label>
-      <select id="run-mode" bind:value={mode}>
-        <option value="">Inherit ({config?.defaults.mode ?? 'vision'})</option>
-        <option value="vision">vision</option>
-        <option value="text">text</option>
-      </select>
-      <label for="run-repeats">Repeats</label>
-      <input id="run-repeats" type="number" min="1" max="100" bind:value={repeats} placeholder="inherit" />
-      <label for="run-steps">Step cap</label>
-      <input id="run-steps" type="number" min="1" bind:value={steps} placeholder="inherit" />
-      <label for="run-time">Time cap (ms)</label>
-      <input id="run-time" type="number" min="1" bind:value={timeMs} placeholder="inherit" />
-      <label for="run-dollars">Dollar cap per run</label>
-      <input id="run-dollars" type="number" min="0.01" step="0.01" bind:value={dollars} placeholder="inherit" />
-      {#if models}
-        <ModelPicker
-          {models}
-          mode={effectiveMode}
-          bind:model
-          bind:effort
-          inherited={config?.defaults.model ?? 'project default'}
-          {inheritedModels}
-          idPrefix="run"
-        />
-      {/if}
-      {#if untested}
-        <label class="inline"><input type="checkbox" bind:checked={allowUntested} /> Allow the untested model</label>
-      {/if}
-    </fieldset>
-    <section aria-live="polite" aria-label="Estimate">
-      {#if previewError}
-        <p class="error" role="alert">{previewError}</p>
-      {:else if preview}
-        <table>
-          <thead>
-            <tr><th>Persona</th><th>Model</th><th>Effort</th><th>Runs</th><th>Caps</th><th>Cost per run</th></tr>
-          </thead>
-          <tbody>
-            {#each preview.plans as plan, index (index)}
-              <tr>
-                <td>{plan.personaId}</td>
-                <td>
-                  {plan.provider}/{plan.model}
-                  <span class="hint">from {plan.modelFrom}</span>
-                  {#if plan.untested}<span class="badge">untested</span>{/if}
-                </td>
-                <td>{plan.effort} <span class="hint">from {plan.effortFrom}</span></td>
-                <td>{plan.repeats}</td>
-                <td>{plan.limits.steps} steps, {plan.limits.timeMs / 1000} s, {usd(plan.limits.dollars)}</td>
-                <td>
-                  {plan.estimatePerRun
-                    ? `${plan.estimatePerRun.basis} estimate ${usd(plan.estimatePerRun.minUsd)}–${usd(plan.estimatePerRun.maxUsd)}`
-                    : 'cost unknown; dollar cap unenforceable'}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        <p class="budget">
-          Batch budget: {preview.maxBatchUsd === null
-            ? 'unknown — some prices are missing, so only step and time caps apply'
-            : `at most ${usd(preview.maxBatchUsd)} (sum of dollar caps)`}
-        </p>
-      {:else if ready}
-        <p class="hint">Estimating…</p>
-      {/if}
-    </section>
-    <div class="actions">
+    <header>
+      <div>
+        <h2 id="run-dialog-title">New run</h2>
+        <p class="hint">Blank override fields inherit from the persona, suite or project config.</p>
+      </div>
+    </header>
+    <div class="dialog-body">
+      {#if loadError}<div class="banner error" role="alert"><div class="body"><span>{loadError}</span></div></div>{/if}
+      <fieldset>
+        <legend>What to run</legend>
+        <div class="form-grid">
+          <label for="run-kind">Dispatch
+            <select id="run-kind" bind:value={kind}>
+              <option value="persona">Persona</option>
+              <option value="tag">Tag</option>
+              <option value="suite">Suite</option>
+              <option value="adhoc">Ad-hoc first-time user</option>
+            </select>
+          </label>
+          {#if kind !== 'adhoc'}
+            <label for="run-target">{kind === 'persona' ? 'Persona' : kind === 'tag' ? 'Tag' : 'Suite'}
+              <select id="run-target" bind:value={target}>
+                {#each targets as item (item)}<option value={item}>{item}</option>{/each}
+              </select>
+            </label>
+          {/if}
+          <label for="run-url"><span>URL <span class="opt">{kind === 'adhoc' ? 'required for ad-hoc' : 'optional'}</span></span>
+            <input id="run-url" type="url" bind:value={url} required={kind === 'adhoc'} placeholder="inherit" />
+          </label>
+          <label for="run-note" class={kind === 'adhoc' ? 'span-2' : ''}>
+            <span>{kind === 'adhoc' ? 'Goal' : 'Note'} {#if kind !== 'adhoc'}<span class="opt">optional</span>{/if}</span>
+            <textarea id="run-note" rows="2" bind:value={note} required={kind === 'adhoc'}></textarea>
+          </label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Overrides (blank inherits)</legend>
+        <div class="form-grid cols-4">
+          <label for="run-mode">Mode
+            <select id="run-mode" bind:value={mode}>
+              <option value="">Inherit ({config?.defaults.mode ?? 'vision'})</option>
+              <option value="vision">vision</option>
+              <option value="text">text</option>
+            </select>
+          </label>
+          <label for="run-repeats">Repeats
+            <input id="run-repeats" type="number" min="1" max="100" bind:value={repeats} placeholder="inherit" />
+          </label>
+          <label for="run-steps">Step cap
+            <input id="run-steps" type="number" min="1" bind:value={steps} placeholder="inherit" />
+          </label>
+          <label for="run-time"><span>Time cap <span class="opt">ms</span></span>
+            <input id="run-time" type="number" min="1" bind:value={timeMs} placeholder="inherit" />
+          </label>
+          <label for="run-dollars">Dollar cap per run
+            <input id="run-dollars" type="number" min="0.01" step="0.01" bind:value={dollars} placeholder="inherit" />
+          </label>
+          {#if models}
+            <ModelPicker
+              {models}
+              mode={effectiveMode}
+              bind:model
+              bind:effort
+              inherited={config?.defaults.model ?? 'project default'}
+              {inheritedModels}
+              idPrefix="run"
+            />
+          {/if}
+          {#if untested}
+            <label class="check risk span-2">
+              <input type="checkbox" bind:checked={allowUntested} />
+              <span><strong>Allow the untested model</strong> <span class="badge untested">untested</span></span>
+            </label>
+          {/if}
+        </div>
+      </fieldset>
+      <section class="estimate" aria-live="polite" aria-labelledby="estimate-title">
+        <div class="estimate-head"><h3 id="estimate-title">Estimate</h3><span class="hint">Updates as you edit</span></div>
+        {#if previewError}
+          <div class="banner error" role="alert"><div class="body"><span>{previewError}</span></div></div>
+        {:else if preview}
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Persona</th><th scope="col">Model</th><th scope="col">Effort</th>
+                  <th scope="col" class="num">Runs</th><th scope="col">Caps</th><th scope="col" class="num">Cost per run</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each preview.plans as plan, index (index)}
+                  <tr>
+                    <td>{plan.personaId}</td>
+                    <td>
+                      <span class="mono">{plan.provider}/{plan.model}</span>
+                      {#if plan.untested}<span class="badge untested">untested</span>{/if}
+                      <span class="hint block">from {plan.modelFrom}</span>
+                    </td>
+                    <td>{plan.effort} <span class="hint block">from {plan.effortFrom}</span></td>
+                    <td class="num">{plan.repeats}</td>
+                    <td class="mono muted caps">{plan.limits.steps} steps · {plan.limits.timeMs / 1000} s · {usd(plan.limits.dollars)}</td>
+                    <td class="num">
+                      {#if plan.estimatePerRun}
+                        {`${plan.estimatePerRun.basis} estimate ${usd(plan.estimatePerRun.minUsd)}–${usd(plan.estimatePerRun.maxUsd)}`}
+                      {:else}
+                        <span class="unknown">cost unknown; dollar cap unenforceable</span>
+                      {/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <p class="budget">
+            {#if preview.maxBatchUsd === null}
+              <span class="unknown">Batch budget: unknown — some prices are missing, so only step and time caps apply</span>
+            {:else}
+              <span>Batch budget: at most <span class="num">{usd(preview.maxBatchUsd)}</span> <span class="muted">(sum of dollar caps)</span></span>
+            {/if}
+          </p>
+        {:else if ready}
+          <p class="budget muted">Estimating…</p>
+        {/if}
+      </section>
+    </div>
+    <footer>
+      {#if untested && !allowUntested}<p class="notice warn">Allow the untested model to start.</p>{/if}
       <button type="button" onclick={() => dialog.close()}>Close</button>
-      <button type="submit" disabled={!preview || submitting || (untested && !allowUntested)}>
+      <button type="submit" class="primary" disabled={!preview || submitting || (untested && !allowUntested)} aria-busy={submitting}>
         Start {runCount} run{runCount === 1 ? '' : 's'}
       </button>
-    </div>
+    </footer>
   </form>
 </dialog>

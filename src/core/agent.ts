@@ -270,7 +270,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     const evidence = lastEvidence();
     if (evidence.length === 0)
       return agentError('browser_error', `navigation to ${block.host} was blocked before any screenshot`);
-    const hint = block.kind === 'oauth' ? '; use a saved login (lab login) or setup storage state' : '';
+    const hint = block.kind === 'oauth' ? '; use a saved login (cohort login) or setup storage state' : '';
     return finish({
       state: 'blocked',
       kind: block.kind,
@@ -603,7 +603,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
               await bounded(resolved.locator.selectOption({ label: value }, { timeout: actionTimeout() }));
             else await bounded(resolved.locator.fill(value, { timeout: actionTimeout() }));
             if (secrets.hasPlaceholder(String(args.value)))
-              await resolved.locator.evaluate((element) => element.setAttribute('data-lab-masked', ''));
+              await resolved.locator.evaluate((element) => element.setAttribute('data-cohort-masked', ''));
           } else {
             await bounded(resolved.locator.hover({ position: resolved.position, timeout: actionTimeout() }));
             await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));

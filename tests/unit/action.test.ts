@@ -45,13 +45,13 @@ const OUTPUTS = [
 
 test('the Action script passes inputs as argv and maps the JSON result to outputs and the exit code', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'lab-action-'));
-  const stub = join(dir, 'lab');
+  const stub = join(dir, 'cohort');
   const outputFile = join(dir, 'output');
   await writeFile(
     stub,
     `#!/usr/bin/env node
 require('node:fs').writeFileSync(${JSON.stringify(join(dir, 'argv.json'))}, JSON.stringify(process.argv.slice(2)));
-console.log(JSON.stringify({ batchId: 'batch_x', reportDir: '/w/.lab/runs/batch_x', exitCode: 1,
+console.log(JSON.stringify({ batchId: 'batch_x', reportDir: '/w/.cohort/runs/batch_x', exitCode: 1,
   runs: [{ outcome: { state: 'completed' } }, { outcome: { state: 'blocked' } }, { outcome: { state: 'blocked' } }] }));
 process.exitCode = 1;
 `,
@@ -65,7 +65,7 @@ process.exitCode = 1;
       {
         env: {
           PATH: process.env.PATH,
-          LAB_BIN: stub,
+          COHORT_BIN: stub,
           GITHUB_OUTPUT: outputFile,
           INPUT_SUITE: 'smoke; echo pwned $(id)',
           INPUT_MODEL: '',
@@ -95,7 +95,7 @@ process.exitCode = 1;
   );
   assert.deepEqual(Object.keys(outputs).toSorted(), [...OUTPUTS].toSorted());
   assert.equal(outputs['batch-id'], 'batch_x');
-  assert.equal(outputs['report-path'], '/w/.lab/runs/batch_x/report.html');
+  assert.equal(outputs['report-path'], '/w/.cohort/runs/batch_x/report.html');
   assert.deepEqual([outputs.runs, outputs.completed, outputs.blocked, outputs['exit-code']], ['3', '1', '2', '1']);
   assert.doesNotMatch(result.stdout, /sk-action-canary/u);
 });
@@ -106,15 +106,15 @@ test('the documented workflow keeps keys in secrets and never uploads traces or 
   assert.ok(block, 'docs/github-action.md has a yaml example');
   const workflow = parse(block) as { jobs: Record<string, { steps: Step[] }> };
   const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
-  const lab = steps.find((step) => step.uses?.includes('synthetic-customer-lab'))!;
+  const lab = steps.find((step) => step.uses?.includes('cohort-lab'))!;
   assert.ok(lab, 'the example uses the Action');
   for (const value of Object.values(lab.env ?? {})) assert.match(value, /^\$\{\{ secrets\.[A-Z_]+ \}\}$/u);
   assert.ok(Object.keys(lab.with ?? {}).every((name) => !/key|token|secret/iu.test(name)));
   const upload = steps.find((step) => step.uses?.startsWith('actions/upload-artifact'))!;
   const paths = upload.with!.path!.split('\n').map((line) => line.trim());
-  assert.ok(paths.includes('!.lab/runs/**/trace.zip'), 'traces are excluded');
+  assert.ok(paths.includes('!.cohort/runs/**/trace.zip'), 'traces are excluded');
   assert.ok(
-    !paths.some((path) => path.includes('.lab/auth') && !path.startsWith('!')),
+    !paths.some((path) => path.includes('.cohort/auth') && !path.startsWith('!')),
     'saved logins are not uploaded',
   );
 });

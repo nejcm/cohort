@@ -21,10 +21,10 @@ playwright-report/
 .env.*
 !.env.example
 
-# lab runtime state
-.lab/auth/
-.lab/runs/
-.lab/index.sqlite*
+# cohort runtime state
+.cohort/auth/
+.cohort/runs/
+.cohort/index.sqlite*
 
 # local planning notes
 .plans/

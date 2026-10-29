@@ -1,4 +1,4 @@
-# Competitive intelligence: Synthetic Customer Lab
+# Competitive intelligence: cohort.
 
 **As of / sources accessed: 2026-10-28.** Decision: whether a solo developer should build README direction A versus B/C. Scope: English-language web SaaS, global self-serve distribution, initially teams of 2–10 engineers with GitHub and working preview environments. Prices are USD before tax; annual commitments are marked.
 

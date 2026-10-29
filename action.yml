@@ -1,6 +1,6 @@
-name: Synthetic Customer Lab
+name: cohort.
 description: Run synthetic-user journeys with the lab CLI from the same release as this Action.
-author: Synthetic Customer Lab contributors
+author: cohort. contributors
 
 inputs:
   persona:
@@ -19,7 +19,7 @@ inputs:
     description: Ad-hoc goal or note.
     required: false
   model:
-    description: Optional <provider>/<id> override, same precedence as lab run --model.
+    description: Optional <provider>/<id> override, same precedence as cohort run --model.
     required: false
   effort:
     description: Optional low|medium|high override.
@@ -32,7 +32,7 @@ inputs:
     required: false
     default: 'false'
   working-directory:
-    description: Project directory that contains .lab/.
+    description: Project directory that contains .cohort/.
     required: false
     default: '.'
   install-browser:
@@ -79,17 +79,17 @@ runs:
     - name: Install the lab CLI
       shell: bash
       env:
-        LAB_PREFIX: ${{ runner.temp }}/synthetic-customer-lab
-        LAB_PACKAGE: ${{ inputs.package }}
+        COHORT_PREFIX: ${{ runner.temp }}/cohort-lab
+        COHORT_PACKAGE: ${{ inputs.package }}
       run: |
-        spec="${LAB_PACKAGE:-synthetic-customer-lab@$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package.json').version")}"
-        npm install --prefix "$LAB_PREFIX" --no-save --no-audit --no-fund "$spec"
-        echo "$LAB_PREFIX/node_modules/.bin" >> "$GITHUB_PATH"
+        spec="${COHORT_PACKAGE:-cohort-lab@$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package.json').version")}"
+        npm install --prefix "$COHORT_PREFIX" --no-save --no-audit --no-fund "$spec"
+        echo "$COHORT_PREFIX/node_modules/.bin" >> "$GITHUB_PATH"
     - name: Install Chromium
       if: inputs.install-browser == 'true'
       shell: bash
       run: playwright install --with-deps chromium
-    - name: Run lab
+    - name: Run cohort
       id: run
       shell: bash
       working-directory: ${{ inputs.working-directory }}

@@ -7,5 +7,5 @@
   "printWidth": 120,
   "trailingComma": "all",
   "arrowParens": "always",
-  "ignorePatterns": ["dist/**", "coverage/**", "**/*.md", ".lab/runs/**", "docs/report-examples/**", "bun.lock"]
+  "ignorePatterns": ["dist/**", "coverage/**", "**/*.md", ".cohort/runs/**", "docs/report-examples/**", "bun.lock"]
 }

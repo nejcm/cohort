@@ -1,4 +1,4 @@
-// Regenerates one bundle per outcome plus their batch report from the fixture app and a scripted model, laid out like .lab/runs.
+// Regenerates one bundle per outcome plus their batch report from the fixture app and a scripted model, laid out like .cohort/runs.
 // Run: node examples/report-examples.ts
 import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -17,13 +17,13 @@ const put = async (path: string, content: string): Promise<void> => {
   await mkdir(dirname(join(root, path)), { recursive: true });
   await writeFile(join(root, path), content);
 };
-await put('.lab/config.yml', 'schemaVersion: 1\nmodel: openai/example-model\nlimits: { steps: 4, timeMs: 30000 }\n');
+await put('.cohort/config.yml', 'schemaVersion: 1\nmodel: openai/example-model\nlimits: { steps: 4, timeMs: 30000 }\n');
 await put(
-  '.lab/models.yml',
+  '.cohort/models.yml',
   'version: example\nmodels:\n  - id: example-model\n    provider: openai\n    label: Example model\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
 );
 await put(
-  '.lab/personas/guest.md',
+  '.cohort/personas/guest.md',
   '---\nschemaVersion: 1\nid: guest\nname: Guest\ntags: [guest]\ndevice: { viewport: { width: 800, height: 600 }, touch: false }\nlocale: en-US\ntimezone: UTC\ngoal: Request a stay.\n---\n\nYou are a first-time guest.\n',
 );
 

@@ -23,9 +23,9 @@ export class BundleError extends Error {
 export async function bundleDir(projectRoot: string, id: string): Promise<{ kind: 'run' | 'batch'; dir: string }> {
   const kind = RUN_ID.test(id) ? 'run' : BATCH_ID.test(id) ? 'batch' : null;
   if (!kind) throw new BundleError(`not a run or batch ID: ${id}`);
-  const runs = join(projectRoot, '.lab', 'runs');
+  const runs = join(projectRoot, '.cohort', 'runs');
   const dir = join(runs, id);
-  for (const path of [join(projectRoot, '.lab'), runs, dir]) {
+  for (const path of [join(projectRoot, '.cohort'), runs, dir]) {
     const info = await lstat(path).catch(() => null);
     if (!info) throw new BundleError(`no artifacts for ${id}`);
     if (!info.isDirectory()) throw new BundleError(`${id}: artifact path is not a plain directory`);

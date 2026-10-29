@@ -1,5 +1,5 @@
 {
-  "name": "synthetic-customer-lab",
+  "name": "cohort-lab",
   "version": "0.1.0-rc.0",
   "description": "AI synthetic users that operate your web app and leave an inspectable Playwright trail.",
   "keywords": [
@@ -12,7 +12,7 @@
   ],
   "license": "Apache-2.0",
   "bin": {
-    "lab": "dist/cli.js"
+    "cohort": "dist/cli.js"
   },
   "directories": {
     "doc": "docs",

@@ -79,9 +79,9 @@ test('project models.yml overrides and extends the shipped catalog', async () =>
   const root = await mkdtemp(join(tmpdir(), 'lab-catalog-'));
   try {
     assert.equal((await loadCatalog(root)).version, shipped.version);
-    await mkdir(join(root, '.lab'));
+    await mkdir(join(root, '.cohort'));
     await writeFile(
-      join(root, '.lab', 'models.yml'),
+      join(root, '.cohort', 'models.yml'),
       `version: local-1
 models:
   - id: model-a
@@ -99,8 +99,8 @@ models:
     assert.equal(catalog.version, `${shipped.version}+local-1`);
     assert.equal(catalog.models.length, shipped.models.length + 1);
     assert.equal(resolveModel(catalog, 'openai/model-a', { mode: 'vision' }).effort, 'medium');
-    await writeFile(join(root, '.lab', 'models.yml'), 'version: bad\nmodels: [{ id: x }]\n');
-    await assert.rejects(loadCatalog(root), /\.lab\/models\.yml\.models\[0\]\.provider: required/u);
+    await writeFile(join(root, '.cohort', 'models.yml'), 'version: bad\nmodels: [{ id: x }]\n');
+    await assert.rejects(loadCatalog(root), /\.cohort\/models\.yml\.models\[0\]\.provider: required/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

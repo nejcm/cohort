@@ -99,11 +99,11 @@ before(async () => {
   );
   await writeFile(join(assets, 'app.js'), 'export {};\n');
   await put(
-    '.lab/config.yml',
+    '.cohort/config.yml',
     'schemaVersion: 1\nmodel: openai/test-model\nrepeats: 1\nlimits: { steps: 5, timeMs: 30000 }\n',
   );
   await put(
-    '.lab/models.yml',
+    '.cohort/models.yml',
     `version: test\nmodels:\n${[
       model(
         'test-model',
@@ -128,11 +128,11 @@ before(async () => {
       ),
     ].join('')}`,
   );
-  await put('.lab/personas/guest.md', PERSONA('guest'));
-  await put('.lab/setup/fixture.ts', 'export default async (ctx) => ({ startUrl: ctx.env("X") });\n');
-  await put('.lab/personas/scripted.md', PERSONA('scripted', 'setup: ../setup/fixture.ts\n'));
+  await put('.cohort/personas/guest.md', PERSONA('guest'));
+  await put('.cohort/setup/fixture.ts', 'export default async (ctx) => ({ startUrl: ctx.env("X") });\n');
+  await put('.cohort/personas/scripted.md', PERSONA('scripted', 'setup: ../setup/fixture.ts\n'));
   await put(
-    '.lab/suites/smoke.yml',
+    '.cohort/suites/smoke.yml',
     'schemaVersion: 1\nid: smoke\nname: Smoke\n# keep this comment\nentries:\n  - persona: guest\n',
   );
   turn = done;
@@ -159,7 +159,7 @@ after(async () => {
       else if (entry.name !== 'trace.zip' && (await readFile(path)).includes(KEY)) leaks.push(path);
     }
   }
-  await scan(join(root, '.lab'));
+  await scan(join(root, '.cohort'));
   await rm(root, { recursive: true, force: true });
   await rm(assets, { recursive: true, force: true });
   assert.deepEqual(leaks, [], 'no key in the database, events, or artifacts');
@@ -399,10 +399,10 @@ test('file edits use revisions, refuse setup changes, and never overwrite extern
   const read = (await call('GET', '/api/personas/guest')).json();
   assert.match(read.revision, /^sha256:/u);
   const edited = read.source.replace('Look around.', 'Find the menu.');
-  await writeFile(join(root, '.lab/personas/guest.md'), read.source.replace('You are a guest.', 'Edited outside.'));
+  await writeFile(join(root, '.cohort/personas/guest.md'), read.source.replace('You are a guest.', 'Edited outside.'));
   const stale = await call('PUT', '/api/personas/guest', { body: { source: edited, revision: read.revision } });
   assert.equal(stale.status, 409);
-  assert.match(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), /Edited outside/u);
+  assert.match(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), /Edited outside/u);
   const fresh = (await call('GET', '/api/personas/guest')).json();
   const saved = await call('PUT', '/api/personas/guest', {
     body: { source: fresh.source.replace('Look around.', 'Find the menu.'), revision: fresh.revision },
@@ -458,7 +458,7 @@ test('file edits use revisions, refuse setup changes, and never overwrite extern
   const entry = { persona: 'newcomer', goal: 'Book a table.', note: 'From an ad-hoc run.' };
   const appended = await call('POST', '/api/suites/smoke/entries', { body: { entry, revision: suite.revision } });
   assert.equal(appended.status, 200, appended.text);
-  const yaml = await readFile(join(root, '.lab/suites/smoke.yml'), 'utf8');
+  const yaml = await readFile(join(root, '.cohort/suites/smoke.yml'), 'utf8');
   assert.match(yaml, /# keep this comment/u);
   assert.equal(appended.json().parsed.entries.length, 2);
   assert.equal(
@@ -515,7 +515,7 @@ test('a forged manifest cannot reach files outside the bundle, directly or throu
   turn = done;
   const latest = { id: (await guestRun()).json().runIds[0] as string };
   await dashboard.queue.idle();
-  const dir = join(root, '.lab/runs', latest.id);
+  const dir = join(root, '.cohort/runs', latest.id);
   const outside = await mkdtemp(join(tmpdir(), 'lab-outside-'));
   await writeFile(join(outside, 'secret.txt'), 'outside-canary-5512');
   await symlink(outside, join(dir, 'linked'));
@@ -543,7 +543,7 @@ test('events stored after run.finished do not break a replayed stream', async ()
   turn = done;
   const runId = (await guestRun()).json().runIds[0] as string;
   await dashboard.queue.idle();
-  const side = new LabDb(join(root, '.lab/index.sqlite'));
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
   side.appendEvent(runId, 'friction.created', { runId, late: true });
   side.close();
   const replay = await call('GET', `/api/runs/${runId}/events`);
@@ -578,7 +578,7 @@ test('concurrent saves from one revision let exactly one win', async () => {
   const won = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
   assert.equal(won.length, 1);
   assert.ok(results.every((result) => result.status === 'fulfilled' || (result.reason as EditError).status === 409));
-  assert.equal(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), won[0]!.source);
+  assert.equal(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), won[0]!.source);
 });
 
 test('batch snapshots keep no URL query or fragment credentials', async () => {
@@ -591,7 +591,7 @@ test('batch snapshots keep no URL query or fragment credentials', async () => {
   await dashboard.queue.idle();
   const { batchId } = accepted.json();
   const batch = await call('GET', `/api/batches/${batchId}`);
-  const side = new LabDb(join(root, '.lab/index.sqlite'));
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
   const stored = side.batch(batchId)!.request_json;
   side.close();
   for (const text of [batch.text, stored]) assert.ok(!/query-canary|fragment-canary/u.test(text), text);
@@ -624,16 +624,16 @@ const orphan = (id: string, status: 'queued' | 'running', entry: number) => ({
   duration_ms: null,
   estimated_cost_usd: null,
   cap_enforcement: 'priced_reservations',
-  artifact_dir: `.lab/runs/${id}`,
+  artifact_dir: `.cohort/runs/${id}`,
   report_path: null,
   config_hash: 'sha256:y',
 });
 
 test('a restart marks orphaned runs interrupted with a bounded report and never resumes them', async () => {
   const restartRoot = await mkdtemp(join(tmpdir(), 'lab-restart-'));
-  await mkdir(join(restartRoot, '.lab'), { recursive: true });
-  await writeFile(join(restartRoot, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/test-model\n');
-  const db = new LabDb(join(restartRoot, '.lab/index.sqlite'));
+  await mkdir(join(restartRoot, '.cohort'), { recursive: true });
+  await writeFile(join(restartRoot, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/test-model\n');
+  const db = new LabDb(join(restartRoot, '.cohort/index.sqlite'));
   db.insertBatch('batch_20260101_000000_aaaaaa', {});
   const calls = provider.requests.length;
   db.insertRun(orphan('run_20260101_000000_aaaaa1', 'running', 0));
@@ -667,15 +667,15 @@ test('recovery repairs a missing manifest and never writes through a symlinked r
   const [latest] = (await call('GET', '/api/runs?limit=1')).json().runs;
   const partial = 'run_20260101_000000_bbbbb1';
   const linked = 'run_20260101_000000_bbbbb2';
-  const report = JSON.parse(await readFile(join(root, '.lab/runs', latest.id, 'report.json'), 'utf8'));
-  await mkdir(join(restartRoot, '.lab/runs', partial), { recursive: true });
+  const report = JSON.parse(await readFile(join(root, '.cohort/runs', latest.id, 'report.json'), 'utf8'));
+  await mkdir(join(restartRoot, '.cohort/runs', partial), { recursive: true });
   await writeFile(
-    join(restartRoot, '.lab/runs', partial, 'report.json'),
+    join(restartRoot, '.cohort/runs', partial, 'report.json'),
     JSON.stringify({ ...report, runId: partial, batchId: 'batch_20260101_000000_aaaaaa' }),
   );
-  await symlink(outside, join(restartRoot, '.lab/runs', linked));
-  await writeFile(join(restartRoot, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/test-model\n');
-  const db = new LabDb(join(restartRoot, '.lab/index.sqlite'));
+  await symlink(outside, join(restartRoot, '.cohort/runs', linked));
+  await writeFile(join(restartRoot, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/test-model\n');
+  const db = new LabDb(join(restartRoot, '.cohort/index.sqlite'));
   db.insertBatch('batch_20260101_000000_aaaaaa', {});
   db.insertRun(orphan(partial, 'running', 0));
   db.insertRun(orphan(linked, 'running', 1));
@@ -700,7 +700,7 @@ test('recovery repairs a missing manifest and never writes through a symlinked r
   }
 });
 
-test('lab ui binds loopback by default and warns before an explicit host override', async () => {
+test('cohort ui binds loopback by default and warns before an explicit host override', async () => {
   const start = async (args: string[]): Promise<string> => {
     const controller = new AbortController();
     let out = '';

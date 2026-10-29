@@ -112,8 +112,8 @@ test('fake-model guest journey completes on a phone, then its generated script r
       cwd: outDir,
       env: {
         ...process.env,
-        LAB_START_URL: `${fixture.url}/?scope=replay#tok-secret-1234`,
-        LAB_SECRET_GUEST_NAME: 'Ana Novak',
+        COHORT_START_URL: `${fixture.url}/?scope=replay#tok-secret-1234`,
+        COHORT_SECRET_GUEST_NAME: 'Ana Novak',
       },
     },
   );

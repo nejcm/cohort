@@ -19,19 +19,21 @@
   });
 </script>
 
-<h1>Suites</h1>
-{#if error}<p class="error" role="alert">{error}</p>{/if}
+<div class="page-head">
+  <div class="title"><h1>Suites</h1></div>
+  <p class="sub">{suites.length} {suites.length === 1 ? 'suite' : 'suites'} in <span class="mono">.cohort/suites/</span>. A suite is a list of persona and goal entries run together.</p>
+</div>
+{#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
 <div class="split">
   <nav aria-label="Suites">
-    {#if suites.length === 0}<p class="hint">No suites. Create <code>.lab/suites/&lt;id&gt;.yml</code> locally.</p>{/if}
-    <ul class="list">
+    {#if suites.length === 0}<p class="hint">No suites. Create <code>.cohort/suites/&lt;id&gt;.yml</code> locally.</p>{/if}
+    <ul class="item-list">
       {#each suites as suite (suite.id)}
         <li>
           <a href="#/suites/{encodeURIComponent(suite.id)}" aria-current={suite.id === id ? 'page' : undefined}>
-            {suite.name ?? suite.id}
+            <span class="id">{suite.name ?? suite.id}</span>
+            <span class="sub">{suite.entries} entries{#if suite.error} · <span class="badge failed">invalid</span>{/if}</span>
           </a>
-          <span class="hint">{suite.entries} entries</span>
-          {#if suite.error}<span class="badge error">invalid</span>{/if}
         </li>
       {/each}
     </ul>
@@ -40,7 +42,7 @@
     {#if id}
       <Editor kind="suites" {id} onsaved={list} />
     {:else}
-      <p>Select a suite to edit it.</p>
+      <div class="empty"><p>Select a suite to edit it.</p></div>
     {/if}
   </div>
 </div>

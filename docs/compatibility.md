@@ -10,7 +10,7 @@ Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, wi
 | Package manager for users | npm (no Bun) | `scripts/package-smoke.ts`: npm 12.2.1, Bun removed from `PATH` |
 | Bun | Development only (`bun@1.4.4`) | Local |
 | Playwright | 1.64.1, exact pin | Local |
-| Browser | Chromium 156.0.8078.4 (Playwright revision 1248), headless, plus headed for `lab login` | Headless local; the headed `lab login` window is not exercised by tests |
+| Browser | Chromium 156.0.8078.4 (Playwright revision 1248), headless, plus headed for `cohort login` | Headless local; the headed `cohort login` window is not exercised by tests |
 | Operating system | Linux | Local Linux 7.2; macOS and Windows untested |
 | OpenAI | Responses API through `fetch`, `reasoning.effort` | Fake HTTP server only; not live |
 | Anthropic | Messages API through `fetch`, `output_config.effort` | Fake HTTP server only; not live |
@@ -48,7 +48,7 @@ Text perception mode is not implemented yet, so "both modes" is unverified.
 ## Secret boundary
 
 - Before every capture, magenta (`rgb(255, 0, 255)`) overlays are drawn in every frame and open shadow root. They cover:
-  - `maskSelectors` and `[data-lab-masked]` fields;
+  - `maskSelectors` and `[data-cohort-masked]` fields;
   - elements whose value or rendered attribute (`placeholder`, `value`, `alt`, `title`, `aria-label`) contains a secret;
   - the deepest element whose text contains a whole secret, which also catches secrets split across spans. Both the element's boxes and its content boxes are covered, so text under `display: contents` is masked too.
 - Tests decode the PNG and require every pixel of the rendered box to be masked for filled email and one-time-code fields, a DOM mirror, a fragment echo, split text, `display: contents` text, a placeholder, an open shadow root, a srcdoc frame, and a button label.
@@ -76,15 +76,15 @@ At each clean capture every element's box is recorded and the mutation log is re
 
 ## Runtime
 
-- Setup modules load natively with type stripping. Relative imports must use explicit `.ts` extensions. Modules must live inside `.lab/setup/` and the path must not contain symlinks.
+- Setup modules load natively with type stripping. Relative imports must use explicit `.ts` extensions. Modules must live inside `.cohort/setup/` and the path must not contain symlinks.
 - `node:sqlite` works in a child Node process. Node v26.8.2 printed no warning; check the Node 24 warning on the first CI run.
-- Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `LAB_START_URL`, and pass secrets as `LAB_SECRET_<NAME>`. It ends by waiting up to 5 s for network idle, so a final form post completes. With persistent connections it simply proceeds after 5 s.
+- Generated `replay.spec.ts` runs with `@playwright/test`. Start it with `COHORT_START_URL`, and pass secrets as `COHORT_SECRET_<NAME>`. It ends by waiting up to 5 s for network idle, so a final form post completes. With persistent connections it simply proceeds after 5 s.
 - If writing `trace.zip` fails, the run still writes `steps.jsonl` and the replay, reports `tracePath: null`, and records issue `trace_failed`.
 
 ## Runner and configuration (Phase 1)
 
-- `.lab/config.yml`, personas, and suites are validated against closed schemas (unknown fields and schema versions fail). Persona viewports are 240-3840 x 240-2160; locales and time zones must be accepted by `Intl`.
-- Persona, suite, storage-state, and setup paths must stay inside their `.lab/` folders with no symlinked segment.
+- `.cohort/config.yml`, personas, and suites are validated against closed schemas (unknown fields and schema versions fail). Persona viewports are 240-3840 x 240-2160; locales and time zones must be accepted by `Intl`.
+- Persona, suite, storage-state, and setup paths must stay inside their `.cohort/` folders with no symlinked segment.
 - Not implemented yet, rejected at preflight: `mode: text`. (Routes and custom tools landed in Phase 5.)
 - When setup runs, its `startUrl` replaces the configured URL, and its storage state replaces a named one. The time cap includes setup.
 - Setup, including loading its module, is raced against the run's time cap and cancellation: a hung setup ends as `limit_reached(time)` or `interrupted`. Cleanups share a budget of min(10 s, time cap); overruns are recorded as `cleanup_timeout`.
@@ -94,13 +94,13 @@ At each clean capture every element's box is recorded and the mutation log is re
 - Untested catalog entries need explicit confirmation: `--allow-untested`, or `allowUntested` in the engine API.
 - Cancellation: `SIGINT` ends as `interrupted` by `user`, `SIGTERM` as `process`. The pending provider call, browser action (click, fill, scroll hover, goto, wait), or post-action load wait is abandoned right away. A pending provider call keeps its reservation as possibly billed. Repeats that never started are counted as `skipped`.
 - Loop detection: three consecutive identical actions (name and key-order-independent arguments, ignoring the observation ID) end as `agent_error(loop)` when none changed the masked screenshot or URL, or each was rejected. Report tools that are accepted reset the count, as does any action that changes the screen. Playwright hides the caret in screenshots, so a blinking caret does not count as a change. Animated pages may hide a real loop until the step cap.
-- `lab run` prints a cost range before running. It assumes 6k input and 300 output tokens per call, from 2 calls up to the step cap, capped at the dollar limit. Without prices it prints "cost unknown; dollar cap unenforceable".
+- `cohort run` prints a cost range before running. It assumes 6k input and 300 output tokens per call, from 2 calls up to the step cap, capped at the dollar limit. Without prices it prints "cost unknown; dollar cap unenforceable".
 
 ## Trail and reports (Phase 2)
 
 - Every run that starts gets `report.json`, `report.md`, and `report.html`, then `manifest.json`. That includes runs that fail during setup: their outcome has no evidence and their report carries an `evidence_unavailable` issue, as does any run that ends before its first screenshot. If writing a run's bundle fails, the run becomes `agent_error(artifact_error)` and still counts in the batch completion rate and cost. Each file is written to a temp name and renamed. The manifest is written last, so a run directory without `manifest.json` was not finalized.
 - The manifest inventories regular files only. Symlinks and other non-regular entries are not followed, and are reported as `artifact_rejected`. It records configuration hashes (persona, resolved config, setup, catalog) and runtime versions (Node, Playwright, Chromium). It does not hash each artifact (deferred to Add-on 2), so it is not a tamper guarantee.
-- `lab report`, `lab replay`, and `lab trace` accept only generated IDs (`run_YYYYMMDD_HHMMSS_xxxxxx`, `batch_…`). The path from `.lab` down to the run must be plain directories, not symlinks, and the bundle files they read (`report.json`, `manifest.json`, `steps.jsonl`, `resolved-config.json`, `replay.spec.ts`) must be regular files; symlinks are refused, not followed.
+- `cohort report`, `cohort replay`, and `cohort trace` accept only generated IDs (`run_YYYYMMDD_HHMMSS_xxxxxx`, `batch_…`). The path from `.cohort` down to the run must be plain directories, not symlinks, and the bundle files they read (`report.json`, `manifest.json`, `steps.jsonl`, `resolved-config.json`, `replay.spec.ts`) must be regular files; symlinks are refused, not followed.
 - Friction claims are validated before they are written. Validation rejects unknown fields, empty evidence, references to another run, unknown steps, and screenshots that are not part of the cited step or missing on disk. Rejected claims become `invalid_claim` issues.
 - The harness derives these claims:
   - `long_pause`: a browser action, excluding `wait`, whose action plus page settling took at least 5 s; provider time is not included.
@@ -110,15 +110,15 @@ At each clean capture every element's box is recorded and the mutation log is re
 - Agent `report_friction` calls become claims labeled "Agent opinion".
 - Not implemented: `visible_error` detection (the schema accepts it, nothing emits it) and declared fixture baselines.
 - Report text is redacted with the run's secret store; the manifest holds only IDs, hashes, versions, and file metadata. HTML reports escape all text, set a restrictive Content-Security-Policy, and link only to harness screenshot IDs. Markdown escapes link, emphasis, HTML, and table syntax.
-- Replay status starts as `not_attempted`. It is `unsupported` when the run ended before its first screenshot, or when a step's arguments were redacted (`replay_unsupported` issue). `lab replay` sets `passed` or `failed`, then refreshes the reports and manifest. Playwright output goes to a temp directory.
-- Replay bindings: `LAB_START_URL`, `LAB_SECRET_<NAME>`, and `LAB_STORAGE_STATE` (a path to a storage-state file). `lab replay` writes named or setup-provided storage state to a private temp file and deletes it afterwards. Setup cleanups run after the replay.
-- Replay setup has the same bounds and redaction as `lab run`: setup and its module load are raced against the recorded time cap and cancellation, cleanups share min(10 s, time cap), and setup errors and printed Playwright output are redacted for setup secrets, bindings, `ctx.env()` values, and provider keys (`[env]`), or withheld when a value shorter than 4 characters appears.
+- Replay status starts as `not_attempted`. It is `unsupported` when the run ended before its first screenshot, or when a step's arguments were redacted (`replay_unsupported` issue). `cohort replay` sets `passed` or `failed`, then refreshes the reports and manifest. Playwright output goes to a temp directory.
+- Replay bindings: `COHORT_START_URL`, `COHORT_SECRET_<NAME>`, and `COHORT_STORAGE_STATE` (a path to a storage-state file). `cohort replay` writes named or setup-provided storage state to a private temp file and deletes it afterwards. Setup cleanups run after the replay.
+- Replay setup has the same bounds and redaction as `cohort run`: setup and its module load are raced against the recorded time cap and cancellation, cleanups share min(10 s, time cap), and setup errors and printed Playwright output are redacted for setup secrets, bindings, `ctx.env()` values, and provider keys (`[env]`), or withheld when a value shorter than 4 characters appears.
 - `docs/report-examples/` holds one bundle per outcome and their batch report, generated by `node examples/report-examples.ts` from the fixture app and a scripted model. `trace.zip` is left out because native traces are never published; the manifests still list it.
 
 ## Personas and generation (Phase 3)
 
 - Authoring formats, prompt layers, and commands are documented in [personas.md](personas.md).
-- `lab persona generate` was tested only with a scripted model. The tests cover: redirects and scripted navigation off the landing page are refused before the target loads; cross-origin subresources and popups are blocked; a query or fragment value in `--url` never reaches the model or an error message, even when the page echoes it; masked elements stay out of both the screenshot and the page text; cancellation closes the browser during capture; an unpriced model warns before the call; injected page text cannot make an accepted persona set `setup`, `storageState`, `model`, `effort`, or `limits`; invalid output is never saved; `--out` never overwrites.
+- `cohort persona generate` was tested only with a scripted model. The tests cover: redirects and scripted navigation off the landing page are refused before the target loads; cross-origin subresources and popups are blocked; a query or fragment value in `--url` never reaches the model or an error message, even when the page echoes it; masked elements stay out of both the screenshot and the page text; cancellation closes the browser during capture; an unpriced model warns before the call; injected page text cannot make an accepted persona set `setup`, `storageState`, `model`, `effort`, or `limits`; invalid output is never saved; `--out` never overwrites.
 - Not verified: the quality of personas from a live model, and whether one landing page gives enough context. Both need live keys.
 - The token bound used to reserve the generator budget is the same unmeasured, conservative one the agent uses.
 
@@ -152,11 +152,11 @@ At each clean capture every element's box is recorded and the mutation log is re
 
 ## Packaging, Action, and hardening (Phase 6)
 
-- `scripts/package-smoke.ts` (`bun run smoke:package` after `bun run build`) packs the tarball, checks its file list (only `dist/`, `examples/personas/`, `LICENSE`, `NOTICE`, `README.md`, `package.json`), installs it with npm into an empty directory with Bun removed from `PATH`, then runs the installed `lab --version`, `init`, `persona validate`, `doctor`, a fixture run through the installed library with a scripted model, `lab report`, `lab ui` (static page with CSP, 401 without the token, the run in `/api/runs`), and the Action script against the installed CLI. Passed locally on Node v26.8.2; the CI `package` job is configured to run it on Node 24 but has not run yet.
+- `scripts/package-smoke.ts` (`bun run smoke:package` after `bun run build`) packs the tarball, checks its file list (only `dist/`, `examples/personas/`, `LICENSE`, `NOTICE`, `README.md`, `package.json`), installs it with npm into an empty directory with Bun removed from `PATH`, then runs the installed `cohort --version`, `init`, `persona validate`, `doctor`, a fixture run through the installed library with a scripted model, `cohort report`, `cohort ui` (static page with CSP, 401 without the token, the run in `/api/runs`), and the Action script against the installed CLI. Passed locally on Node v26.8.2; the CI `package` job is configured to run it on Node 24 but has not run yet.
 - The Action (`action.yml`) is tested with a stub CLI: inputs arrive as separate arguments, outputs and exit codes map from the JSON result, and no step interpolates inputs into shell or uploads anything. It has not run on GitHub-hosted runners yet.
-- `tests/integration/canary.test.ts` scans every file a run, its batch, and the reports write under `.lab` (except `trace.zip`) for setup secrets, an environment-only value, and the provider key, and checks owner-only modes.
-- `lab init` and `lab doctor` exist; doctor never calls a model.
-- A hard-killed `lab run` leaves run directories without `manifest.json`. `lab doctor` lists them; they are not finalized automatically, because another `lab run` may still own them.
+- `tests/integration/canary.test.ts` scans every file a run, its batch, and the reports write under `.cohort` (except `trace.zip`) for setup secrets, an environment-only value, and the provider key, and checks owner-only modes.
+- `cohort init` and `cohort doctor` exist; doctor never calls a model.
+- A hard-killed `cohort run` leaves run directories without `manifest.json`. `cohort doctor` lists them; they are not finalized automatically, because another `cohort run` may still own them.
 
 ## Not verified (needs live keys or external targets)
 

@@ -318,11 +318,11 @@ test('bundle readers refuse symlinked artifact files and treat missing ones as a
 test('bundle lookup accepts only generated IDs and plain directories', async () => {
   const project = join(dir, 'project');
   const id = 'run_20261028_090000_abcdef';
-  await mkdir(join(project, '.lab', 'runs', id), { recursive: true });
-  assert.deepEqual(await bundleDir(project, id), { kind: 'run', dir: join(project, '.lab', 'runs', id) });
+  await mkdir(join(project, '.cohort', 'runs', id), { recursive: true });
+  assert.deepEqual(await bundleDir(project, id), { kind: 'run', dir: join(project, '.cohort', 'runs', id) });
   for (const bad of ['../x', `${id}/../..`, 'run_20261028_090000_ABCDEF', ''])
     await assert.rejects(bundleDir(project, bad), BundleError, bad);
-  await symlink(join(project, '.lab', 'runs', id), join(project, '.lab', 'runs', 'batch_20261028_090000_abcdef'));
+  await symlink(join(project, '.cohort', 'runs', id), join(project, '.cohort', 'runs', 'batch_20261028_090000_abcdef'));
   await assert.rejects(bundleDir(project, 'batch_20261028_090000_abcdef'), /not a plain directory/u);
 });
 

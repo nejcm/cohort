@@ -8,9 +8,9 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 - Secrets never reach prompts, LLM transcripts, screenshots, generated scripts, logs, or API responses. Native traces are private evidence that may contain secrets; never publish or commit them. Keys come from the environment only.
 - Runtime stays Node 24; the published package is compiled JavaScript and must not need Bun. Use Node built-ins first (HTTP, fs, hashing, `parseArgs`, `node:test`, `node:sqlite`).
 - Runtime dependencies are Playwright and a maintained YAML parser only; no provider SDKs. Add a dependency only for a concrete need.
-- The dashboard (`ui/`) uses Svelte 5 and Vite as build-only dev dependencies; `bun run build` compiles it into `dist/ui`, which `lab ui` serves under a strict CSP (no inline scripts or styles, no `style=` attributes or Svelte transitions).
+- The dashboard (`ui/`) uses Svelte 5 and Vite as build-only dev dependencies; `bun run build` compiles it into `dist/ui`, which `cohort ui` serves under a strict CSP (no inline scripts or styles, no `style=` attributes or Svelte transitions).
 - Keep runtime dependencies small; follow the existing package manager, formatter, linter, and test runner.
-- Never commit secrets, local environment files, `.lab/auth`, `.lab/runs`, or real user data.
+- Never commit secrets, local environment files, `.cohort/auth`, `.cohort/runs`, or real user data.
 
 ## Commands
 
@@ -35,6 +35,6 @@ TypeScript uses `NodeNext` with explicit `.ts` relative imports (rewritten on bu
 - Add or update tests for behavior changes and keep PLAN.md and docs accurate.
 - Run the narrowest relevant checks, then `bun run verify` when practical.
 - Do not weaken checks to make a change pass; record intentional exceptions beside the config and here.
-  - `docs/report-examples/` is generated tool output (byte-exact bundles), so oxfmt and oxlint ignore it like `.lab/runs`; regenerate with `node examples/report-examples.ts`.
+  - `docs/report-examples/` is generated tool output (byte-exact bundles), so oxfmt and oxlint ignore it like `.cohort/runs`; regenerate with `node examples/report-examples.ts`.
   - knip `ignoreDependencies: ["@playwright/test"]`: no source imports it; tests run generated replay specs through its CLI.
 - Do not call live LLM providers in CI or default tests; use a scripted fake model.

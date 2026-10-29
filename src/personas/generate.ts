@@ -85,7 +85,7 @@ function urlSecrets(url: URL): SecretStore {
 }
 
 function hideMasked(selectors: string[]): string {
-  for (const element of document.querySelectorAll(['[data-lab-masked]', ...selectors].join(',')))
+  for (const element of document.querySelectorAll(['[data-cohort-masked]', ...selectors].join(',')))
     element.textContent = '[masked]';
   return document.body?.innerText ?? '';
 }

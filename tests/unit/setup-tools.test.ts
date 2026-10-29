@@ -142,7 +142,7 @@ test('the replay tool bridge closes rejected connections and stops running tools
     env,
   );
   try {
-    const { port } = new URL(env.LAB_TOOL_BRIDGE!);
+    const { port } = new URL(env.COHORT_TOOL_BRIDGE!);
     const reply = await new Promise<string>((resolve) => {
       let data = '';
       const socket = connect(Number(port), '127.0.0.1', () =>
@@ -156,9 +156,9 @@ test('the replay tool bridge closes rejected connections and stops running tools
     assert.match(reply, /^HTTP\/1\.1 403/u);
 
     const invoke = () =>
-      fetch(env.LAB_TOOL_BRIDGE!, {
+      fetch(env.COHORT_TOOL_BRIDGE!, {
         method: 'POST',
-        headers: { authorization: `Bearer ${env.LAB_TOOL_TOKEN}` },
+        headers: { authorization: `Bearer ${env.COHORT_TOOL_TOKEN}` },
         body: JSON.stringify({ name: 't', args: {} }),
       });
     assert.equal((await invoke()).status, 200);

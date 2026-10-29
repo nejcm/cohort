@@ -17,11 +17,11 @@ For `0.1.0-rc.0`. Offline items are automated; everything under "Manual" needs a
 - [ ] Run a live fixture journey per verified model and check that its `replay.spec.ts` replays.
 - [ ] Measure real run cost and replace the provisional $2 default cap if the measurements say so.
 - [ ] Confirm provider retention settings for the request shapes we send.
-- [ ] Decide the package and executable names. `synthetic-customer-lab` is free on npm (checked 2026-10-28); the `lab` executable collides with the `lab` package (hapi's test runner, `lab` bin), so projects that use both cannot rely on `node_modules/.bin/lab`.
+- [x] Decide the package and executable names: package `cohort-lab` (free on npm, checked 2026-10-29; `cohort` is taken), executable `cohort`, project directory `.cohort/`. The old `lab` bin collided with hapi's `lab` test runner.
 - [ ] Add `repository`, `homepage`, and `bugs` to `package.json` once the public repository exists, and replace `OWNER` in [github-action.md](github-action.md).
 - [ ] Review `NOTICE` against the final `dist/ui` bundle (it currently lists Svelte and clsx).
 - [ ] `npm publish --tag next` from a clean checkout after `bun run build`, then tag the same commit `v0.1.0-rc.0` so the Action installs the matching package.
 - [ ] Run the Action once on a GitHub-hosted runner against a disposable test target.
-- [ ] Fresh-install walkthrough from the README on a clean machine: install, `lab init`, `lab doctor`, start the fixture app, first run, open the report. Record browser-install time separately.
-- [ ] Exercise `lab login` by hand: the headed window and the Enter prompt are not covered by tests.
+- [ ] Fresh-install walkthrough from the README on a clean machine: install, `cohort init`, `cohort doctor`, start the fixture app, first run, open the report. Record browser-install time separately.
+- [ ] Exercise `cohort login` by hand: the headed window and the Enter prompt are not covered by tests.
 - [ ] Two outside developers install unaided and configure one goal on their own app.

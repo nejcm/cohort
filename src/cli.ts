@@ -38,17 +38,17 @@ import { doctor } from './doctor.ts';
 import { scrubEnv } from './setup/run.ts';
 import { SecretStore } from './setup/secrets.ts';
 
-const USAGE = `Usage: lab [options]
-       lab init
-       lab doctor [--json]
-       lab run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
-       lab report <run-or-batch-id> [--format json|md|html]
-       lab replay <run-id> [--json]
-       lab trace <run-id>
-       lab login --url <url> --state <name>
-       lab persona validate
-       lab ui [--port <n>] [--host <address>]
-       lab persona generate --url <url> --description <text> [--out <file>] [--model <provider>/<id>]
+const USAGE = `Usage: cohort [options]
+       cohort init
+       cohort doctor [--json]
+       cohort run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
+       cohort report <run-or-batch-id> [--format json|md|html]
+       cohort replay <run-id> [--json]
+       cohort trace <run-id>
+       cohort login --url <url> --state <name>
+       cohort persona validate
+       cohort ui [--port <n>] [--host <address>]
+       cohort persona generate --url <url> --description <text> [--out <file>] [--model <provider>/<id>]
                             [--effort low|medium|high] [--dollars <n>] [--allow-untested] [--json]
 
 Options:
@@ -67,7 +67,7 @@ interface Dependencies {
   providers?: Record<string, ProviderAdapter>;
   signal?: AbortSignal;
   openTrace?: (tracePath: string) => Promise<number>;
-  /** Replaces the manual step of `lab login`; tests drive a headless browser through it. */
+  /** Replaces the manual step of `cohort login`; tests drive a headless browser through it. */
   login?: { headless: boolean; ready: (page: Page) => Promise<void> };
 }
 
@@ -140,7 +140,7 @@ export async function run(
       const { created, kept } = await initProject(deps.cwd ?? process.cwd());
       for (const path of created) write(`created ${path}\n`);
       for (const path of kept) write(`kept ${path} (exists)\n`);
-      write('next: lab doctor\n');
+      write('next: cohort doctor\n');
       return 0;
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error;
@@ -352,7 +352,7 @@ async function loginCommand(
   }
   await saveStorageState(deps.cwd ?? process.cwd(), state, saved);
   write(
-    `saved .lab/auth/${state}.json (${saved.cookies.length} cookie(s), ${saved.origins.length} origin(s)). It is a credential: keep .lab/auth out of git. Reference it with storageState: ${state}\n`,
+    `saved .cohort/auth/${state}.json (${saved.cookies.length} cookie(s), ${saved.origins.length} origin(s)). It is a credential: keep .cohort/auth out of git. Reference it with storageState: ${state}\n`,
   );
   return 0;
 }
@@ -368,7 +368,7 @@ function showTrace(tracePath: string): Promise<number> {
 
 async function traceCommand(id: string, deps: Dependencies): Promise<number> {
   const { kind, dir } = await bundleDir(deps.cwd ?? process.cwd(), id);
-  if (kind !== 'run') throw new BundleError('lab trace takes a run ID, not a batch ID');
+  if (kind !== 'run') throw new BundleError('cohort trace takes a run ID, not a batch ID');
   const tracePath = join(dir, 'trace.zip');
   if (!(await lstat(tracePath).catch(() => null))?.isFile()) throw new BundleError(`${id} has no trace.zip`);
   return (deps.openTrace ?? showTrace)(tracePath);
@@ -497,10 +497,10 @@ if (import.meta.main) {
   process.once('SIGTERM', () => controller.abort('process'));
   process.exitCode = await run(process.argv.slice(2), undefined, { signal: controller.signal }).catch(
     (error: unknown) => {
-      // Bounded and key-free; LAB_DEBUG=1 adds the stack.
+      // Bounded and key-free; COHORT_DEBUG=1 adds the stack.
       const keys = Object.values(createProviders()).flatMap((provider) => process.env[provider.keyEnv] ?? []);
-      const text = process.env.LAB_DEBUG === '1' ? String((error as Error)?.stack ?? error) : firstLine(error);
-      process.stderr.write(`lab: unexpected error: ${scrubEnv(text, new SecretStore(), keys)}\n`);
+      const text = process.env.COHORT_DEBUG === '1' ? String((error as Error)?.stack ?? error) : firstLine(error);
+      process.stderr.write(`cohort: unexpected error: ${scrubEnv(text, new SecretStore(), keys)}\n`);
       return 2;
     },
   );

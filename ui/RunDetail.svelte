@@ -6,6 +6,7 @@
     blobUrl,
     download,
     follow,
+    badge,
     isActive,
     screenshotPath,
     usd,
@@ -64,6 +65,7 @@
   let usage = $state<Record<string, unknown> | null>(null);
   let liveClaims = $state(0);
   let selected = $state<string | null>(null);
+  const current = $derived(selected ?? shots.at(-1) ?? null);
   let image = $state<string | null>(null);
   let error = $state('');
   let notice = $state('');
@@ -163,14 +165,14 @@
   });
 
   $effect(() => {
-    if (!selected) return void (image = null);
-    const shot = selected;
+    if (!current) return void (image = null);
+    const shot = current;
     const cached = urls.get(shot);
     if (cached) return void (image = cached);
     blobUrl(screenshotPath(id, shot)).then(
       (url) => {
         urls.set(shot, url);
-        if (selected === shot) image = url;
+        if (current === shot) image = url;
       },
       (caught: Error) => (error = caught.message),
     );
@@ -187,7 +189,7 @@
   }
 
   function onTimelineKey(event: KeyboardEvent): void {
-    const index = selected ? shots.indexOf(selected) : -1;
+    const index = current ? shots.indexOf(current) : -1;
     const next = event.key === 'ArrowRight' ? index + 1 : event.key === 'ArrowLeft' ? index - 1 : null;
     if (next === null || next < 0 || next >= shots.length) return;
     event.preventDefault();
@@ -195,13 +197,14 @@
     document.getElementById(`shot-${selected}`)?.focus();
   }
 
-  const DOWNLOADS: [string, string][] = [
-    ['report.html', 'Report (HTML)'],
-    ['report.md', 'Report (Markdown)'],
-    ['report.json', 'Report (JSON)'],
-    ['replay.spec.ts', 'Replay script'],
-    ['trace.zip', 'Trace (private)'],
+  const REPORTS: [string, string][] = [
+    ['report.html', 'HTML'],
+    ['report.md', 'Markdown'],
+    ['report.json', 'JSON'],
   ];
+  const has = (name: string): boolean => detail?.artifacts.some((artifact) => artifact.id === name) === true;
+  const save = (name: string): void => void download(artifactPath(id, name), name).catch((caught: Error) => (error = caught.message));
+  const TONES: Record<string, string> = { completed: 'tone-good', blocked: 'tone-warn', limit_reached: 'tone-warn', agent_error: 'tone-bad' };
   const run = $derived(detail?.run);
   const report = $derived(detail?.report ?? null);
   const cost = $derived(
@@ -211,96 +214,173 @@
   );
 </script>
 
-<p><a href="#/runs">← Runs</a></p>
-{#if error}<p class="error" role="alert">{error}</p>{/if}
-{#if notice}<p role="status">{notice}</p>{/if}
+<div class="head-stack">
+  <a class="back" href="#/runs">← Runs</a>
+  {#if run}
+    <div class="page-head">
+      <div class="title">
+        <h1 class="mono">{run.id}</h1>
+        <span class="badge {badge(run.status, run.outcome, run.interruptedBy)}">{run.status}</span>
+        {#if isActive(run.status)}<span class="live">Live</span>{/if}
+      </div>
+      {#if isActive(run.status)}
+        <div class="actions"><button type="button" class="danger" onclick={cancel}>Cancel run</button></div>
+      {/if}
+    </div>
+  {/if}
+</div>
+{#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
+{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 {#if run}
-  <h1>{run.id}</h1>
   <dl class="facts">
-    <dt>Status</dt><dd><span class="status {run.status}">{run.status}</span></dd>
+    <dt>Status</dt><dd>{run.status}</dd>
     <dt>Persona</dt><dd>{run.personaId}</dd>
     <dt>Goal</dt><dd>{run.goal}</dd>
     <dt>Model</dt>
     <dd>
-      {run.provider}/{run.model} · {run.effort} · {run.mode}
-      {#if run.untested}<span class="badge">untested</span>{/if}
+      <span class="mono">{run.provider}/{run.model} · {run.effort} · {run.mode}</span>
+      {#if run.untested}<span class="badge untested">untested</span>{/if}
       {#if report?.returnedModel && report.returnedModel !== run.model}<span class="hint">(returned {report.returnedModel})</span>{/if}
     </dd>
-    <dt>Batch</dt><dd>{run.batchId}, repeat #{run.repeat + 1}</dd>
+    <dt>Batch</dt><dd><span class="mono">{run.batchId}</span> · repeat <span class="mono">#{run.repeat + 1}</span></dd>
     <dt>Limits</dt>
-    <dd>
+    <dd class={resolved ? 'mono' : 'muted'}>
       {resolved
-        ? `${resolved.request.limits.steps} steps, ${resolved.request.limits.timeMs / 1000} s, ${usd(resolved.request.limits.dollars)}`
+        ? `${resolved.request.limits.steps} steps · ${resolved.request.limits.timeMs / 1000} s · ${usd(resolved.request.limits.dollars)}`
         : 'shown when the run finishes'}
     </dd>
     <dt>Cost</dt>
     <dd>
-      {usd(cost)}
+      <span class="fig lg">{usd(cost)}</span>
       {#if report}<span class="hint">({report.usage.accounting}; cap: {report.usage.capEnforcement})</span>
       {:else}<span class="hint">(cap: {run.capEnforcement})</span>{/if}
     </dd>
   </dl>
-  {#if isActive(run.status)}<button type="button" onclick={cancel}>Cancel run</button>{/if}
 
-  {#if report}
-    <section aria-labelledby="outcome-title">
-      <h2 id="outcome-title">Outcome: {report.outcome.state}</h2>
-      <p>
-        {report.outcome.kind ?? report.outcome.code ?? report.outcome.limit ?? ''}
-        {report.outcome.interruptedBy ? `(interrupted by ${report.outcome.interruptedBy})` : ''}
-        {report.outcome.reason}
-      </p>
-      <p class="hint">{report.steps} steps, {report.browserActions} browser actions, {(report.durationMs / 1000).toFixed(1)} s; replay {report.replay.status}</p>
-      {#each report.issues as issue (issue.code + issue.message)}<p class="warning">{issue.code}: {issue.message}</p>{/each}
-    </section>
-    <section aria-labelledby="claims-title">
-      <h2 id="claims-title">Friction claims ({report.friction.length})</h2>
-      {#if report.friction.length === 0}<p>None.</p>{/if}
-      <ul>
-        {#each report.friction as claim (claim.id)}
-          <li><strong>{claim.kind}</strong> <span class="hint">{claim.source}</span> {claim.statement ?? claim.opinion?.reason ?? ''}</li>
-        {/each}
-      </ul>
-    </section>
-  {:else if liveClaims > 0}
-    <p>{liveClaims} friction claim{liveClaims === 1 ? '' : 's'} so far.</p>
-  {/if}
+  <div class="detail-grid">
+    <div class="stack evidence">
+      <section class="section" aria-labelledby="timeline-title">
+        <div class="section-head">
+          <h2 id="timeline-title">Screenshots <span class="count">{shots.length}</span></h2>
+          <span class="hint">← → to step through</span>
+        </div>
+        {#if shots.length === 0}
+          <div class="shot-empty">No screenshots yet.</div>
+        {:else}
+          <ol class="timeline" role="toolbar" aria-label="Screenshots; use the arrow keys" tabindex="-1" onkeydown={onTimelineKey}>
+            {#each shots as shot, index (shot)}
+              <li>
+                <button type="button" id="shot-{shot}" aria-label={shot} aria-pressed={current === shot} onclick={() => (selected = shot)}>
+                  <span class="n">{String(index + 1).padStart(2, '0')}</span>{shot}
+                </button>
+              </li>
+            {/each}
+          </ol>
+        {/if}
+        {#if image && current}
+          <figure class="shot">
+            <img src={image} alt="Masked screenshot {current}" />
+            <figcaption><span>Masked screenshot <span class="mono">{current}</span></span></figcaption>
+          </figure>
+        {/if}
+      </section>
 
-  <section aria-labelledby="steps-title">
-    <h2 id="steps-title">Steps</h2>
-    {#if steps.length === 0}<p class="hint">{isActive(run.status) ? 'Waiting for the first step…' : 'No steps recorded.'}</p>{/if}
-    <ol class="steps">
-      {#each steps as step (step.id)}
-        <li>
-          <code>{step.id}</code> {step.action} <span class="status {step.status}">{step.status}</span>
-          {#if step.screenshotId}
-            <button type="button" class="link" onclick={() => (selected = step.screenshotId)}>{step.screenshotId}</button>
-          {/if}
-        </li>
-      {/each}
-    </ol>
-  </section>
-
-  <section aria-labelledby="timeline-title">
-    <h2 id="timeline-title">Screenshot timeline</h2>
-    {#if shots.length === 0}<p class="hint">No screenshots yet.</p>{/if}
-    <div class="timeline" role="toolbar" aria-label="Screenshots; use the arrow keys" tabindex="-1" onkeydown={onTimelineKey}>
-      {#each shots as shot (shot)}
-        <button type="button" id="shot-{shot}" aria-pressed={selected === shot} onclick={() => (selected = shot)}>{shot}</button>
-      {/each}
+      <section class="section" aria-labelledby="steps-title">
+        <div class="section-head"><h2 id="steps-title">Steps <span class="count">{steps.length}</span></h2></div>
+        <div class="card dense">
+          <ol class="steps" aria-live="polite">
+            {#if steps.length === 0}
+              <li class="waiting">{isActive(run.status) ? 'Waiting for the first step…' : 'No steps recorded.'}</li>
+            {/if}
+            {#each steps as step (step.id)}
+              <li>
+                <span class="sid">{step.id}</span> <span class="action">{step.action}</span>
+                <span class="end">
+                  <span class="chip {step.status.split(':')[0] === 'ok' ? 'ok' : step.status === 'running' ? 'running' : 'failed'}">{step.status}</span>
+                  {#if step.screenshotId}
+                    <button type="button" class="link" onclick={() => (selected = step.screenshotId)}>{step.screenshotId}</button>
+                  {/if}
+                </span>
+              </li>
+            {/each}
+          </ol>
+        </div>
+      </section>
     </div>
-    {#if image && selected}<img src={image} alt="Masked screenshot {selected}" />{/if}
-  </section>
+
+    <div class="stack summary">
+      {#if report}
+        <section class="section" aria-labelledby="outcome-title">
+          <h2 id="outcome-title">Outcome: {report.outcome.state}</h2>
+          <div class="card outcome {TONES[report.outcome.state] ?? ''}">
+            <div class="state">
+              <span class="badge {badge(report.outcome.state)}">{report.outcome.state}</span>
+              {#if report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}
+                <span class="muted">reason</span><strong>{report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}</strong>
+              {/if}
+            </div>
+            {#if report.outcome.interruptedBy}<p class="muted">(interrupted by {report.outcome.interruptedBy})</p>{/if}
+            <p class="reason">{report.outcome.reason}</p>
+            <p class="meta">
+              {report.steps} steps · {report.browserActions} browser actions · {(report.durationMs / 1000).toFixed(1)} s · replay {report.replay.status}
+            </p>
+            {#each report.issues as issue (issue.code + issue.message)}<p class="notice warn">{issue.code}: {issue.message}</p>{/each}
+          </div>
+        </section>
+        <section class="section" aria-labelledby="claims-title">
+          <div class="section-head"><h2 id="claims-title">Friction claims ({report.friction.length})</h2></div>
+          <div class="card">
+            {#if report.friction.length === 0}<p class="muted">None.</p>{/if}
+            <ul class="claims">
+              {#each report.friction as claim (claim.id)}
+                <li>
+                  <span class="kind">{claim.kind}</span><span class="source">{claim.source}</span>
+                  {#if claim.statement}<p>{claim.statement}</p>{:else if claim.opinion}<p class="opinion">{claim.opinion.reason}</p>{/if}
+                </li>
+              {/each}
+            </ul>
+          </div>
+        </section>
+      {:else}
+        <section class="section" aria-labelledby="claims-title">
+          <h2 id="claims-title">Friction claims</h2>
+          <p class="card muted" role="status">{liveClaims} friction claim{liveClaims === 1 ? '' : 's'} so far.</p>
+        </section>
+      {/if}
+    </div>
+  </div>
 
   {#if detail && detail.artifacts.length > 0}
-    <section aria-labelledby="downloads-title">
+    <section class="section" aria-labelledby="downloads-title">
       <h2 id="downloads-title">Downloads</h2>
-      <p class="warning">The trace is private raw evidence that may contain secrets; never share or upload it.</p>
-      {#each DOWNLOADS.filter(([name]) => detail?.artifacts.some((artifact) => artifact.id === name)) as [name, label] (name)}
-        <button type="button" onclick={() => download(artifactPath(id, name), name).catch((caught: Error) => (error = caught.message))}>
-          {label}
-        </button>
-      {/each}
+      <div class="card downloads">
+        {#if REPORTS.some(([name]) => has(name))}
+          <div class="dl-group">
+            <span class="label">Report</span>
+            <div class="row">
+              {#each REPORTS.filter(([name]) => has(name)) as [name, label] (name)}
+                <button type="button" aria-label="Report ({label})" onclick={() => save(name)}>{label}</button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+        {#if has('replay.spec.ts')}
+          <div class="dl-group">
+            <span class="label">Replay script</span>
+            <div class="row"><button type="button" onclick={() => save('replay.spec.ts')}><span class="mono">replay.spec.ts</span></button></div>
+          </div>
+        {/if}
+        {#if has('trace.zip')}
+          <div class="private-zone" role="note" aria-labelledby="trace-title">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="9" width="12" height="8.5" rx="2" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
+            <div class="body">
+              <strong id="trace-title">Trace <span class="badge private">private</span></strong>
+              <p>The trace is private raw evidence that may contain secrets; never share or upload it.</p>
+            </div>
+            <button type="button" class="danger" aria-label="Trace (private)" onclick={() => save('trace.zip')}>Download trace</button>
+          </div>
+        {/if}
+      </div>
     </section>
   {/if}
 

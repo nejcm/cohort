@@ -8,7 +8,7 @@ export interface ReplaySession {
   hasTouch: boolean;
   locale: string;
   timezone: string;
-  /** Names of trusted setup tools; their steps replay through the bridge `lab replay` serves. */
+  /** Names of trusted setup tools; their steps replay through the bridge `cohort replay` serves. */
   customTools?: readonly string[];
   routes?: readonly RouteRule[];
 }
@@ -71,7 +71,7 @@ export function generateReplay(session: ReplaySession, steps: readonly StepRecor
     if (step.result.status !== 'ok') continue;
     if (step.action.name === 'navigate') {
       body.push(
-        `  await test.step(${j(`${step.id} navigate`)}, async () => {\n    await page.goto(binding('LAB_START_URL'));\n  });`,
+        `  await test.step(${j(`${step.id} navigate`)}, async () => {\n    await page.goto(binding('COHORT_START_URL'));\n  });`,
       );
       continue;
     }
@@ -94,7 +94,7 @@ function binding(name: string): string {
 }
 
 function bind(template: string): string {
-  return template.replace(/\\{\\{([a-z][a-z0-9_]*)\\}\\}/g, (_, name: string) => binding(\`LAB_SECRET_\${name.toUpperCase()}\`));
+  return template.replace(/\\{\\{([a-z][a-z0-9_]*)\\}\\}/g, (_, name: string) => binding(\`COHORT_SECRET_\${name.toUpperCase()}\`));
 }
 
 ${custom ? CUSTOM_TOOL_CLIENT : ''}test.use({
@@ -102,7 +102,7 @@ ${custom ? CUSTOM_TOOL_CLIENT : ''}test.use({
   hasTouch: ${session.hasTouch},
   locale: ${j(session.locale)},
   timezoneId: ${j(session.timezone)},
-  ...(process.env.LAB_STORAGE_STATE ? { storageState: process.env.LAB_STORAGE_STATE } : {}),
+  ...(process.env.COHORT_STORAGE_STATE ? { storageState: process.env.COHORT_STORAGE_STATE } : {}),
 });
 
 test(${j(`replay ${session.runId}`)}, async ({ page }) => {
@@ -114,14 +114,14 @@ ${[...routes, ...body].join('\n')}
 
 // Bound secrets come back as values and land in the environment `bind` reads; the bridge lives only for this replay.
 const CUSTOM_TOOL_CLIENT = `async function customTool(name: string, args: unknown): Promise<void> {
-  const response = await fetch(binding('LAB_TOOL_BRIDGE'), {
+  const response = await fetch(binding('COHORT_TOOL_BRIDGE'), {
     method: 'POST',
-    headers: { authorization: \`Bearer \${binding('LAB_TOOL_TOKEN')}\`, 'content-type': 'application/json' },
+    headers: { authorization: \`Bearer \${binding('COHORT_TOOL_TOKEN')}\`, 'content-type': 'application/json' },
     body: JSON.stringify({ name, args }),
   });
   const result = (await response.json()) as { bound?: Record<string, string>; error?: string };
   if (!response.ok) throw new Error(\`custom tool \${name} failed: \${result.error}\`);
-  for (const [secret, value] of Object.entries(result.bound ?? {})) process.env[\`LAB_SECRET_\${secret.toUpperCase()}\`] = value;
+  for (const [secret, value] of Object.entries(result.bound ?? {})) process.env[\`COHORT_SECRET_\${secret.toUpperCase()}\`] = value;
 }
 
 `;

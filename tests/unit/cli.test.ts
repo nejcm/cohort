@@ -24,7 +24,7 @@ test('prints the package version', async () => {
 test('prints usage with no arguments', async () => {
   const { code, out } = await capture([]);
   assert.equal(code, 0);
-  assert.match(out, /^Usage: lab/);
+  assert.match(out, /^Usage: cohort/);
 });
 
 test('rejects an unknown command', async () => {
@@ -37,7 +37,7 @@ test('rejects an unknown option', async () => {
   const { code, out } = await capture(['--bogus']);
   assert.equal(code, 2);
   assert.match(out, /Unknown option '--bogus'/);
-  assert.match(out, /Usage: lab/);
+  assert.match(out, /Usage: cohort/);
 });
 
 test('invalid run invocations exit 2 before reading any project', async () => {
@@ -66,36 +66,39 @@ test('init creates the project layout once and doctor reports it without printin
   };
   const first = await cli(['init']);
   assert.equal(first.code, 0);
-  assert.equal((await lstat(join(root, '.lab'))).mode & 0o777, 0o700);
-  for (const path of ['.lab/config.yml', '.lab/.gitignore', '.lab/personas/first-time-host.md'])
+  assert.equal((await lstat(join(root, '.cohort'))).mode & 0o777, 0o700);
+  for (const path of ['.cohort/config.yml', '.cohort/.gitignore', '.cohort/personas/first-time-host.md'])
     assert.match(first.out, new RegExp(`created ${path.replaceAll('.', '\\.')}`, 'u'));
-  await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
   const second = await cli(['init']);
   assert.doesNotMatch(second.out, /created/u);
-  assert.match(second.out, /kept \.lab\/config\.yml/u);
-  assert.equal(await readFile(join(root, '.lab/config.yml'), 'utf8'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  assert.match(second.out, /kept \.cohort\/config\.yml/u);
+  assert.equal(
+    await readFile(join(root, '.cohort/config.yml'), 'utf8'),
+    'schemaVersion: 1\nmodel: openai/vision-model\n',
+  );
   assert.equal((await cli(['persona', 'validate'])).code, 0);
 
-  await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: anthropic/claude-sonnet-5-5\n');
+  await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: anthropic/claude-sonnet-5-5\n');
   const unusable = await cli(['doctor']);
   assert.equal(unusable.code, 2);
   assert.match(unusable.out, /error default model: model is disabled until its capabilities are confirmed/u);
   assert.match(unusable.out, /error ANTHROPIC_API_KEY is not set/u);
-  assert.match(unusable.out, /ok    \.lab\/runs is gitignored/u);
-  assert.match(unusable.out, /ok    \.lab\/auth is gitignored/u);
-  assert.match(unusable.out, /ok    \.lab\/index\.sqlite is gitignored/u);
-  await writeFile(join(root, '.lab/.gitignore'), 'auth/\nruns/\n');
+  assert.match(unusable.out, /ok    \.cohort\/runs is gitignored/u);
+  assert.match(unusable.out, /ok    \.cohort\/auth is gitignored/u);
+  assert.match(unusable.out, /ok    \.cohort\/index\.sqlite is gitignored/u);
+  await writeFile(join(root, '.cohort/.gitignore'), 'auth/\nruns/\n');
   const exposed = await cli(['doctor']);
-  assert.match(exposed.out, /error \.lab\/index\.sqlite is not gitignored/u);
-  await writeFile(join(root, '.lab/.gitignore'), 'auth/\nruns/\nindex.sqlite*\n');
+  assert.match(exposed.out, /error \.cohort\/index\.sqlite is not gitignored/u);
+  await writeFile(join(root, '.cohort/.gitignore'), 'auth/\nruns/\nindex.sqlite*\n');
 
   const key = 'sk-doctor-canary-0123456789';
-  await writeFile(join(root, '.lab/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
+  await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
   await writeFile(
-    join(root, '.lab/models.yml'),
+    join(root, '.cohort/models.yml'),
     'version: test\nmodels:\n  - id: vision-model\n    provider: openai\n    label: v\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
   );
-  await mkdir(join(root, '.lab/runs/run_20261028_000000_abcdef'), { recursive: true });
+  await mkdir(join(root, '.cohort/runs/run_20261028_000000_abcdef'), { recursive: true });
   const ready = await cli(['doctor'], { OPENAI_API_KEY: key });
   assert.equal(ready.code, 0, ready.out);
   assert.match(ready.out, /ok    default model openai\/vision-model \(low\)/u);
@@ -106,7 +109,7 @@ test('init creates the project layout once and doctor reports it without printin
   assert.doesNotMatch(ready.out + json.out, new RegExp(key, 'u'));
 });
 
-test('init refuses a symlinked .lab and doctor asks for init', async () => {
+test('init refuses a symlinked .cohort and doctor asks for init', async () => {
   const root = await mkdtemp(join(tmpdir(), 'lab-init-'));
   const elsewhere = await mkdtemp(join(tmpdir(), 'lab-elsewhere-'));
   const cli = async (argv: string[]) => {
@@ -114,10 +117,10 @@ test('init refuses a symlinked .lab and doctor asks for init', async () => {
     const code = await run(argv, (text) => void (out += text), { cwd: root, env: {} });
     return { code, out };
   };
-  assert.match((await cli(['doctor'])).out, /error no \.lab directory here; run: lab init/u);
-  await symlink(elsewhere, join(root, '.lab'));
+  assert.match((await cli(['doctor'])).out, /error no \.cohort directory here; run: cohort init/u);
+  await symlink(elsewhere, join(root, '.cohort'));
   const refused = await cli(['init']);
   assert.equal(refused.code, 2);
-  assert.match(refused.out, /\.lab must be a plain directory/u);
+  assert.match(refused.out, /\.cohort must be a plain directory/u);
   assert.deepEqual(await readdir(elsewhere), []);
 });

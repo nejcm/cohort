@@ -1,4 +1,4 @@
-# Synthetic Customer Lab
+# cohort.
 
 > Working title. Release candidate `0.1.0-rc.0`: tested offline against a scripted model; no shipped model is enabled until live verification.
 
@@ -16,40 +16,40 @@ What it is not: an accessibility audit, a substitute for user research, a load t
 Requires Node.js 24.2.0 or later and npm.
 
 ```sh
-npm install --save-dev synthetic-customer-lab   # not yet published; see docs/release-checklist.md
+npm install --save-dev cohort-lab   # not yet published; see docs/release-checklist.md
 npx playwright install chromium
-npx lab init      # .lab/ with config, three example personas, and a .gitignore for private evidence
-npx lab doctor    # runtime, browser, config, model, keys, paths; never calls a model
+npx cohort init      # .cohort/ with config, three example personas, and a .gitignore for private evidence
+npx cohort doctor    # runtime, browser, config, model, keys, paths; never calls a model
 ```
 
-`lab doctor` reports that the default model is disabled: no model has been verified live yet. Add a model you have checked to `.lab/models.yml` ([how](docs/operating.md#models)) and set its key, for example `export ANTHROPIC_API_KEY=...`.
+`cohort doctor` reports that the default model is disabled: no model has been verified live yet. Add a model you have checked to `.cohort/models.yml` ([how](docs/operating.md#models)) and set its key, for example `export ANTHROPIC_API_KEY=...`.
 
 Try it on the bundled fixture app (from a clone of this repository; it needs only Node):
 
 ```sh
 node fixtures/friction-app/server.ts --port 4173        # add --mutation hidden_primary etc. for seeded friction
-npx lab run --persona first-time-host --url http://127.0.0.1:4173/ --repeats 1
-open .lab/runs/<batch-id>/report.html                    # the run prints its report path
+npx cohort run --persona first-time-host --url http://127.0.0.1:4173/ --repeats 1
+open .cohort/runs/<batch-id>/report.html                    # the run prints its report path
 ```
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `lab init` | Create `.lab/` without overwriting anything |
-| `lab doctor [--json]` | Check the setup; exit 2 on any error |
-| `lab run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--allow-untested`, `--json` |
-| `lab report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
-| `lab replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
-| `lab trace <run-id>` | Open the private trace locally with `playwright show-trace` |
-| `lab login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.lab/auth/<name>.json` |
-| `lab persona validate` | Check every persona and suite, reporting all problems |
-| `lab persona generate --url <url> --description <text> [--out <file>]` | One metered call over a landing page; preview unless `--out` |
-| `lab ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1` |
+| `cohort init` | Create `.cohort/` without overwriting anything |
+| `cohort doctor [--json]` | Check the setup; exit 2 on any error |
+| `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--allow-untested`, `--json` |
+| `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
+| `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
+| `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
+| `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
+| `cohort persona validate` | Check every persona and suite, reporting all problems |
+| `cohort persona generate --url <url> --description <text> [--out <file>]` | One metered call over a landing page; preview unless `--out` |
+| `cohort ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1` |
 
 Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration.
 
-Each run writes `.lab/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
+Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
 
 ## Documentation
 
@@ -64,7 +64,7 @@ Each run writes `.lab/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl
 
 ## Evidence warning
 
-`trace.zip` files are native Playwright traces with unmasked DOM snapshots and typed values; they contain secrets. Keep `.lab/runs` and `.lab/auth` private: never publish, commit, or upload them. Screenshots sent to models are masked for known secrets and scripts use `{{placeholder}}` bindings, but reports and screenshots can still show sensitive app content. Use test accounts and synthetic data.
+`trace.zip` files are native Playwright traces with unmasked DOM snapshots and typed values; they contain secrets. Keep `.cohort/runs` and `.cohort/auth` private: never publish, commit, or upload them. Screenshots sent to models are masked for known secrets and scripts use `{{placeholder}}` bindings, but reports and screenshots can still show sensitive app content. Use test accounts and synthetic data.
 
 ## Roadmap
 

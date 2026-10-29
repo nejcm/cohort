@@ -406,7 +406,7 @@ test('frame content re-rendered identically during capture is never sent unmaske
         .evaluate((root) => {
           const original = root.innerHTML;
           new MutationObserver((_, observer) => {
-            if (!root.querySelector('[data-lab-overlay]')) return;
+            if (!root.querySelector('[data-cohort-overlay]')) return;
             observer.disconnect();
             root.innerHTML = original;
           }).observe(root, { childList: true });

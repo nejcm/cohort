@@ -9,19 +9,20 @@ export class SetupLoadError extends Error {
 
 // Node 24 strips TypeScript types natively; setup modules must use explicit `.ts` relative imports.
 export async function loadSetupModule(projectRoot: string, modulePath: string): Promise<SetupModule> {
-  const setupDir = join(projectRoot, '.lab', 'setup');
+  const setupDir = join(projectRoot, '.cohort', 'setup');
   const rel = relative(setupDir, modulePath);
   if (rel === '' || rel.startsWith('..') || rel.startsWith(sep))
-    throw new SetupLoadError(`setup module must be inside .lab/setup/: ${modulePath}`);
+    throw new SetupLoadError(`setup module must be inside .cohort/setup/: ${modulePath}`);
   if (!['.ts', '.js', '.mjs'].includes(extname(modulePath)))
     throw new SetupLoadError(`setup module must be .ts, .js, or .mjs: ${modulePath}`);
   let current = projectRoot;
-  for (const part of ['.lab', 'setup', ...rel.split(sep)]) {
+  for (const part of ['.cohort', 'setup', ...rel.split(sep)]) {
     current = join(current, part);
     if ((await lstat(current)).isSymbolicLink()) throw new SetupLoadError(`symlink in setup path: ${current}`);
   }
   const real = await realpath(modulePath);
-  if (!real.startsWith((await realpath(setupDir)) + sep)) throw new SetupLoadError(`setup module escapes .lab/setup/`);
+  if (!real.startsWith((await realpath(setupDir)) + sep))
+    throw new SetupLoadError(`setup module escapes .cohort/setup/`);
   const loaded = (await import(pathToFileURL(real).href)) as { default?: unknown };
   if (typeof loaded.default !== 'function') throw new SetupLoadError(`setup module has no default function export`);
   return loaded.default as SetupModule;

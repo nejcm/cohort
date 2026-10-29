@@ -32,7 +32,7 @@ function playwrightTestCli(projectRoot: string): string {
   try {
     return createRequire(join(projectRoot, 'package.json')).resolve('@playwright/test/cli');
   } catch {
-    throw new BundleError('lab replay needs @playwright/test installed in the project (same version as playwright)');
+    throw new BundleError('cohort replay needs @playwright/test installed in the project (same version as playwright)');
   }
 }
 
@@ -43,7 +43,7 @@ export async function replayRun(
   options: ReplayOptions,
 ): Promise<{ report: RunReport; output: string }> {
   const { kind, dir } = await bundleDir(projectRoot, runId);
-  if (kind !== 'run') throw new BundleError('lab replay takes a run ID, not a batch ID');
+  if (kind !== 'run') throw new BundleError('cohort replay takes a run ID, not a batch ID');
   const report = await readBundleJson<RunReport>(dir, 'report.json');
   if (report.replay.status === 'unsupported')
     throw new BundleError(`run ${runId} has no faithful replay script; see its report issues`);
@@ -62,7 +62,7 @@ export async function replayRun(
       ...providerKeys,
       ...envRead,
       ...Object.entries(env).flatMap(([name, value]) =>
-        value && (name === 'LAB_START_URL' || name === 'LAB_TOOL_TOKEN' || name.startsWith('LAB_SECRET_'))
+        value && (name === 'COHORT_START_URL' || name === 'COHORT_TOOL_TOKEN' || name.startsWith('COHORT_SECRET_'))
           ? [value]
           : [],
       ),
@@ -92,9 +92,9 @@ export async function replayRun(
         });
         for (const [name, value] of Object.entries(result.secrets ?? {})) {
           secrets.bind(name, value);
-          env[`LAB_SECRET_${name.toUpperCase()}`] = value;
+          env[`COHORT_SECRET_${name.toUpperCase()}`] = value;
         }
-        env.LAB_START_URL = result.startUrl;
+        env.COHORT_START_URL = result.startUrl;
         storageState = result.storageState ?? storageState;
         if (Object.keys(result.tools ?? {}).length > 0) {
           customToolDefinitions(result.tools);
@@ -110,14 +110,14 @@ export async function replayRun(
       } finally {
         deadline.clear();
       }
-    } else if (!env.LAB_START_URL) {
+    } else if (!env.COHORT_START_URL) {
       if (config.startUrlComplete !== true)
-        throw new BundleError('the recorded start URL was reduced to origin and path; set LAB_START_URL');
-      env.LAB_START_URL = config.startUrl;
+        throw new BundleError('the recorded start URL was reduced to origin and path; set COHORT_START_URL');
+      env.COHORT_START_URL = config.startUrl;
     }
     if (storageState) {
-      env.LAB_STORAGE_STATE = join(scratch, 'state.json');
-      await writeFile(env.LAB_STORAGE_STATE, JSON.stringify(storageState), { mode: 0o600 });
+      env.COHORT_STORAGE_STATE = join(scratch, 'state.json');
+      await writeFile(env.COHORT_STORAGE_STATE, JSON.stringify(storageState), { mode: 0o600 });
     }
     const { code, output } = await new Promise<{ code: number; output: string }>((resolve) => {
       execFile(
@@ -178,8 +178,8 @@ export async function serveTools(
       : reply(500, { error: `${result.code}: ${result.message}` });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  env.LAB_TOOL_BRIDGE = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
-  env.LAB_TOOL_TOKEN = token;
+  env.COHORT_TOOL_BRIDGE = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  env.COHORT_TOOL_TOKEN = token;
   return {
     close: () => {
       server.closeAllConnections();

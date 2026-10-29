@@ -215,9 +215,9 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
   const assetsDir = options.assetsDir ?? defaultAssets();
   const token = randomBytes(32).toString('base64url');
   const expected = Buffer.from(`Bearer ${token}`);
-  await mkdir(join(projectRoot, '.lab'), { recursive: true });
-  await chmod(join(projectRoot, '.lab'), 0o700);
-  const dbPath = join(projectRoot, '.lab', 'index.sqlite');
+  await mkdir(join(projectRoot, '.cohort'), { recursive: true });
+  await chmod(join(projectRoot, '.cohort'), 0o700);
+  const dbPath = join(projectRoot, '.cohort', 'index.sqlite');
   await writeFile(dbPath, '', { flag: 'a', mode: 0o600 });
   const db = new LabDb(dbPath);
   // Files left by an older or umask-created index keep their mode unless tightened.

@@ -73,11 +73,11 @@ before(async () => {
   fixture = await startFixture();
   root = await mkdtemp(join(tmpdir(), 'lab-ui-'));
   await put(
-    '.lab/config.yml',
+    '.cohort/config.yml',
     'schemaVersion: 1\nmodel: openai/priced\nrepeats: 1\nlimits: { steps: 5, timeMs: 30000 }\n',
   );
   await put(
-    '.lab/models.yml',
+    '.cohort/models.yml',
     `version: test\nmodels:\n${[
       model('priced', true, 1, false),
       model('unpriced', true, null, false),
@@ -86,14 +86,14 @@ before(async () => {
       model('claude', true, 1, false, 'anthropic'),
     ].join('')}`,
   );
-  await put('.lab/personas/guest.md', PERSONA('guest', 'Guest'));
-  await put('.lab/personas/hostile.md', PERSONA('hostile', '<img src=x onerror="window.pwned=1">'));
-  await put('.lab/setup/fixture.ts', 'export default async () => ({});\n');
-  await put('.lab/personas/scripted.md', PERSONA('scripted', 'Scripted', 'setup: ../setup/fixture.ts\n'));
-  await put('.lab/suites/smoke.yml', 'schemaVersion: 1\nid: smoke\nname: Smoke\nentries:\n  - persona: guest\n');
-  await put('.lab/personas/trial.md', PERSONA('trial', 'Trial', 'model: openai/fresh\n'));
+  await put('.cohort/personas/guest.md', PERSONA('guest', 'Guest'));
+  await put('.cohort/personas/hostile.md', PERSONA('hostile', '<img src=x onerror="window.pwned=1">'));
+  await put('.cohort/setup/fixture.ts', 'export default async () => ({});\n');
+  await put('.cohort/personas/scripted.md', PERSONA('scripted', 'Scripted', 'setup: ../setup/fixture.ts\n'));
+  await put('.cohort/suites/smoke.yml', 'schemaVersion: 1\nid: smoke\nname: Smoke\nentries:\n  - persona: guest\n');
+  await put('.cohort/personas/trial.md', PERSONA('trial', 'Trial', 'model: openai/fresh\n'));
   await put(
-    '.lab/suites/layered.yml',
+    '.cohort/suites/layered.yml',
     'schemaVersion: 1\nid: layered\nname: Layered\ndefaults:\n  model: openai/unpriced\nentries:\n  - persona: guest\n  - persona: guest\n    model: openai/priced\n',
   );
   dashboard = await startDashboard({
@@ -137,11 +137,11 @@ test('the built assets load under the CSP with no inline code and the token leav
   await page.getByRole('heading', { name: 'Runs' }).waitFor();
   assert.equal(new URL(page.url()).hash, '#/runs');
   assert.ok(!page.url().includes(dashboard.token));
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('lab-token')), dashboard.token);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('cohort-token')), dashboard.token);
 
   const stranger = await browser.newPage();
   await stranger.goto(dashboard.origin);
-  await stranger.getByText('Open the launch URL').waitFor();
+  await stranger.getByRole('heading', { name: 'Open the launch URL' }).waitFor();
   await stranger.close();
 });
 
@@ -287,7 +287,10 @@ test('queued and running runs cancel from the run view', async () => {
   const started = await page.evaluate(async (url) => {
     const response = await fetch('/api/runs', {
       method: 'POST',
-      headers: { authorization: `Bearer ${sessionStorage.getItem('lab-token')}`, 'content-type': 'application/json' },
+      headers: {
+        authorization: `Bearer ${sessionStorage.getItem('cohort-token')}`,
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({ submission: { selector: { kind: 'persona', id: 'guest' }, url } }),
     });
     return (await response.json()) as { runIds: string[] };
@@ -318,12 +321,12 @@ test('persona edits keep the user text on a revision conflict and keep setup rea
   await page.keyboard.press('ArrowDown');
   assert.match(await source.inputValue(), /^effort: low$/mu);
   const disk = PERSONA('guest', 'Guest').replace('Look around.', 'Changed outside.');
-  await writeFile(join(root, '.lab/personas/guest.md'), disk);
+  await writeFile(join(root, '.cohort/personas/guest.md'), disk);
   await tabTo('Validate and save');
   await page.keyboard.press('Enter');
   await page.getByText('changed on disk since you opened it').waitFor();
   assert.match(await source.inputValue(), /Edited in the dashboard\./u);
-  assert.equal(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), disk);
+  assert.equal(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), disk);
   await page.getByRole('button', { name: 'Reload from disk (discard my edits)' }).click();
   await page.waitForFunction(() =>
     (document.querySelector('#editor-source') as HTMLTextAreaElement).value.includes('Changed outside.'),
@@ -334,8 +337,8 @@ test('persona edits keep the user text on a revision conflict and keep setup rea
   await page.keyboard.type('Saved now.');
   await tabTo('Validate and save');
   await page.keyboard.press('Enter');
-  await page.getByText('Saved .lab/personas/guest.md.').waitFor();
-  assert.match(await readFile(join(root, '.lab/personas/guest.md'), 'utf8'), /Saved now\./u);
+  await page.getByText('Saved .cohort/personas/guest.md.').waitFor();
+  assert.match(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), /Saved now\./u);
 
   await page.goto(`${dashboard.origin}/#/personas/scripted`);
   await page.getByText('is read-only here').waitFor();
@@ -363,7 +366,7 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   assert.match(source, /- persona: guest\n {4}model: openai\/priced/u);
   await tabTo('Validate and save');
   await page.keyboard.press('Enter');
-  await page.getByText('Saved .lab/suites/smoke.yml.').waitFor();
+  await page.getByText('Saved .cohort/suites/smoke.yml.').waitFor();
 
   await page.getByRole('button', { name: 'New run' }).click();
   const dialog = page.getByRole('dialog', { name: 'New run' });
@@ -375,13 +378,13 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   await page.getByRole('heading', { name: 'Outcome: completed' }).waitFor();
   await page.locator('#adhoc-suite').selectOption('smoke');
   await page.getByRole('button', { name: 'Preview entry' }).click();
-  await page.getByText('It also creates .lab/personas/adhoc-first-time-user.md').waitFor();
+  await page.getByText('It also creates .cohort/personas/adhoc-first-time-user.md').waitFor();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByText('Saved to .lab/suites/smoke.yml.').waitFor();
-  const suite = await readFile(join(root, '.lab/suites/smoke.yml'), 'utf8');
+  await page.getByText('Saved to .cohort/suites/smoke.yml.').waitFor();
+  const suite = await readFile(join(root, '.cohort/suites/smoke.yml'), 'utf8');
   assert.match(suite, /- persona: adhoc-first-time-user\n {4}goal: Find the menu\./u);
   assert.match(
-    await readFile(join(root, '.lab/personas/adhoc-first-time-user.md'), 'utf8'),
+    await readFile(join(root, '.cohort/personas/adhoc-first-time-user.md'), 'utf8'),
     /^id: adhoc-first-time-user$/mu,
   );
 
@@ -399,7 +402,7 @@ test('the persona generator form previews a draft without saving it', async () =
   await page.getByRole('button', { name: 'Generate preview' }).click();
   await page.getByText(/^Draft from openai\/priced; cost \$/u).waitFor();
   assert.match(await page.locator('#draft-source').inputValue(), /^id: drafted$/mu);
-  await assert.rejects(readFile(join(root, '.lab/personas/drafted.md')));
+  await assert.rejects(readFile(join(root, '.cohort/personas/drafted.md')));
   turn = done;
 });
 
@@ -425,12 +428,12 @@ test('typing during a save is kept as unsaved text', async () => {
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.type(' Second part.');
   release();
-  await page.getByText('Saved .lab/personas/trial.md.').waitFor();
+  await page.getByText('Saved .cohort/personas/trial.md.').waitFor();
   await page.unroute('**/api/personas/trial');
   assert.match(await source.inputValue(), /First part\. Second part\.$/u);
-  const disk = await readFile(join(root, '.lab/personas/trial.md'), 'utf8');
+  const disk = await readFile(join(root, '.cohort/personas/trial.md'), 'utf8');
   assert.ok(disk.endsWith('First part.'), disk);
-  await page.getByRole('heading', { name: '.lab/personas/trial.md (unsaved)' }).waitFor();
+  await page.getByRole('heading', { name: '.cohort/personas/trial.md (unsaved)' }).waitFor();
 });
 
 test('a run view picks up comparison claims added after its own run finished', async () => {
@@ -446,7 +449,10 @@ test('a run view picks up comparison claims added after its own run finished', a
   const started = await page.evaluate(async (url) => {
     const response = await fetch('/api/runs', {
       method: 'POST',
-      headers: { authorization: `Bearer ${sessionStorage.getItem('lab-token')}`, 'content-type': 'application/json' },
+      headers: {
+        authorization: `Bearer ${sessionStorage.getItem('cohort-token')}`,
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({ submission: { selector: { kind: 'persona', id: 'guest' }, url, repeats: 2 } }),
     });
     return (await response.json()) as { runIds: string[] };
@@ -461,7 +467,7 @@ test('a run view picks up comparison claims added after its own run finished', a
 });
 
 test('polling while a run is active keeps rows loaded through Load more', async () => {
-  const side = new LabDb(join(root, '.lab/index.sqlite'));
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
   const [template] = side.listRuns(1);
   side.insertBatch('batch_20260101_000000_pagepg', {});
   const ids = Array.from({ length: 60 }, (_, index) => `run_20260101_000000_p${String(index).padStart(5, '0')}`);
@@ -474,7 +480,7 @@ test('polling while a run is active keeps rows loaded through Load more', async 
       repeat_index: index,
       status: index === 0 ? 'running' : 'finished',
       created_at: `2026-01-01T00:00:${String(index % 60).padStart(2, '0')}.000Z`,
-      artifact_dir: `.lab/runs/${id}`,
+      artifact_dir: `.cohort/runs/${id}`,
     });
   try {
     await page.goto(`${dashboard.origin}/#/runs`);

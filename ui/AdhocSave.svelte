@@ -57,7 +57,7 @@
           if (caught.status !== 409) throw caught;
         });
       await api('POST', `/api/suites/${encodeURIComponent(suite.id)}/entries`, { entry, revision: suite.revision });
-      message = `Saved to .lab/suites/${suite.id}.yml.`;
+      message = `Saved to .cohort/suites/${suite.id}.yml.`;
       suite = null;
     } catch (caught) {
       error =
@@ -68,26 +68,34 @@
   }
 </script>
 
-<section aria-labelledby="adhoc-title">
-  <h2 id="adhoc-title">Save to suite</h2>
-  {#if suites.length === 0}
-    <p class="hint">No suites exist yet; create a <code>.lab/suites/&lt;id&gt;.yml</code> file first.</p>
-  {:else}
-    <label for="adhoc-suite">Suite</label>
-    <select id="adhoc-suite" bind:value={suiteId} onchange={() => (suite = null)}>
-      {#each suites as item (item.id)}<option value={item.id}>{item.name ?? item.id}</option>{/each}
-    </select>
-    <button type="button" onclick={preview}>Preview entry</button>
-    {#if suite}
-      <p>Appends this entry to <code>.lab/suites/{suite.id}.yml</code>:</p>
-      <pre>{stringify([entry])}</pre>
-      {#if personaMissing}
-        <p>It also creates <code>.lab/personas/{personaId}.md</code>, because a saved entry must reference a persona file:</p>
-        <pre>{persona}</pre>
+<section class="section" aria-labelledby="adhoc-title">
+  <div class="section-head"><h2 id="adhoc-title">Save to suite</h2><span class="hint">Ad-hoc run</span></div>
+  <div class="card gap">
+    {#if suites.length === 0}
+      <p class="hint">No suites exist yet; create a <code>.cohort/suites/&lt;id&gt;.yml</code> file first.</p>
+    {:else}
+      <div class="form-grid">
+        <label for="adhoc-suite">Suite
+          <select id="adhoc-suite" bind:value={suiteId} onchange={() => (suite = null)}>
+            {#each suites as item (item.id)}<option value={item.id}>{item.name ?? item.id}</option>{/each}
+          </select>
+        </label>
+        <div class="form-actions end"><button type="button" onclick={preview}>Preview entry</button></div>
+      </div>
+      {#if suite}
+        <p>Appends this entry to <code>.cohort/suites/{suite.id}.yml</code>:</p>
+        <pre class="diff" aria-label="Preview of the suite entry">{#each stringify([entry]).trimEnd().split('\n') as line, index (index)}<span class="add">+ {line}</span>{/each}</pre>
+        {#if personaMissing}
+          <p>It also creates <code>.cohort/personas/{personaId}.md</code>, because a saved entry must reference a persona file:</p>
+          <pre class="diff">{#each persona.trimEnd().split('\n') as line, index (index)}<span class="add">+ {line}</span>{/each}</pre>
+        {/if}
+        <div class="form-actions">
+          <button type="button" class="primary" onclick={save}>Save</button>
+          <span class="notice">Appends one entry. Existing entries are unchanged.</span>
+        </div>
       {/if}
-      <button type="button" onclick={save}>Save</button>
     {/if}
-  {/if}
-  {#if message}<p role="status">{message}</p>{/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if message}<p class="notice good" role="status">{message}</p>{/if}
+    {#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
+  </div>
 </section>

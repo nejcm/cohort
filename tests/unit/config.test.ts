@@ -64,23 +64,23 @@ async function put(path: string, content: string): Promise<void> {
 before(async () => {
   root = await mkdtemp(join(tmpdir(), 'lab-config-'));
   await put(
-    '.lab/config.yml',
+    '.cohort/config.yml',
     'schemaVersion: 1\nmodel: openai/model-a\neffort: low\nrepeats: 2\nlimits: { dollars: 1 }\nallowedOrigins: [http://api.example.test]\n',
   );
   // Written in reverse order so stable ID ordering is not an accident of creation order.
-  await put('.lab/personas/zed.md', persona('zed', 'goal: Find the exit.\n'));
+  await put('.cohort/personas/zed.md', persona('zed', 'goal: Find the exit.\n'));
   await put(
-    '.lab/personas/alpha.md',
+    '.cohort/personas/alpha.md',
     persona(
       'alpha',
       'goal: Find arrival.\nmodel: openai/model-b\neffort: high\nlimits: { steps: 10 }\nsetup: ../setup/persona.ts\nstorageState: persona-state\n',
     ),
   );
-  await put('.lab/personas/other.md', persona('other', '').replace('tags: [guest]', 'tags: [host]'));
-  await put('.lab/setup/persona.ts', 'export default async () => ({ startUrl: "http://a.test/" });\n');
-  await put('.lab/setup/suite.ts', 'export default async () => ({ startUrl: "http://a.test/" });\n');
+  await put('.cohort/personas/other.md', persona('other', '').replace('tags: [guest]', 'tags: [host]'));
+  await put('.cohort/setup/persona.ts', 'export default async () => ({ startUrl: "http://a.test/" });\n');
+  await put('.cohort/setup/suite.ts', 'export default async () => ({ startUrl: "http://a.test/" });\n');
   await put(
-    '.lab/suites/mixed.yml',
+    '.cohort/suites/mixed.yml',
     `schemaVersion: 1
 id: mixed
 name: Mixed
@@ -244,13 +244,13 @@ test('suite entries resolve URL, goal, notes, setup, storage state, and origins 
     first!.task,
     /^You are a careful guest\.\n\nGoal: Entry goal\.\n\nSuite note: Suite note\.\n\nRun note: Run note\.$/u,
   );
-  assert.equal(first!.setup, join(root, '.lab/setup/suite.ts'));
+  assert.equal(first!.setup, join(root, '.cohort/setup/suite.ts'));
   assert.equal(first!.storageState, 'suite-state');
   assert.deepEqual(first!.allowedOrigins, ['http://api.example.test', 'http://cdn.example.test']);
   const overridden = await resolve({ selector: { kind: 'suite', id: 'mixed' }, url: 'http://c.test/' });
   assert.ok(overridden.every(({ request }) => request.url === 'http://c.test/'));
   const [alpha] = await resolve({ selector: { kind: 'persona', id: 'alpha' } });
-  assert.equal(alpha!.setup, join(root, '.lab/setup/persona.ts'));
+  assert.equal(alpha!.setup, join(root, '.cohort/setup/persona.ts'));
   assert.equal(alpha!.storageState, 'persona-state');
 });
 
@@ -316,16 +316,16 @@ test('config files reject unknown versions, unknown fields, and unsafe or invali
     await writeFile(join(bad, path), content);
   };
   try {
-    await write('.lab/config.yml', 'schemaVersion: 2\nmodel: openai/model-a\n');
+    await write('.cohort/config.yml', 'schemaVersion: 2\nmodel: openai/model-a\n');
     await assert.rejects(loadProjectConfig(bad), /schemaVersion: must equal 1/u);
-    await write('.lab/config.yml', 'schemaVersion: 1\nmodel: openai/model-a\nkeys: nope\n');
+    await write('.cohort/config.yml', 'schemaVersion: 1\nmodel: openai/model-a\nkeys: nope\n');
     await assert.rejects(loadProjectConfig(bad), /keys: unknown property/u);
     await write(
-      '.lab/config.yml',
+      '.cohort/config.yml',
       'schemaVersion: 1\nmodel: openai/model-a\nroutes: [{ match: "**", action: block }]\n',
     );
     const project = await loadProjectConfig(bad);
-    await write('.lab/personas/p.md', persona('p', ''));
+    await write('.cohort/personas/p.md', persona('p', ''));
     const [resolved] = await resolveSubmission(
       { selector: { kind: 'persona', id: 'p' }, url: 'http://a.test/' },
       { projectRoot: bad, project, catalog, providers: allKeys },
@@ -337,22 +337,22 @@ test('config files reject unknown versions, unknown fields, and unsafe or invali
       [persona('q', ''), /does not match the file name/u],
       [persona('p', '').replace('Europe/Ljubljana', 'Mars/Olympus'), /unsupported time zone/u],
       [persona('p', '').replace('width: 390', 'width: 20'), /below minimum/u],
-      [persona('p', 'setup: ../../outside.ts\n'), /must be inside \.lab\/setup/u],
+      [persona('p', 'setup: ../../outside.ts\n'), /must be inside \.cohort\/setup/u],
       [persona('p', 'storageState: ../auth\n'), /does not match pattern/u],
       ['no frontmatter', /missing YAML frontmatter/u],
     ];
     for (const [content, expected] of cases) {
-      await write('.lab/personas/p.md', content);
+      await write('.cohort/personas/p.md', content);
       await assert.rejects(loadPersona(bad, 'p'), expected);
     }
-    await write('.lab/elsewhere.md', persona('s', ''));
-    await symlink(join(bad, '.lab/elsewhere.md'), join(bad, '.lab/personas/s.md'));
+    await write('.cohort/elsewhere.md', persona('s', ''));
+    await symlink(join(bad, '.cohort/elsewhere.md'), join(bad, '.cohort/personas/s.md'));
     await assert.rejects(loadPersona(bad, 's'), /symlink not allowed/u);
     await assert.rejects(loadPersona(bad, '../x'), /invalid persona id/u);
 
-    await write('.lab/suites/s.yml', 'schemaVersion: 1\nid: s\nname: S\nentries: []\n');
+    await write('.cohort/suites/s.yml', 'schemaVersion: 1\nid: s\nname: S\nentries: []\n');
     await assert.rejects(loadSuite(bad, 's'), /too few items/u);
-    await write('.lab/suites/s.yml', 'schemaVersion: 1\nid: s\nname: S\nentries: [{ persona: p, limits: {} }]\n');
+    await write('.cohort/suites/s.yml', 'schemaVersion: 1\nid: s\nname: S\nentries: [{ persona: p, limits: {} }]\n');
     await assert.rejects(loadSuite(bad, 's'), /limits: unknown property/u);
   } finally {
     await rm(bad, { recursive: true, force: true });
@@ -379,32 +379,32 @@ test('authoring diagnostics name the file, line, entry, and known alternatives',
     await writeFile(join(bad, path), content);
   };
   try {
-    await write('.lab/config.yml', 'schemaVersion: 1\nmodel: openai/model-a\n');
-    await write('.lab/personas/good.md', persona('good', ''));
-    await write('.lab/personas/twice.md', persona('twice', 'id: twice\n'));
-    await write('.lab/personas/tags.md', persona('tags', '').replace('tags: [guest]', 'tags: [guest, guest]'));
+    await write('.cohort/config.yml', 'schemaVersion: 1\nmodel: openai/model-a\n');
+    await write('.cohort/personas/good.md', persona('good', ''));
+    await write('.cohort/personas/twice.md', persona('twice', 'id: twice\n'));
+    await write('.cohort/personas/tags.md', persona('tags', '').replace('tags: [guest]', 'tags: [guest, guest]'));
     await write(
-      '.lab/suites/s.yml',
+      '.cohort/suites/s.yml',
       'schemaVersion: 1\nid: s\nname: S\nentries: [{ persona: good }, { persona: ghost }]\n',
     );
-    await write('.lab/suites/broken.yml', 'schemaVersion: 1\nid: broken\nname: [\n');
+    await write('.cohort/suites/broken.yml', 'schemaVersion: 1\nid: broken\nname: [\n');
     await assert.rejects(loadPersona(bad, 'twice'), /twice\.md: invalid YAML: Map keys must be unique at line 11/u);
     await assert.rejects(loadPersona(bad, 'tags'), /tags: duplicate tag guest/u);
-    await assert.rejects(loadPersona(bad, 'ghost'), /unknown persona ghost: no \.lab\/personas\/ghost\.md/u);
-    await assert.rejects(loadSuite(bad, 'nope'), /unknown suite nope: no \.lab\/suites\/nope\.yml/u);
+    await assert.rejects(loadPersona(bad, 'ghost'), /unknown persona ghost: no \.cohort\/personas\/ghost\.md/u);
+    await assert.rejects(loadSuite(bad, 'nope'), /unknown suite nope: no \.cohort\/suites\/nope\.yml/u);
     const project = await loadProjectConfig(bad);
     const options = { projectRoot: bad, project, catalog, providers: allKeys };
     await assert.rejects(
       resolveSubmission({ selector: { kind: 'suite', id: 's' } }, options),
-      /\.lab\/suites\/s\.yml entries\[1\]: unknown persona ghost/u,
+      /\.cohort\/suites\/s\.yml entries\[1\]: unknown persona ghost/u,
     );
-    await rm(join(bad, '.lab/personas/twice.md'));
-    await rm(join(bad, '.lab/personas/tags.md'));
+    await rm(join(bad, '.cohort/personas/twice.md'));
+    await rm(join(bad, '.cohort/personas/tags.md'));
     await assert.rejects(
       resolveSubmission({ selector: { kind: 'tag', tag: 'host' }, url: 'http://a.test/' }, options),
       /no persona has tag host; known tags: guest/u,
     );
-    await write('.lab/personas/twice.md', persona('twice', 'id: twice\n'));
+    await write('.cohort/personas/twice.md', persona('twice', 'id: twice\n'));
     const checked = await checkProject(bad);
     assert.equal(checked.personas, 1);
     assert.equal(checked.suites, 2);
@@ -423,13 +423,13 @@ test('the shipped persona and guest suite examples validate unchanged; the docs 
     const examples = new URL('../../examples/personas/', import.meta.url).pathname;
     const names = (await readdir(examples)).toSorted();
     assert.deepEqual(names, ['first-time-host.md', 'mobile-first-guest.md', 'returning-desktop-user.md']);
-    await mkdir(join(project, '.lab/personas'), { recursive: true });
-    for (const name of names) await copyFile(join(examples, name), join(project, '.lab/personas', name));
-    await mkdir(join(project, '.lab/suites'), { recursive: true });
-    await mkdir(join(project, '.lab/setup'), { recursive: true });
+    await mkdir(join(project, '.cohort/personas'), { recursive: true });
+    for (const name of names) await copyFile(join(examples, name), join(project, '.cohort/personas', name));
+    await mkdir(join(project, '.cohort/suites'), { recursive: true });
+    await mkdir(join(project, '.cohort/setup'), { recursive: true });
     const shipped = new URL('../../examples/', import.meta.url).pathname;
-    await copyFile(join(shipped, 'suites/fixture-guest.yml'), join(project, '.lab/suites/fixture-guest.yml'));
-    await copyFile(join(shipped, 'setup/fixture.ts'), join(project, '.lab/setup/fixture.ts'));
+    await copyFile(join(shipped, 'suites/fixture-guest.yml'), join(project, '.cohort/suites/fixture-guest.yml'));
+    await copyFile(join(shipped, 'setup/fixture.ts'), join(project, '.cohort/setup/fixture.ts'));
     assert.deepEqual(await checkProject(project), { personas: 3, suites: 1, problems: [] });
     const docs = await readFile(new URL('../../docs/personas.md', import.meta.url), 'utf8');
     assert.ok(docs.includes(`> ${PERSONA_GUIDANCE}`));
@@ -438,17 +438,17 @@ test('the shipped persona and guest suite examples validate unchanged; the docs 
   }
 });
 
-test('saved login state refuses a symlinked .lab or .lab/auth', async () => {
+test('saved login state refuses a symlinked .cohort or .cohort/auth', async () => {
   const project = await mkdtemp(join(tmpdir(), 'lab-login-'));
   const elsewhere = await mkdtemp(join(tmpdir(), 'lab-elsewhere-'));
   const state = { cookies: [], origins: [] };
   try {
-    await mkdir(join(project, '.lab'));
-    await symlink(elsewhere, join(project, '.lab/auth'));
-    await assert.rejects(saveStorageState(project, 'host', state), /symlink not allowed: \.lab\/auth/u);
-    await rm(join(project, '.lab'), { recursive: true });
-    await symlink(elsewhere, join(project, '.lab'));
-    await assert.rejects(saveStorageState(project, 'host', state), /symlink not allowed: \.lab$/u);
+    await mkdir(join(project, '.cohort'));
+    await symlink(elsewhere, join(project, '.cohort/auth'));
+    await assert.rejects(saveStorageState(project, 'host', state), /symlink not allowed: \.cohort\/auth/u);
+    await rm(join(project, '.cohort'), { recursive: true });
+    await symlink(elsewhere, join(project, '.cohort'));
+    await assert.rejects(saveStorageState(project, 'host', state), /symlink not allowed: \.cohort$/u);
     assert.deepEqual(await readdir(elsewhere), [], 'nothing is created through the symlink');
   } finally {
     await rm(project, { recursive: true, force: true });

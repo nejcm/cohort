@@ -79,7 +79,7 @@ export interface ResolvedEntry {
 const DEFAULT_LIMITS: Limits = Object.freeze({ steps: 40, timeMs: 600_000, dollars: 2 });
 const DEFAULT_MODE: Mode = 'vision';
 const DEFAULT_REPEATS = 3;
-export const DEFAULT_MASKS = ['input[type="password"]', '[data-lab-secret]'];
+export const DEFAULT_MASKS = ['input[type="password"]', '[data-cohort-secret]'];
 
 const submissionSchema: JsonSchema = {
   type: 'object',
@@ -180,7 +180,7 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
           entry.persona,
           await loadPersona(projectRoot, entry.persona).catch((error: unknown) => {
             throw error instanceof ConfigError
-              ? new ConfigError(`.lab/suites/${suite!.id}.yml entries[${index}]: ${error.message}`)
+              ? new ConfigError(`.cohort/suites/${suite!.id}.yml entries[${index}]: ${error.message}`)
               : error;
           }),
         );
@@ -191,7 +191,7 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
   const defaults = suite?.defaults ?? {};
 
   return targets.map(({ persona, entry }, entryIndex) => {
-    const where = suite ? `.lab/suites/${suite.id}.yml entries[${entryIndex}]` : `persona ${persona.id}`;
+    const where = suite ? `.cohort/suites/${suite.id}.yml entries[${entryIndex}]` : `persona ${persona.id}`;
     const mode = submission.mode ?? defaults.mode ?? project.mode ?? DEFAULT_MODE;
     if (mode === 'text') throw new ConfigError('text mode is not implemented yet; use vision');
     const repeats = submission.repeats ?? defaults.repeats ?? project.repeats ?? DEFAULT_REPEATS;

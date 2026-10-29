@@ -124,7 +124,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   await addAboveMinimumClaims(runs, reports);
   const skipped = total - runs.length;
   const summary = buildBatchReport(batchId, reports, skipped);
-  const reportDir = join(projectRoot, '.lab', 'runs', batchId);
+  const reportDir = join(projectRoot, '.cohort', 'runs', batchId);
   await mkdir(reportDir, { recursive: true, mode: 0o700 });
   await writeBatchReports(reportDir, summary);
   return { batchId, runs, skipped, summary, reportDir };
@@ -135,7 +135,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     runId: string,
     runSignal: AbortSignal | undefined,
   ): Promise<{ run: BatchRun; report: RunReport }> {
-    const outDir = join(projectRoot, '.lab', 'runs', runId);
+    const outDir = join(projectRoot, '.cohort', 'runs', runId);
     await mkdir(outDir, { recursive: true, mode: 0o700 });
     options.onRunStart?.({ runId, entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
     options.onEvent?.(runId, 'run.started', { entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });

@@ -23,13 +23,13 @@ type Rect = [number, number, number, number];
 
 function scanMasks({ secrets, selectors }: { secrets: string[]; selectors: string[] }): Rect[] {
   const rects: Rect[] = [];
-  const masked = ['[data-lab-masked]', ...selectors].join(',');
+  const masked = ['[data-cohort-masked]', ...selectors].join(',');
   const hit = (text: string | null | undefined): boolean =>
     Boolean(text) && secrets.some((secret) => text!.includes(secret));
   const rendered = ['placeholder', 'value', 'alt', 'title', 'aria-label'];
   const visit = (root: Document | ShadowRoot): void => {
     for (const element of root.querySelectorAll('*')) {
-      if (element.closest('[data-lab-overlay]')) continue;
+      if (element.closest('[data-cohort-overlay]')) continue;
       const exposed =
         element.matches(masked) ||
         ('value' in element && hit(String(element.value))) ||
@@ -50,7 +50,7 @@ function scanMasks({ secrets, selectors }: { secrets: string[]; selectors: strin
   return rects;
 }
 
-export const WATCH_KEY = 'synthetic-customer-lab.watch';
+export const WATCH_KEY = 'cohort.watch';
 
 interface Watch {
   observer: MutationObserver;
@@ -87,7 +87,7 @@ function armWatch(key: string): void {
 function settleWatch(key: string): boolean {
   const watch = (globalThis as unknown as Record<symbol, Watch | undefined>)[Symbol.for(key)];
   if (!watch) return true;
-  const overlaySelector = '[data-lab-overlay]';
+  const overlaySelector = '[data-cohort-overlay]';
   const overlay = (node: Node): boolean =>
     Boolean((node instanceof Element ? node : node.parentElement)?.closest(overlaySelector));
   const records = [...watch.records, ...watch.observer.takeRecords()];
@@ -128,7 +128,7 @@ export function changedSinceCapture(element: Element, key: string): boolean {
 
 function drawMasks({ rects, color }: { rects: Rect[]; color: string }): void {
   const host = document.createElement('div');
-  host.dataset.labOverlay = '';
+  host.dataset.cohortOverlay = '';
   host.setAttribute('popover', 'manual');
   host.style.cssText =
     'all:initial;position:fixed;inset:0;width:100vw;height:100vh;margin:0;border:0;padding:0;overflow:visible;background:transparent;pointer-events:none;z-index:2147483647;display:block';
@@ -143,7 +143,7 @@ function drawMasks({ rects, color }: { rects: Rect[]; color: string }): void {
 }
 
 function removeMasks(): void {
-  for (const overlay of document.querySelectorAll('[data-lab-overlay]')) overlay.remove();
+  for (const overlay of document.querySelectorAll('[data-cohort-overlay]')) overlay.remove();
 }
 
 async function scanFrames(page: Page, options: { secrets: string[]; maskSelectors: string[] }) {

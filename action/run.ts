@@ -21,7 +21,7 @@ for (const flag of FLAGS) {
 }
 if (env.INPUT_ALLOW_UNTESTED === 'true') args.push('--allow-untested');
 
-const child = spawn(env.LAB_BIN ?? 'lab', args, { stdio: ['ignore', 'pipe', 'inherit'] });
+const child = spawn(env.COHORT_BIN ?? 'cohort', args, { stdio: ['ignore', 'pipe', 'inherit'] });
 let stdout = '';
 child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString('utf8')));
 const exitCode = await new Promise<number>((resolve) => {
@@ -33,7 +33,7 @@ let result: RunJson = {};
 try {
   result = JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}') as RunJson;
 } catch {
-  result = { error: 'lab did not print a JSON result' };
+  result = { error: 'cohort did not print a JSON result' };
 }
 const counts = Object.fromEntries(
   STATES.map((state) => [state, (result.runs ?? []).filter((item) => item.outcome.state === state).length]),
@@ -57,7 +57,7 @@ if (env.GITHUB_OUTPUT)
       .join(''),
   );
 const summary = result.error
-  ? `lab: ${result.error}`
-  : `lab batch ${outputs['batch-id']}: ${outputs.runs} run(s), ${counts.completed} completed, ${counts.blocked} blocked, ${counts.abandoned} abandoned, ${counts.agent_error} agent error(s), ${counts.limit_reached} limit(s); report ${outputs['report-path']}`;
+  ? `cohort: ${result.error}`
+  : `cohort batch ${outputs['batch-id']}: ${outputs.runs} run(s), ${counts.completed} completed, ${counts.blocked} blocked, ${counts.abandoned} abandoned, ${counts.agent_error} agent error(s), ${counts.limit_reached} limit(s); report ${outputs['report-path']}`;
 process.stdout.write(`${summary}\nexit code ${exitCode}\n`);
 process.exitCode = exitCode;

@@ -15,7 +15,7 @@
   let saving = $state(false);
 
   const markdown = $derived(kind === 'personas');
-  const file = $derived(`.lab/${kind}/${id}.${kind === 'personas' ? 'md' : 'yml'}`);
+  const file = $derived(`.cohort/${kind}/${id}.${kind === 'personas' ? 'md' : 'yml'}`);
   const dirty = $derived(loaded !== null && source !== loaded.source);
   const setup = $derived(readAt(source, kind === 'personas' ? ['setup'] : ['defaults', 'setup'], markdown));
   const entries = $derived(kind === 'suites' ? ((readAt(source, ['entries'], false) as { persona?: string }[] | null) ?? []) : []);
@@ -89,52 +89,68 @@
 </script>
 
 <form class="editor" onsubmit={save} aria-labelledby="editor-title">
-  <h2 id="editor-title">{file}{dirty ? ' (unsaved)' : ''}</h2>
+  <div class="editor-head">
+    <h2 id="editor-title">{file}{#if dirty}{" "}<span class="unsaved">(unsaved)</span>{/if}</h2>
+    <div class="actions">
+      <button type="button" onclick={load} disabled={!dirty}>Revert</button>
+      <button type="submit" class="primary" disabled={saving || !dirty} aria-busy={saving}>Validate and save</button>
+    </div>
+  </div>
   {#if conflict}
-    <div class="error" role="alert">
-      <p>{file} changed on disk since you opened it. Your edits are still here; nothing was overwritten.</p>
-      <button type="button" onclick={load}>Reload from disk (discard my edits)</button>
+    <div class="banner warn" role="alert">
+      <div class="body">
+        <strong>Changed on disk.</strong>
+        <span>{file} changed on disk since you opened it. Your edits are still here; nothing was overwritten.</span>
+      </div>
+      <div class="actions"><button type="button" class="small danger" onclick={load}>Reload from disk (discard my edits)</button></div>
     </div>
   {:else if error}
-    <p class="error" role="alert">{error}</p>
+    <div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>
   {/if}
-  {#if message}<p role="status">{message}</p>{/if}
   {#if setup}
-    <p class="hint">Setup reference <code>{String(setup)}</code> is read-only here; change it by editing the file locally.</p>
+    <div class="banner info">
+      <div class="body"><span>Setup reference <code>{String(setup)}</code> is read-only here; change it by editing the file locally.</span></div>
+    </div>
   {/if}
   {#if models}
-    <fieldset>
-      <legend>{kind === 'personas' ? 'Model defaults' : 'Suite defaults'}</legend>
-      <ModelPicker
-        {models}
-        {mode}
-        bind:model={topModel.get, topModel.set}
-        bind:effort={topEffort.get, topEffort.set}
-        inherited={kind === 'personas' ? 'project default' : 'persona or project'}
-        inheritedModels={kind === 'personas' && config ? [config.defaults.model] : []}
-        idPrefix="{kind}-default"
-      />
-    </fieldset>
-    {#each entries as entry, index (index)}
-      {@const entryModel = field(['entries', index, 'model'])}
-      {@const entryEffort = field(['entries', index, 'effort'])}
+    <div class="metered-body">
       <fieldset>
-        <legend>Entry {index + 1}: {entry.persona ?? '?'}</legend>
-        <ModelPicker
-          {models}
-          {mode}
-          bind:model={entryModel.get, entryModel.set}
-          bind:effort={entryEffort.get, entryEffort.set}
-          inherited="suite default"
-          idPrefix="entry-{index}"
-        />
+        <legend>{kind === 'personas' ? 'Model defaults' : 'Suite defaults'}</legend>
+        <div class="form-grid cols-4">
+          <ModelPicker
+            {models}
+            {mode}
+            bind:model={topModel.get, topModel.set}
+            bind:effort={topEffort.get, topEffort.set}
+            inherited={kind === 'personas' ? 'project default' : 'persona or project'}
+            inheritedModels={kind === 'personas' && config ? [config.defaults.model] : []}
+            idPrefix="{kind}-default"
+          />
+        </div>
       </fieldset>
-    {/each}
+      {#each entries as entry, index (index)}
+        {@const entryModel = field(['entries', index, 'model'])}
+        {@const entryEffort = field(['entries', index, 'effort'])}
+        <fieldset>
+          <legend>Entry {index + 1}: {entry.persona ?? '?'}</legend>
+          <div class="form-grid cols-4">
+            <ModelPicker
+              {models}
+              {mode}
+              bind:model={entryModel.get, entryModel.set}
+              bind:effort={entryEffort.get, entryEffort.set}
+              inherited="suite default"
+              idPrefix="entry-{index}"
+            />
+          </div>
+        </fieldset>
+      {/each}
+    </div>
   {/if}
-  <label for="editor-source">Source</label>
-  <textarea id="editor-source" rows="20" spellcheck="false" bind:value={source}></textarea>
-  <div class="actions">
-    <button type="button" onclick={load} disabled={!dirty}>Revert</button>
-    <button type="submit" disabled={saving || !dirty}>Validate and save</button>
+  <label class="sr-only" for="editor-source">Source</label>
+  <textarea id="editor-source" class="source" spellcheck="false" bind:value={source}></textarea>
+  <div class="editor-foot">
+    {#if message}<p class="notice good" role="status">{message}</p>{:else}<span>{markdown ? 'Markdown + YAML frontmatter' : 'YAML'} · {file}</span>{/if}
+    <span class="mono">{source.split('\n').length} lines</span>
   </div>
 </form>

@@ -54,7 +54,7 @@ try {
     cwd: app,
     env: clean,
   });
-  const labBin = join(app, 'node_modules', '.bin', 'lab');
+  const labBin = join(app, 'node_modules', '.bin', 'cohort');
   const lab = (args: string[], extra: NodeJS.ProcessEnv = {}) =>
     exec(labBin, args, { cwd: app, env: { ...clean, ...extra } }).then(
       ({ stdout }) => ({ code: 0, stdout }),
@@ -70,21 +70,21 @@ try {
   const doctor = JSON.parse((await lab(['doctor', '--json'])).stdout) as {
     checks: { level: string; message: string }[];
   };
-  for (const pattern of [/^node /u, /^chromium installed/u, /^\.lab\/config\.yml is valid/u])
+  for (const pattern of [/^node /u, /^chromium installed/u, /^\.cohort\/config\.yml is valid/u])
     assert.equal(doctor.checks.find((check) => pattern.test(check.message))?.level, 'ok', String(pattern));
-  step('lab --version, init, persona validate, doctor');
+  step('cohort --version, init, persona validate, doctor');
 
   await writeFile(
-    join(app, '.lab/config.yml'),
+    join(app, '.cohort/config.yml'),
     'schemaVersion: 1\nmodel: openai/smoke-model\nrepeats: 1\nlimits: { steps: 5, timeMs: 60000 }\n',
   );
   await writeFile(
-    join(app, '.lab/models.yml'),
+    join(app, '.cohort/models.yml'),
     'version: smoke\nmodels:\n  - id: smoke-model\n    provider: openai\n    label: smoke\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
   );
   await writeFile(
     join(app, 'smoke-run.mjs'),
-    `import { loadCatalog, loadProjectConfig, resolveSubmission, runBatch, validateSubmission } from 'synthetic-customer-lab';
+    `import { loadCatalog, loadProjectConfig, resolveSubmission, runBatch, validateSubmission } from 'cohort-lab';
 const provider = {
   id: 'openai', keyEnv: 'OPENAI_API_KEY', available: () => true,
   async decide(request) {
@@ -108,9 +108,9 @@ console.log(JSON.stringify({ batchId: batch.batchId, runs: batch.runs.map((run) 
   const runId = ran.runs[0]!.runId;
   assert.equal(ran.runs[0]!.state, 'completed');
   for (const file of ['manifest.json', 'report.html', 'trace.zip', 'replay.spec.ts', 'screenshots/shot-0000.png'])
-    assert.ok(existsSync(join(app, '.lab/runs', runId, file)), `${file} written`);
+    assert.ok(existsSync(join(app, '.cohort/runs', runId, file)), `${file} written`);
   assert.match((await lab(['report', runId, '--format', 'md'])).stdout, /completed/u);
-  step(`fixture run through the installed library: ${runId} completed; lab report`);
+  step(`fixture run through the installed library: ${runId} completed; cohort report`);
 
   const ui = spawn(labBin, ['ui', '--port', '0'], { cwd: app, env: clean, stdio: ['ignore', 'pipe', 'inherit'] });
   try {
@@ -121,7 +121,7 @@ console.log(JSON.stringify({ batchId: batch.batchId, runs: batch.runs.map((run) 
         const match = /dashboard: (\S+)/u.exec(out);
         if (match) resolve(match[1]!);
       });
-      ui.on('exit', () => reject(new Error(`lab ui exited: ${out}`)));
+      ui.on('exit', () => reject(new Error(`cohort ui exited: ${out}`)));
     });
     const { origin, hash } = new URL(url);
     const token = new URLSearchParams(hash.slice(1)).get('token');
@@ -135,14 +135,14 @@ console.log(JSON.stringify({ batchId: batch.batchId, runs: batch.runs.map((run) 
   } finally {
     ui.kill('SIGINT');
   }
-  step('lab ui serves the packaged dashboard and authenticated API');
+  step('cohort ui serves the packaged dashboard and authenticated API');
 
   const outputFile = join(work, 'github-output');
   await exec(process.execPath, [join(repoRoot, 'action/run.ts')], {
     cwd: app,
     env: {
       ...clean,
-      LAB_BIN: labBin,
+      COHORT_BIN: labBin,
       GITHUB_OUTPUT: outputFile,
       INPUT_PERSONA: 'first-time-host',
       INPUT_URL: `${fixture.url}/`,

@@ -1,4 +1,4 @@
-const TOKEN_KEY = 'lab-token';
+const TOKEN_KEY = 'cohort-token';
 
 export class ApiError extends Error {
   override name = 'ApiError';
@@ -129,6 +129,24 @@ export const usd = (value: number | null | undefined): string =>
     : `$${value < 0.01 && value > 0 ? value.toFixed(4) : value.toFixed(2)}`;
 
 export const isActive = (status: string): boolean => status === 'queued' || status === 'running';
+
+const BADGES: Record<string, string> = {
+  completed: 'succeeded',
+  blocked: 'blocked',
+  limit_reached: 'limit',
+  agent_error: 'failed',
+  abandoned: 'interrupted',
+  cancelled: 'interrupted',
+  interrupted: 'interrupted',
+};
+/** The lab.css badge class for a run's status or outcome. */
+export const badge = (status: string, outcome?: string | null, interruptedBy?: string | null): string =>
+  interruptedBy ? 'interrupted' : (BADGES[outcome ?? status] ?? BADGES[status] ?? status);
+
+export const statusLabel = (run: RunSummary): string =>
+  run.status === 'finished'
+    ? `${run.outcome ?? 'finished'}${run.blockedKind ? ` (${run.blockedKind})` : ''}${run.interruptedBy ? ` by ${run.interruptedBy}` : ''}`
+    : run.status;
 
 export interface LiveEvent {
   id: number;

@@ -1,19 +1,19 @@
 # Setup modules, saved login, routes, and blockers
 
-Real journeys usually need a signed-in user, a one-time code, or a stubbed vendor. The lab offers four generic tools for that. None of them knows about a particular app, and all of them are trusted local configuration. The model can never select or edit them.
+Real journeys usually need a signed-in user, a one-time code, or a stubbed vendor. The cohort offers four generic tools for that. None of them knows about a particular app, and all of them are trusted local configuration. The model can never select or edit them.
 
 | Need | Use |
 | --- | --- |
 | Fresh test data or a signed-in session for each run | A setup module |
 | A code, link, or token that only exists mid-journey | A custom tool returned by setup |
-| A login you can only do by hand (OAuth, social, SSO) | `lab login` and a named storage state |
+| A login you can only do by hand (OAuth, social, SSO) | `cohort login` and a named storage state |
 | A third-party call you must stub or cut off | `routes` |
 
 When a run hits something none of these cover, it ends as an evidenced `blocked(kind)` outcome. The run does not try to work around it.
 
 ## Setup modules
 
-A setup module is a TypeScript or JavaScript file inside `.lab/setup/`. You reference it from a persona (`setup: ../setup/x.ts`) or from a suite's defaults. A suite default overrides the persona's setup. The module's default export is called once for every repetition, before the browser opens. Its signature is in PLAN §5:
+A setup module is a TypeScript or JavaScript file inside `.cohort/setup/`. You reference it from a persona (`setup: ../setup/x.ts`) or from a suite's defaults. A suite default overrides the persona's setup. The module's default export is called once for every repetition, before the browser opens. Its signature is in PLAN §5:
 
 ```ts
 const setup: SetupModule = async (ctx) => ({
@@ -47,21 +47,21 @@ Setup can return `tools: { name: { description, inputSchema, execute } }`. The m
 
 The usual pattern is a tool that fetches a fresh one-time code (email code, SMS code, TOTP) or a magic-link token from your test infrastructure. The model calls the tool, then types `{{code}}` with `fill`. See `request_code` in `examples/setup/fixture-auth.ts`.
 
-**Replay.** `lab replay` runs the setup module again, then serves its tools to the generated script over a loopback HTTP bridge. The bridge has a random token and closes when the replay ends. Codes are acquired again at replay time instead of being reused.
+**Replay.** `cohort replay` runs the setup module again, then serves its tools to the generated script over a loopback HTTP bridge. The bridge has a random token and closes when the replay ends. Codes are acquired again at replay time instead of being reused.
 
 ## Saved login
 
 ```sh
-lab login --url https://app.example.test/login --state host-local
+cohort login --url https://app.example.test/login --state host-local
 ```
 
-This opens a headed Chromium window. Log in by hand, then press Enter in the terminal. The session is saved to `.lab/auth/host-local.json`, written atomically with mode `0600`. A symlinked `.lab` or `.lab/auth` is refused.
+This opens a headed Chromium window. Log in by hand, then press Enter in the terminal. The session is saved to `.cohort/auth/host-local.json`, written atomically with mode `0600`. A symlinked `.cohort` or `.cohort/auth` is refused.
 
 Reference the saved state from a persona or a suite's defaults with `storageState: host-local`. No setup module is needed. A suite default overrides the persona's value.
 
-`lab login` never automates CAPTCHAs, and it never puts credentials into prompts or artifacts. The saved file is a credential: `.lab/auth/` is gitignored, so keep it that way.
+`cohort login` never automates CAPTCHAs, and it never puts credentials into prompts or artifacts. The saved file is a credential: `.cohort/auth/` is gitignored, so keep it that way.
 
-The lab does not guess expiry from the file's age. If a saved login has expired and the app redirects to a known identity provider, the run ends as `blocked(oauth)`, detected by the harness (see below). Run `lab login` again to refresh it.
+The cohort does not guess expiry from the file's age. If a saved login has expired and the app redirects to a known identity provider, the run ends as `blocked(oauth)`, detected by the harness (see below). Run `cohort login` again to refresh it.
 
 ## Routes
 
@@ -76,7 +76,7 @@ routes:
     body: '{"status":"ok"}'
 ```
 
-Routes are allowed in `.lab/config.yml` and in a suite's defaults. The two lists are combined, project rules first. `match` is a Playwright URL glob.
+Routes are allowed in `.cohort/config.yml` and in a suite's defaults. The two lists are combined, project rules first. `match` is a Playwright URL glob.
 
 - **No mocking by default.** Third parties are real unless a rule says otherwise.
 - **Allowlist.** Rules apply only inside the allowlist. A request the origin guard would refuse is still refused. To stub a vendor, add its origin to `allowedOrigins` (navigations) or `resourceOrigins` (subresources).

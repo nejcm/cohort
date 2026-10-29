@@ -98,60 +98,90 @@ Describe who this person is and how they behave.
   }
 </script>
 
-<h1>Personas</h1>
-{#if error}<p class="error" role="alert">{error}</p>{/if}
-<div class="split">
-  <nav aria-label="Personas">
-    <ul class="list">
-      {#each personas as persona (persona.id)}
-        <li>
-          <a href="#/personas/{encodeURIComponent(persona.id)}" aria-current={persona.id === id ? 'page' : undefined}>
-            {persona.name ?? persona.id}
-          </a>
-          <span class="hint">{persona.tags.join(', ')}</span>
-          {#if persona.setup}<span class="badge">setup</span>{/if}
-          {#if persona.error}<span class="badge error">invalid</span>{/if}
-        </li>
-      {/each}
-    </ul>
-    <a href="#/personas/new">+ New persona</a>
-  </nav>
-  <div>
-    {#if id === 'new'}
-      <form onsubmit={generate} aria-labelledby="generate-title">
-        <h2 id="generate-title">Generate a draft (one metered model call)</h2>
-        <label for="gen-url">Landing page URL</label>
-        <input id="gen-url" type="url" required bind:value={genUrl} />
-        <label for="gen-description">Who should this persona be?</label>
-        <textarea id="gen-description" rows="3" required bind:value={genDescription}></textarea>
-        <label for="gen-dollars">Dollar cap for this call</label>
-        <input id="gen-dollars" type="number" min="0.01" max="1000" step="0.01" required bind:value={genDollars} />
-        {#if models}
-          <ModelPicker {models} mode="vision" bind:model={genModel} bind:effort={genEffort} idPrefix="gen" />
-          {#if models.models.find((entry) => entry.id === genModel)?.untested}
-            <label class="inline"><input type="checkbox" bind:checked={genAllowUntested} /> Allow the untested model</label>
-          {/if}
-        {/if}
-        <button type="submit" disabled={generating}>{generating ? 'Generating…' : 'Generate preview'}</button>
-      </form>
-      {#if generated}
-        <p role="status">
-          Draft from {generated.provider}/{generated.model}; cost {usd(generated.reportedCostUsd ?? generated.estimatedCostUsd)}.
-          Review it below; nothing is saved until you create it.
-        </p>
-      {/if}
-      <form onsubmit={create} aria-labelledby="create-title">
-        <h2 id="create-title">New persona</h2>
-        <p class="hint">New personas cannot reference setup code; add a setup reference by editing the file locally.</p>
-        {#if draftError}<p class="error" role="alert">{draftError}</p>{/if}
-        <label for="draft-source">Markdown</label>
-        <textarea id="draft-source" rows="18" spellcheck="false" bind:value={draft}></textarea>
-        <button type="submit">Validate and create</button>
-      </form>
-    {:else if id}
-      <Editor kind="personas" {id} onsaved={list} />
-    {:else}
-      <p>Select a persona to edit it.</p>
-    {/if}
+{#if id === 'new'}
+  <div class="head-stack">
+    <a class="back" href="#/personas">← Personas</a>
+    <div class="page-head"><div class="title"><h1>New persona</h1></div></div>
   </div>
-</div>
+{:else}
+  <div class="page-head">
+    <div class="title"><h1>Personas</h1></div>
+    <div class="actions"><a class="button" href="#/personas/new">New persona</a></div>
+    <p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <span class="mono">.cohort/personas/</span>, each a Markdown file with YAML frontmatter.</p>
+  </div>
+{/if}
+{#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
+{#if id === 'new'}
+  <div class="form-grid loose">
+    <form class="editor" onsubmit={create} aria-labelledby="create-title">
+      <div class="editor-head"><h2 id="create-title">Write it yourself</h2><span class="hint">Free</span></div>
+      {#if draftError}<div class="banner error" role="alert"><div class="body"><span>{draftError}</span></div></div>{/if}
+      {#if generated}
+        <div class="banner info" role="status">
+          <div class="body">
+            <span>Draft from {generated.provider}/{generated.model}; cost {usd(generated.reportedCostUsd ?? generated.estimatedCostUsd)}.
+            Review it below; nothing is saved until you create it.</span>
+          </div>
+        </div>
+      {/if}
+      <label class="sr-only" for="draft-source">Markdown</label>
+      <textarea id="draft-source" class="source short" spellcheck="false" bind:value={draft}></textarea>
+      <div class="editor-foot">
+        <span>New personas cannot reference setup code; add one by editing the file locally.</span>
+        <button type="submit" class="primary small">Validate and create</button>
+      </div>
+    </form>
+    <form class="metered" onsubmit={generate} aria-labelledby="generate-title" aria-busy={generating}>
+      <div class="metered-head"><h2 id="generate-title">Generate a draft</h2><span class="badge meter">$ one metered model call</span></div>
+      <div class="metered-body">
+        <label for="gen-url">Landing page URL<input id="gen-url" type="url" required bind:value={genUrl} disabled={generating} /></label>
+        <label for="gen-description">Who should this persona be?
+          <textarea id="gen-description" rows="4" required bind:value={genDescription} disabled={generating}></textarea>
+        </label>
+        <div class="form-grid cols-4">
+          <label for="gen-dollars">Dollar cap
+            <input id="gen-dollars" type="number" min="0.01" max="1000" step="0.01" required bind:value={genDollars} disabled={generating} />
+          </label>
+          {#if models}
+            <ModelPicker {models} mode="vision" bind:model={genModel} bind:effort={genEffort} idPrefix="gen" />
+          {/if}
+        </div>
+        {#if models?.models.find((entry) => entry.id === genModel)?.untested}
+          <label class="check risk">
+            <input type="checkbox" bind:checked={genAllowUntested} />
+            <span><strong>Allow the untested model</strong> <span class="badge untested">untested</span></span>
+          </label>
+        {/if}
+        <div class="form-actions">
+          <button type="submit" disabled={generating} aria-busy={generating}>{generating ? 'Generating…' : 'Generate preview'}</button>
+        </div>
+      </div>
+    </form>
+  </div>
+{:else}
+  <div class="split">
+    <nav aria-label="Personas">
+      <ul class="item-list">
+        {#each personas as persona (persona.id)}
+          <li>
+            <a href="#/personas/{encodeURIComponent(persona.id)}" aria-current={persona.id === id ? 'page' : undefined}>
+              <span class="id">{persona.name ?? persona.id}</span>
+              <span class="sub">
+                {persona.tags.join(' · ')}
+                {#if persona.setup}<span class="badge meter">setup</span>{/if}
+                {#if persona.error}<span class="badge failed">invalid</span>{/if}
+              </span>
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </nav>
+    <div>
+      {#if id}
+        <Editor kind="personas" {id} onsaved={list} />
+      {:else}
+        <div class="empty"><p>Select a persona to edit it.</p></div>
+      {/if}
+    </div>
+  </div>
+{/if}

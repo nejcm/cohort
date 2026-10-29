@@ -1,8 +1,8 @@
-import type { SetupModule } from 'synthetic-customer-lab';
+import type { SetupModule } from 'cohort-lab';
 
 // Signs in through the fixture's test-only API, then offers a code tool the agent calls just before it needs a code.
 const setup: SetupModule = async (ctx) => {
-  const origin = new URL(ctx.env('LAB_FIXTURE_ORIGIN'));
+  const origin = new URL(ctx.env('COHORT_FIXTURE_ORIGIN'));
   const api = (path: string): string => new URL(`${path}?scope=${encodeURIComponent(ctx.scopeId)}`, origin).href;
   const post = async (path: string, signal: AbortSignal): Promise<Record<string, string>> => {
     const response = await fetch(api(path), { method: 'POST', signal });

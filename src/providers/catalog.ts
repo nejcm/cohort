@@ -164,12 +164,12 @@ export async function loadCatalog(projectRoot: string): Promise<ModelCatalog> {
   const base = validateCatalog(shipped, 'catalog.json');
   let text: string;
   try {
-    text = await readFile(join(projectRoot, '.lab', 'models.yml'), 'utf8');
+    text = await readFile(join(projectRoot, '.cohort', 'models.yml'), 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return base;
     throw error;
   }
-  return mergeCatalogs(base, validateCatalog(parse(text) as unknown, '.lab/models.yml'));
+  return mergeCatalogs(base, validateCatalog(parse(text) as unknown, '.cohort/models.yml'));
 }
 
 export function resolveModel(
