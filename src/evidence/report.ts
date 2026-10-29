@@ -46,7 +46,7 @@ const SENSITIVITY_WARNING =
   'trace.zip is private raw evidence and may contain secrets (DOM snapshots, network traffic, URLs, browser state); never share or upload it. Screenshots and reports are redacted for registered secrets but may still show sensitive content. Treat every artifact as sensitive until reviewed.';
 const MODE_WARNINGS: Record<RunReport['mode'], string> = {
   vision:
-    'Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport.',
+    "Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport, except that keyboard-input personas are also told the focused element's role and name, even when it is off screen.",
   text: 'Text mode: the agent saw an accessibility-style text representation, not the rendered page; visual-only problems are invisible to it.',
 };
 const VERIFICATION_NOTE =

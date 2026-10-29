@@ -449,6 +449,7 @@ test('file edits use revisions, refuse setup changes, and never overwrite extern
   );
   assert.equal((await call('POST', '/api/personas', { body: { source: 'nope' } })).status, 400);
   const templates = (await call('GET', '/api/persona-templates')).json().templates;
+  assert.ok(templates.some((item: { id: string }) => item.id === 'keyboard-only-navigator'));
   const template = templates.find((item: { id: string }) => item.id === 'developer-docs-reader');
   assert.match(template.source, /^id: developer-docs-reader$/mu);
   assert.equal((await call('POST', '/api/personas', { body: { source: template.source } })).status, 201);

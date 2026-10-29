@@ -13,7 +13,7 @@ export const PERSONA_GUIDANCE =
 
 const SCHEMA_TEXT = `Frontmatter fields (YAML between --- lines):
 required: schemaVersion: 1; id (lowercase letters, digits, hyphens; at most 64); name; tags (list of ids); device: { viewport: { width 240-3840, height 240-2160 }, touch: true|false }; locale (BCP 47, for example en-US); timezone (IANA, for example Europe/Berlin)
-optional: goal (one sentence)
+optional: goal (one sentence); input: keyboard (only for a persona who uses no mouse or touch)
 not allowed here: setup, storageState, model, effort, limits
 The body after the frontmatter is the persona description, written to the persona in the second person.`;
 

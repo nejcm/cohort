@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_20261029_063646_ab14a7",
+  "batchId": "batch_20261029_063646_020f95",
+  "personaId": "guest",
+  "goal": "Request a stay.",
+  "mode": "vision",
+  "provider": "openai",
+  "requestedModel": "example-model",
+  "effort": "low",
+  "catalog": {
+    "version": "phase-0-unverified+example",
+    "hash": "sha256:757955d685a1d7aaba4b5fbf8000ac0a3bc67fcfa0aaa83c47c9b94f4f5770dc",
+    "entry": {
+      "id": "example-model",
+      "provider": "openai",
+      "label": "Example model",
+      "visionCapable": true,
+      "supportedEffortLevels": [
+        "low"
+      ],
+      "defaultEffort": "low",
+      "pricesPerMTok": {
+        "input": 1,
+        "output": 4,
+        "cachedInput": 0.1
+      },
+      "pricingVerifiedAt": "2026-10-01",
+      "untested": false
+    }
+  },
+  "returnedModel": null,
+  "startedAt": "2026-10-29T06:36:46.511Z",
+  "durationMs": 89,
+  "steps": 0,
+  "browserActions": 0,
+  "outcome": {
+    "state": "agent_error",
+    "code": "browser_error",
+    "reason": "page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/",
+    "evidence": []
+  },
+  "friction": [],
+  "usage": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cachedInputTokens": null,
+    "imageInputTokens": null,
+    "providerReportedCostUsd": null,
+    "estimatedCostUsd": 0,
+    "reservedUnsettledCostUsd": 0,
+    "pricingVerifiedAt": "2026-10-01",
+    "accounting": "estimated",
+    "capEnforcement": "priced_reservations"
+  },
+  "replay": {
+    "path": "replay.spec.ts",
+    "status": "unsupported"
+  },
+  "issues": [
+    {
+      "code": "evidence_unavailable",
+      "message": "the run ended before any screenshot",
+      "evidenceUnavailable": true
+    }
+  ],
+  "manifestPath": "manifest.json"
+}

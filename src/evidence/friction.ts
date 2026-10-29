@@ -1,7 +1,7 @@
 import { fingerprint } from '../core/agent.ts';
 import type { EvidenceRef } from '../core/outcomes.ts';
 import { validate, type JsonSchema } from '../core/schema.ts';
-import type { StepRecord } from './steps.ts';
+import { focusLabel, type StepRecord } from './steps.ts';
 
 type Measured<Kind extends string, Measurement> = { source: 'harness'; kind: Kind; measurement: Measurement };
 
@@ -26,10 +26,21 @@ export type FrictionClaim = {
   | Measured<'repeated_action', { actionFingerprint: string; count: number; windowSteps: number }>
   | Measured<'visible_error', { text: string; detector: 'visible_alert' | 'visible_validation_message' }>
   | Measured<'long_pause', { durationMs: number; thresholdMs: number; basis: 'page_wait' }>
+  | Measured<'focus_trap', { element: string; presses: number }>
+  | Measured<'focus_not_visible', { element: string }>
+  | Measured<'horizontal_overflow', { overflowPx: number }>
   | { source: 'agent'; kind: 'opinion'; opinion: { reportingStepId: string; reason: string } }
 );
 
-export const BROWSER_ACTIONS: ReadonlySet<string> = new Set(['click', 'fill', 'press', 'scroll', 'goto', 'wait']);
+export const BROWSER_ACTIONS: ReadonlySet<string> = new Set([
+  'click',
+  'fill',
+  'press',
+  'type',
+  'scroll',
+  'goto',
+  'wait',
+]);
 const LONG_PAUSE_MS = 5000;
 const REPEAT_WINDOW = 5;
 
@@ -92,9 +103,15 @@ const claimSchema: JsonSchema = {
       'measurement',
       object({ durationMs: count, thresholdMs: count, basis: { const: 'page_wait' } }),
     ),
+    claim('harness', 'focus_trap', 'measurement', object({ element: text, presses: { type: 'integer', minimum: 2 } })),
+    claim('harness', 'focus_not_visible', 'measurement', object({ element: text })),
+    claim('harness', 'horizontal_overflow', 'measurement', object({ overflowPx: { type: 'integer', minimum: 1 } })),
     claim('agent', 'opinion', 'opinion', object({ reportingStepId: stepId, reason: text })),
   ],
 };
+
+const focusKey = (step: StepRecord): string | null =>
+  step.focus ? `${step.pageUrl} ${step.focus.document} ${step.focus.css}` : null;
 
 export const claimId = (index: number): string => `c${String(index).padStart(4, '0')}`;
 
@@ -174,6 +191,68 @@ export function deriveClaims(runId: string, steps: readonly StepRecord[]): Frict
     if (!first) firstSeen.set(url, step);
     previousUrl = url;
   }
+
+  let trap: StepRecord[] = [];
+  const endTrap = (): void => {
+    const focus = trap[0]?.focus;
+    if (focus && trap.length >= 2)
+      drafts.push({
+        source: 'harness',
+        kind: 'focus_trap',
+        statement: `${trap.length} consecutive Tab or Shift+Tab presses ended on ${focusLabel(focus)} (${trap[0]!.id} to ${trap.at(-1)!.id}).`,
+        measurement: { element: focusLabel(focus), presses: trap.length },
+        evidence: trap.flatMap(evidenceOf),
+      });
+    trap = [];
+  };
+  for (const step of steps) {
+    const tab =
+      step.action.name === 'press' &&
+      step.result.status === 'ok' &&
+      (step.action.args.key === 'Tab' || step.action.args.key === 'Shift+Tab') &&
+      step.focus;
+    if (!tab || (trap.length > 0 && focusKey(trap[0]!) !== focusKey(step))) endTrap();
+    if (tab) trap.push(step);
+  }
+  endTrap();
+
+  let hidden: string | null = null;
+  for (const step of steps) {
+    if (step.focus === undefined) continue;
+    const invisible = step.focus && !step.focus.visible ? focusKey(step) : null;
+    if (
+      invisible &&
+      invisible !== hidden &&
+      step.result.status === 'ok' &&
+      (step.action.name === 'press' || step.action.name === 'type')
+    )
+      drafts.push({
+        source: 'harness',
+        kind: 'focus_not_visible',
+        statement: `Focus moved to ${focusLabel(step.focus!)}, which is not visible on screen, at ${step.id}.`,
+        measurement: { element: focusLabel(step.focus!) },
+        evidence: evidenceOf(step),
+      });
+    hidden = invisible;
+  }
+
+  const overflowed = new Set<string>();
+  for (const step of steps)
+    if (
+      step.result.status === 'ok' &&
+      step.afterScreenshotId &&
+      (step.overflowX ?? 0) > 0 &&
+      !overflowed.has(step.pageUrl)
+    ) {
+      overflowed.add(step.pageUrl);
+      drafts.push({
+        source: 'harness',
+        kind: 'horizontal_overflow',
+        statement: `The page at ${step.pageUrl} is ${step.overflowX} px wider than the viewport at ${step.id}.`,
+        measurement: { overflowPx: step.overflowX! },
+        evidence: evidenceOf(step),
+      });
+    }
 
   return drafts
     .filter((draft) => draft.evidence.length > 0)

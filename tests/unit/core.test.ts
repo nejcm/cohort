@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { screenshotToCss, renderLocator } from '../../src/browser/targets.ts';
 import { classify, renderCompareMarkdown, type ExecutionStatus } from '../../src/core/compare.ts';
 import { CostMeter, estimateCostUsd } from '../../src/core/cost.ts';
-import { BUILTIN_TOOLS, validateToolCall } from '../../src/core/tools.ts';
-import { generateReplay } from '../../src/evidence/replay.ts';
+import { BUILTIN_TOOLS, toolsFor, validateToolCall } from '../../src/core/tools.ts';
+import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
 import type { StepRecord } from '../../src/evidence/steps.ts';
 import type { Usage } from '../../src/providers/types.ts';
 import { redactValue, safeUrl, SecretStore } from '../../src/setup/secrets.ts';
@@ -20,7 +20,7 @@ const usage = (inputTokens: number, outputTokens: number, extra: Partial<Usage> 
 });
 
 test('tool schemas accept canonical calls and reject drift', () => {
-  assert.equal(BUILTIN_TOOLS.length, 10);
+  assert.equal(BUILTIN_TOOLS.length, 11);
   const point = { kind: 'point', x: 10, y: 20 };
   assert.equal(validateToolCall({ name: 'click', args: { observationId: 'o0001', target: point } }), null);
   assert.equal(
@@ -28,6 +28,7 @@ test('tool schemas accept canonical calls and reject drift', () => {
     null,
   );
   assert.equal(validateToolCall({ name: 'press', args: { observationId: 'o0001', key: 'Enter' } }), null);
+  assert.equal(validateToolCall({ name: 'type', args: { observationId: 'o0001', text: '{{email}}' } }), null);
   assert.equal(validateToolCall({ name: 'done', args: { step: 's0003', summary: 'Shown.' } }), null);
   assert.match(validateToolCall({ name: 'hover', args: {} }) ?? '', /unknown tool/u);
   assert.notEqual(validateToolCall({ name: 'click', args: { observationId: 'o0001', target: point, extra: 1 } }), null);
@@ -41,6 +42,19 @@ test('tool schemas accept canonical calls and reject drift', () => {
     validateToolCall({ name: 'click', args: { observationId: 'o0001', target: { kind: 'point', x: -1, y: 2 } } }),
     null,
   );
+});
+
+test('keyboard input offers no pointer tools, so a click is an unknown tool', () => {
+  const keyboard = toolsFor('keyboard');
+  assert.deepEqual(
+    keyboard.map((tool) => tool.name),
+    ['press', 'type', 'goto', 'wait', 'report_friction', 'report_blocked', 'done', 'give_up'],
+  );
+  assert.equal(toolsFor(), BUILTIN_TOOLS);
+  const click = { name: 'click', args: { observationId: 'o0001', target: { kind: 'point', x: 1, y: 2 } } };
+  assert.equal(validateToolCall(click), null);
+  assert.match(validateToolCall(click, keyboard) ?? '', /unknown tool: click/u);
+  assert.equal(validateToolCall({ name: 'type', args: { observationId: 'o0001', text: 'Ana' } }, keyboard), null);
 });
 
 test('cost estimates never treat an unknown price as zero', () => {
@@ -157,9 +171,15 @@ test('generated replay binds secrets from the environment and skips failed steps
       step('s0004', { name: 'press', args: { key: 'Enter' } }),
       step(
         's0005',
+        { name: 'type', args: { observationId: 'o0005', text: '{{email}}' } },
+        { recipient: { frames: [], target: { by: 'label', text: 'Email' } } },
+      ),
+      step(
+        's0006',
         { name: 'click', args: {} },
         { target: target('button'), result: { status: 'error', code: 'tool_error', message: 'x' } },
       ),
+      step('s0007', { name: 'type', args: { observationId: 'o0006', text: 'k' } }, { recipient: null }),
     ],
   );
   assert.match(script, /page\.goto\(binding\('COHORT_START_URL'\)\)/u);
@@ -167,7 +187,14 @@ test('generated replay binds secrets from the environment and skips failed steps
   assert.match(script, /selectOption\(\{ label: "Evening" \}\)/u);
   assert.match(script, /\.click\(\{ position: \{"x":4,"y":5\.5\} \}\)/u);
   assert.match(script, /keyboard\.press\("Enter"\)/u);
-  assert.ok(!script.includes('s0005'));
+  assert.match(
+    script,
+    /await expect\(page\.getByLabel\("Email", \{ exact: true \}\)\)\.toBeFocused\(\);\n {4}await page\.keyboard\.type\(bind\("\{\{email\}\}"\)\)/u,
+  );
+  assert.match(script, /"s0007 type", async \(\) => \{\n {4}await page\.keyboard\.type\("k"\)/u);
+  assert.ok(!script.includes('s0006'));
+  const unresolved = step('s0008', { name: 'type', args: { observationId: 'o0007', text: 'k' } });
+  assert.deepEqual(replayGaps([unresolved]), ['s0008']);
   assert.ok(!script.includes('screenshot'), 'replay must not write unmasked images');
   assert.match(
     script,

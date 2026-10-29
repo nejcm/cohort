@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "batchId": "batch_20261028_000000_000000",
-  "createdAt": "2026-10-28T12:35:29.063Z",
+  "createdAt": "2026-10-29T06:36:46.773Z",
   "groups": [
     {
       "personaId": "guest",
@@ -14,46 +14,46 @@
       "untested": false,
       "runs": [
         {
-          "runId": "run_20261028_123523_6a126b",
+          "runId": "run_20261029_063642_7e9f85",
           "outcome": "completed (agent_reported)",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261028_123523_6a126b/report.json"
+          "reportPath": "run_20261029_063642_7e9f85/report.json"
         },
         {
-          "runId": "run_20261028_123524_5f6c4a",
+          "runId": "run_20261029_063643_83c20a",
           "outcome": "abandoned by the agent",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261028_123524_5f6c4a/report.json"
+          "reportPath": "run_20261029_063643_83c20a/report.json"
         },
         {
-          "runId": "run_20261028_123525_20bb99",
+          "runId": "run_20261029_063643_6bdedc",
           "outcome": "blocked: oauth (agent-declared, unverified)",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261028_123525_20bb99/report.json"
+          "reportPath": "run_20261029_063643_6bdedc/report.json"
         },
         {
-          "runId": "run_20261028_123526_d570b3",
+          "runId": "run_20261029_063644_08cf76",
           "outcome": "limit reached: steps (4 of 4; not a UX failure)",
           "cost": "$0.0048",
           "costUsd": 0.0048,
-          "reportPath": "run_20261028_123526_d570b3/report.json"
+          "reportPath": "run_20261029_063644_08cf76/report.json"
         },
         {
-          "runId": "run_20261028_123528_59a279",
+          "runId": "run_20261029_063646_85b4de",
           "outcome": "cancelled by user (not an agent or UX failure)",
           "cost": "$0.0000 (+$0.0103 unsettled)",
           "costUsd": 0,
-          "reportPath": "run_20261028_123528_59a279/report.json"
+          "reportPath": "run_20261029_063646_85b4de/report.json"
         },
         {
-          "runId": "run_20261028_123528_5acf71",
+          "runId": "run_20261029_063646_ab14a7",
           "outcome": "agent error: browser_error (not a UX failure)",
           "cost": "$0.0000",
           "costUsd": 0,
-          "reportPath": "run_20261028_123528_5acf71/report.json"
+          "reportPath": "run_20261029_063646_ab14a7/report.json"
         }
       ],
       "completion": {
@@ -88,7 +88,7 @@
   "unknownCostRuns": 0,
   "warnings": [
     "trace.zip is private raw evidence and may contain secrets (DOM snapshots, network traffic, URLs, browser state); never share or upload it. Screenshots and reports are redacted for registered secrets but may still show sensitive content. Treat every artifact as sensitive until reviewed.",
-    "Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport.",
+    "Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport, except that keyboard-input personas are also told the focused element's role and name, even when it is off screen.",
     "Blocked runs and user cancellations are excluded from the completion denominator; agent-declared blocks are unverified. Agent errors and limits count as non-completions but are not UX failures."
   ]
 }

@@ -44,6 +44,8 @@ export interface Persona {
   name: string;
   tags: string[];
   device: { viewport: { width: number; height: number }; touch: boolean };
+  /** `keyboard` withholds pointer tools from the agent. */
+  input?: 'keyboard';
   locale: string;
   timezone: string;
   goal?: string;
@@ -212,6 +214,7 @@ const personaSchema: JsonSchema = {
         touch: { type: 'boolean' },
       },
     },
+    input: { enum: ['keyboard'] },
     locale: { type: 'string', minLength: 2, maxLength: 35 },
     timezone: { type: 'string', minLength: 1, maxLength: 64 },
     goal: text,

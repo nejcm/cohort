@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_20261029_063643_6bdedc",
+  "batchId": "batch_20261029_063643_8436f4",
+  "personaId": "guest",
+  "goal": "Request a stay.",
+  "mode": "vision",
+  "provider": "openai",
+  "requestedModel": "example-model",
+  "effort": "low",
+  "catalog": {
+    "version": "phase-0-unverified+example",
+    "hash": "sha256:757955d685a1d7aaba4b5fbf8000ac0a3bc67fcfa0aaa83c47c9b94f4f5770dc",
+    "entry": {
+      "id": "example-model",
+      "provider": "openai",
+      "label": "Example model",
+      "visionCapable": true,
+      "supportedEffortLevels": [
+        "low"
+      ],
+      "defaultEffort": "low",
+      "pricesPerMTok": {
+        "input": 1,
+        "output": 4,
+        "cachedInput": 0.1
+      },
+      "pricingVerifiedAt": "2026-10-01",
+      "untested": false
+    }
+  },
+  "returnedModel": "fake-model",
+  "startedAt": "2026-10-29T06:36:43.767Z",
+  "durationMs": 157,
+  "steps": 1,
+  "browserActions": 0,
+  "outcome": {
+    "state": "blocked",
+    "kind": "oauth",
+    "detectedBy": "agent",
+    "reason": "Login provider.",
+    "evidence": [
+      {
+        "stepId": "s0000",
+        "screenshotId": "shot-0000"
+      }
+    ]
+  },
+  "friction": [],
+  "usage": {
+    "inputTokens": 1000,
+    "outputTokens": 50,
+    "cachedInputTokens": 0,
+    "imageInputTokens": null,
+    "providerReportedCostUsd": null,
+    "estimatedCostUsd": 0.0012,
+    "reservedUnsettledCostUsd": 0,
+    "pricingVerifiedAt": "2026-10-01",
+    "accounting": "estimated",
+    "capEnforcement": "priced_reservations"
+  },
+  "replay": {
+    "path": "replay.spec.ts",
+    "status": "not_attempted"
+  },
+  "issues": [],
+  "manifestPath": "manifest.json"
+}

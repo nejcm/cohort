@@ -99,6 +99,71 @@ test('claim validation rejects unknown fields, missing evidence, cross-run refer
     assert.match(validateClaim(value, value === claim ? 'run_b' : 'run_a', steps) ?? '', expected);
 });
 
+const focus = (css: string, visible = true, document = 1) => ({
+  tag: 'a',
+  role: 'link',
+  name: css,
+  css,
+  visible,
+  document,
+});
+
+test('focus traps, invisible keyboard focus, and horizontal overflow are measured from step evidence', () => {
+  const tab = { observationId: 'o0001', key: 'Tab' };
+  const keyboard: StepRecord[] = [
+    step(0, 'navigate', { url: 'http://app.test/' }, { focus: null, overflowX: 0 }),
+    step(1, 'press', tab, { focus: focus('skip', false), overflowX: 40 }),
+    step(2, 'press', tab, { focus: focus('trap'), overflowX: 40 }),
+    step(3, 'press', tab, { focus: focus('trap'), overflowX: 40 }),
+    step(4, 'press', { ...tab, key: 'Shift+Tab' }, { focus: focus('trap'), overflowX: 40 }),
+    step(5, 'click', click, { focus: focus('hidden', false), overflowX: 12, pageUrl: 'http://app.test/b' }),
+    step(6, 'press', tab, { focus: focus('hidden', false), overflowX: 12, pageUrl: 'http://app.test/b' }),
+    step(7, 'press', tab, { focus: focus('hidden', false), overflowX: 0, pageUrl: 'http://app.test/c' }),
+    step(8, 'press', tab, { focus: focus('trap'), overflowX: 0, pageUrl: 'http://app.test/d' }),
+    step(9, 'press', tab, { focus: focus('trap'), overflowX: 0, pageUrl: 'http://app.test/e' }),
+    step(10, 'press', tab, { focus: focus('trap', true, 2), overflowX: 0, pageUrl: 'http://app.test/e' }),
+    step(11, 'press', tab, { focus: focus('hidden', false, 2), overflowX: 0, pageUrl: 'http://app.test/e' }),
+    step(12, 'goto', { url: '?stage=2' }, { pageUrl: 'http://app.test/e' }),
+    step(13, 'press', tab, { focus: focus('hidden', false, 3), overflowX: 0, pageUrl: 'http://app.test/e' }),
+  ];
+  const claims = deriveClaims('run_a', keyboard) as any[];
+  for (const claim of claims) assert.equal(validateClaim(claim, 'run_a', keyboard), null, claim.id);
+  const of = (kind: string) => claims.filter((claim) => claim.kind === kind);
+  assert.deepEqual(
+    of('focus_trap').map((claim) => [claim.measurement, claim.evidence.map((ref: any) => ref.stepId)]),
+    [[{ element: 'link "trap"', presses: 3 }, ['s0002', 's0003', 's0004']]],
+  );
+  assert.deepEqual(
+    of('focus_not_visible').map((claim) => [claim.measurement, claim.evidence[0].stepId]),
+    [
+      [{ element: 'link "skip"' }, 's0001'],
+      [{ element: 'link "hidden"' }, 's0007'],
+      [{ element: 'link "hidden"' }, 's0011'],
+      [{ element: 'link "hidden"' }, 's0013'],
+    ],
+  );
+  assert.deepEqual(
+    of('horizontal_overflow').map((claim) => [claim.measurement, claim.evidence[0].stepId]),
+    [
+      [{ overflowPx: 40 }, 's0001'],
+      [{ overflowPx: 12 }, 's0005'],
+    ],
+  );
+  assert.equal(
+    of('horizontal_overflow')[1].statement,
+    'The page at http://app.test/b is 12 px wider than the viewport at s0005.',
+  );
+  const trap = of('focus_trap')[0];
+  assert.match(
+    validateClaim({ ...trap, measurement: { ...trap.measurement, presses: 1 } }, 'run_a', keyboard) ?? '',
+    /exactly one schema/u,
+  );
+  assert.match(
+    validateClaim({ ...trap, measurement: { ...trap.measurement, keys: 'Tab' } }, 'run_a', keyboard) ?? '',
+    /exactly one schema/u,
+  );
+});
+
 const catalog = {
   version: 'v1',
   hash: 'sha256:abc',

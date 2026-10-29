@@ -333,6 +333,8 @@ test('config files reject unknown versions, unknown fields, and unsafe or invali
       { projectRoot: bad, project, catalog, providers: allKeys },
     );
     assert.deepEqual(resolved!.routes, [{ match: '**', action: 'block' }]);
+    await write('.cohort/personas/p.md', persona('p', 'input: keyboard\n'));
+    assert.equal((await loadPersona(bad, 'p')).input, 'keyboard');
 
     const cases: [string, RegExp][] = [
       [persona('p', '', ''), /body is empty/u],
@@ -341,6 +343,7 @@ test('config files reject unknown versions, unknown fields, and unsafe or invali
       [persona('p', '').replace('width: 390', 'width: 20'), /below minimum/u],
       [persona('p', 'setup: ../../outside.ts\n'), /must be inside \.cohort\/setup/u],
       [persona('p', 'storageState: ../auth\n'), /does not match pattern/u],
+      [persona('p', 'input: mouse\n'), /input/u],
       ['no frontmatter', /missing YAML frontmatter/u],
     ];
     for (const [content, expected] of cases) {
@@ -419,7 +422,7 @@ test('authoring diagnostics name the file, line, entry, and known alternatives',
   }
 });
 
-test('every shipped persona template and the guest suite validate unchanged; the docs carry the generator guidance verbatim', async () => {
+test('every shipped persona template and suite validate unchanged; the docs carry the generator guidance verbatim', async () => {
   const project = await mkdtemp(join(tmpdir(), 'lab-examples-'));
   try {
     const examples = new URL('../../examples/personas/', import.meta.url).pathname;
@@ -429,7 +432,7 @@ test('every shipped persona template and the guest suite validate unchanged; the
       templates.map((template) => `${template.id}.md`),
       names,
     );
-    assert.ok(templates.length >= 10 && templates.length <= 15);
+    assert.ok(templates.length >= 10 && templates.length <= 20);
     for (const { id, source } of templates) {
       const parsed = parsePersona(source, id);
       for (const key of ['setup', 'storageState', 'model', 'effort', 'limits'])
@@ -444,9 +447,14 @@ test('every shipped persona template and the guest suite validate unchanged; the
     await mkdir(join(project, '.cohort/suites'), { recursive: true });
     await mkdir(join(project, '.cohort/setup'), { recursive: true });
     const shipped = new URL('../../examples/', import.meta.url).pathname;
-    await copyFile(join(shipped, 'suites/fixture-guest.yml'), join(project, '.cohort/suites/fixture-guest.yml'));
+    const suites = (await readdir(join(shipped, 'suites'))).filter((name) => name.endsWith('.yml'));
+    for (const name of suites) await copyFile(join(shipped, 'suites', name), join(project, '.cohort/suites', name));
     await copyFile(join(shipped, 'setup/fixture.ts'), join(project, '.cohort/setup/fixture.ts'));
-    assert.deepEqual(await checkProject(project), { personas: names.length, suites: 1, problems: [] });
+    assert.deepEqual(await checkProject(project), { personas: names.length, suites: 3, problems: [] });
+    assert.equal(
+      parsePersona(templates.find(({ id }) => id === 'keyboard-only-navigator')!.source, 'k').input,
+      'keyboard',
+    );
     assert.ok(docs.includes(`> ${PERSONA_GUIDANCE}`));
   } finally {
     await rm(project, { recursive: true, force: true });

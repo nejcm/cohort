@@ -2,8 +2,8 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Page } from 'playwright';
 import { captureMasked, MaskError, type Capture } from '../browser/observations.ts';
-import { resolvePoint, screenshotToCss } from '../browser/targets.ts';
-import type { StepRecord } from '../evidence/steps.ts';
+import { focusedElement, focusedLocator, focusState, resolvePoint, screenshotToCss } from '../browser/targets.ts';
+import { focusLabel, type StepRecord } from '../evidence/steps.ts';
 import { canonical, type Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { redactValue, safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
@@ -12,7 +12,7 @@ import type { CustomTool } from '../setup/types.ts';
 import { knownBlocker, KNOWN_BLOCKERS } from './blockers.ts';
 import { CostMeter, type CapEnforcement } from './cost.ts';
 import type { AgentErrorCode, EvidenceRef, Outcome } from './outcomes.ts';
-import { BUILTIN_TOOLS, validateToolCall, type ToolCall } from './tools.ts';
+import { toolsFor, validateToolCall, type ToolCall } from './tools.ts';
 
 interface Limits {
   steps: number;
@@ -24,6 +24,8 @@ export interface AgentOptions {
   runId: string;
   page: Page;
   hasTouch: boolean;
+  /** `keyboard` offers no pointer tools and names the focused element in each observation. */
+  input?: 'keyboard';
   provider: ProviderAdapter;
   model: string;
   effort: Effort;
@@ -92,6 +94,9 @@ Use report_friction with the step ID where something was confusing or slow. Repo
 Use report_blocked when an external prerequisite (email code, CAPTCHA, login provider, payment, third party) stops you. Never try to solve or bypass a CAPTCHA.
 Call done when the goal is achieved, citing the step whose screenshot shows it. Call give_up honestly when you cannot continue.`;
 
+const KEYBOARD_INSTRUCTIONS =
+  'You have no pointer. Move focus with Tab, Shift+Tab, and arrow keys; activate with Enter or Space; put text into the focused field with type. Each observation names the focused element.';
+
 const pad = (prefix: string, value: number): string => `${prefix}${String(value).padStart(4, '0')}`;
 const bytes = (text: string): number => Buffer.byteLength(text);
 
@@ -128,7 +133,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const meter = new CostMeter(limits.dollars, options.prices);
   const allowed = [new URL(options.startUrl).origin, ...options.allowedOrigins];
   const resources = options.resourceOrigins ?? [];
-  const instructions = `${SAFETY_INSTRUCTIONS}\n\nTask:\n${options.task}`;
+  const keyboard = options.input === 'keyboard';
+  const instructions = `${SAFETY_INSTRUCTIONS}${keyboard ? `\n${KEYBOARD_INSTRUCTIONS}` : ''}\n\nTask:\n${options.task}`;
   const maxOutputTokens = options.maxOutputTokens ?? 1024;
   const steps: StepRecord[] = [];
   const history: string[] = [];
@@ -146,14 +152,17 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   };
   let shots = 0;
   let observations = 0;
-  let current = null as { id: string; capture: Capture; screenshotId: string; url: string } | null;
+  let current = null as
+    | ({ id: string; capture: Capture; screenshotId: string; url: string } & Pick<StepRecord, 'focus' | 'overflowX'>)
+    | null;
   let pending = null as { call: ToolCall; started: number; target?: StepRecord['target'] } | null;
   let escapedTo: string | null = null;
   let ineffective = { key: '', count: 0 };
   const signal = options.signal;
   const customTools = options.customTools ?? {};
   const customDefinitions = customToolDefinitions(customTools);
-  const tools = [...BUILTIN_TOOLS, ...customDefinitions];
+  const builtins = toolsFor(options.input);
+  const tools = [...builtins, ...customDefinitions];
   const customText = customDefinitions.length > 0 ? JSON.stringify(customDefinitions) : null;
 
   const harnessBlock = (): ReturnType<typeof knownBlocker> =>
@@ -211,11 +220,35 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     }
   };
 
+  const pageState = async (): Promise<Pick<StepRecord, 'focus' | 'overflowX'>> => {
+    try {
+      const focus = await focusState(page);
+      const overflowX = await page.evaluate(() =>
+        Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      );
+      const redact = (text: string): string => secrets.redact(text).slice(0, 200);
+      return {
+        focus: focus && {
+          ...focus,
+          tag: redact(focus.tag),
+          role: focus.role === null ? null : redact(focus.role),
+          name: redact(focus.name),
+          css: secrets.redact(focus.css),
+        },
+        overflowX,
+      };
+    } catch {
+      // A navigation after capture leaves nothing to read; the observation stands without it.
+      return {};
+    }
+  };
+
   const observe = async (): Promise<void> => {
     const capture = await bounded(captureWithRetry());
+    const state = await bounded(pageState());
     const screenshotId = pad('shot-', shots++);
     await writeFile(join(options.screenshotsDir, `${screenshotId}.png`), capture.png, { mode: 0o600 });
-    current = { id: pad('o', observations++), capture, screenshotId, url: page.url() };
+    current = { id: pad('o', observations++), capture, screenshotId, url: page.url(), ...state };
     options.onEvent?.('observation.created', { observationId: current.id, screenshotId });
   };
 
@@ -284,7 +317,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     call: ToolCall,
     started: number,
     result: StepRecord['result'],
-    extra: Partial<Pick<StepRecord, 'target' | 'afterScreenshotId' | 'output'>> & { before?: typeof current } = {},
+    extra: Partial<Pick<StepRecord, 'target' | 'recipient' | 'afterScreenshotId' | 'output'>> & {
+      before?: typeof current;
+    } = {},
   ): StepRecord => {
     const before = 'before' in extra ? extra.before : current;
     pending = null;
@@ -306,7 +341,14 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       afterScreenshotId: extra.afterScreenshotId ?? null,
       pageUrl: safeUrl(page.url(), secrets),
       ...(extra.target ? { target: extra.target } : {}),
+      ...(extra.recipient === undefined ? {} : { recipient: extra.recipient }),
       ...(extra.output === undefined ? {} : { output: secrets.redact(extra.output) }),
+      ...(extra.afterScreenshotId && current
+        ? {
+            ...(current.focus === undefined ? {} : { focus: current.focus }),
+            ...(current.overflowX === undefined ? {} : { overflowX: current.overflowX }),
+          }
+        : {}),
     };
     steps.push(step);
     options.onEvent?.('step.completed', {
@@ -428,7 +470,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         `Observation ${observation.id}: screenshot ${observation.capture.width}x${observation.capture.height} px of ${safeUrl(page.url(), secrets)}.`,
         `Latest step: ${lastStep.id}. Budget: ${limits.steps - attempts} steps, ${Math.floor(remainingMs / 1000)} s, ${dollars}.`,
         secrets.names.length > 0
-          ? `Secret placeholders available for fill: ${secrets.names.map((name) => `{{${name}}}`).join(', ')}.`
+          ? `Secret placeholders available for ${keyboard ? 'type' : 'fill'}: ${secrets.names.map((name) => `{{${name}}}`).join(', ')}.`
+          : '',
+        keyboard && observation.focus !== undefined
+          ? `Focus: ${observation.focus ? focusLabel(observation.focus) : 'none'}`
           : '',
       ]
         .filter(Boolean)
@@ -519,7 +564,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         else record(call, started, result);
         continue;
       }
-      const invalid = validateToolCall(call);
+      const invalid = validateToolCall(call, builtins);
       if (invalid) {
         record(call, started, { status: 'rejected', code: 'invalid_tool', message: invalid });
         continue;
@@ -554,6 +599,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       }
 
       let target: StepRecord['target'];
+      let recipient: StepRecord['recipient'];
       if ('observationId' in args && args.observationId !== observation.id) {
         reject('stale_observation', `observation ${String(args.observationId)} is not current (${observation.id})`);
         continue;
@@ -618,7 +664,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
             call,
             started,
             { status: 'error', code: 'tool_error', message: firstLine(error) },
-            target,
+            { target },
           );
           if (failure) return failure;
           continue;
@@ -629,6 +675,33 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
       } else if (call.name === 'press') {
         await page.keyboard.press(String(args.key));
+      } else if (call.name === 'type') {
+        const typed = String(args.text);
+        let value: string;
+        try {
+          value = secrets.substitute(typed);
+        } catch (error) {
+          if (!(error instanceof SecretError)) throw error;
+          reject('unknown_placeholder', error.message);
+          continue;
+        }
+        recipient = await bounded(
+          focusedLocator(page, (candidate) => secrets.contains(candidate)).catch(() => undefined),
+        );
+        const markFocused = (): Promise<unknown> =>
+          bounded(
+            focusedElement(page).then((field) =>
+              field?.evaluate((element) => element.setAttribute('data-cohort-masked', '')),
+            ),
+          );
+        if (secrets.contains(value)) {
+          // Auto-advancing fields split a secret across inputs, so mark each recipient before its character.
+          for (const char of value) {
+            await markFocused();
+            await bounded(page.keyboard.type(char));
+          }
+          await markFocused();
+        } else await bounded(page.keyboard.type(value));
       } else if (call.name === 'wait') {
         await bounded(page.waitForTimeout(Math.min(Number(args.ms), Math.max(0, deadline - Date.now()))));
       } else if (call.name === 'goto') {
@@ -664,7 +737,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           continue;
         }
       }
-      const failure = await observeAfter(call, started, { status: 'ok' }, target);
+      const failure = await observeAfter(call, started, { status: 'ok' }, { target, recipient });
       if (failure) return failure;
     }
   }
@@ -673,7 +746,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     call: ToolCall,
     started: number,
     result: StepRecord['result'],
-    target?: StepRecord['target'],
+    fields: Pick<StepRecord, 'target' | 'recipient'> = {},
   ): Promise<AgentResult | null> {
     await bounded(page.waitForLoadState('domcontentloaded', { timeout: actionTimeout() })).catch((error: unknown) => {
       if (error instanceof InterruptError) throw error;
@@ -683,11 +756,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       await observe();
     } catch (error) {
       current = before;
-      record(call, started, result, target ? { target } : {});
+      record(call, started, result, fields);
       if (error instanceof DeadlineError || error instanceof InterruptError) throw error;
       return agentError('browser_error', `observation failed; provider calls suppressed: ${firstLine(error)}`);
     }
-    record(call, started, result, { ...(target ? { target } : {}), afterScreenshotId: current!.screenshotId, before });
+    record(call, started, result, { ...fields, afterScreenshotId: current!.screenshotId, before });
     return null;
   }
 }

@@ -334,6 +334,52 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
             `<h1>Arrival</h1><p><button class="primary" id="next" type="button">Next</button></p><p><button id="count" type="button" onclick="this.textContent = 'Clicked ' + (Number(this.dataset.n = Number(this.dataset.n ?? 0) + 1))">Count</button></p><p><a id="slow-headers" href="/lab/slow">Slow reply</a> <a id="slow-body" href="/lab/slow?stall=body">Slow body</a> <a id="busy" href="/lab/busy">Busy page</a></p>`,
           ),
         );
+      case 'GET /lab/keyboard':
+        return send(
+          page(
+            'Keyboard check',
+            `<a id="skip" href="#main" style="position: absolute; left: -9999px">Skip to content</a>
+<main id="main"><h1>Keyboard check</h1>
+<label for="kname">Name</label><input id="kname">
+<div id="trap" tabindex="0" aria-label="Trap">Focus stays here</div>
+<pre id="wide" style="width: 2000px">A row wider than any phone</pre>
+<p><button class="primary" id="continue" type="button">Continue</button></p></main>
+<script>
+  document.getElementById('trap').addEventListener('keydown', (event) => { if (event.key === 'Tab') event.preventDefault(); });
+</script>`,
+          ),
+        );
+      case 'GET /lab/split-code':
+        return send(
+          page(
+            'Split code',
+            `<div id="role-echo" tabindex="0">Reference</div>
+<p id="code-label">Code</p>
+<div id="code" role="group" aria-labelledby="code-label">${'<input maxlength="1" inputmode="numeric" style="width: 40px">'.repeat(6)}</div>
+<script>
+  document.getElementById('role-echo').setAttribute('role', decodeURIComponent(location.hash.slice(1)));
+  for (const input of document.querySelectorAll('#code input'))
+    input.addEventListener('input', () => input.nextElementSibling?.focus());
+</script>`,
+          ),
+        );
+      case 'GET /lab/delayed-focus':
+        return send(
+          page(
+            'Delayed focus',
+            `<h1>Delayed focus</h1><iframe id="pane" title="Name pane" src="/lab/delayed-focus/pane${q}"></iframe>
+<script>
+  addEventListener('load', () => setTimeout(() => document.getElementById('pane').contentDocument.getElementById('pane-name').focus(), 600));
+</script>`,
+          ),
+        );
+      case 'GET /lab/delayed-focus/pane':
+        return send(
+          page(
+            'Name pane',
+            `<form method="post" action="/submit${q}"><label for="pane-name">Your name</label><input id="pane-name" name="name"></form>`,
+          ),
+        );
       case 'GET /lab/injection':
         return send(
           page(

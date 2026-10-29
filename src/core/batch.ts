@@ -418,6 +418,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         maxWidth: entry.screenshots.maxWidth,
         maskSelectors: entry.screenshots.maskSelectors,
         device: persona.device,
+        ...(persona.input ? { input: persona.input } : {}),
         locale: persona.locale,
         timezone: persona.timezone,
         ...(storageState ? { storageState } : {}),

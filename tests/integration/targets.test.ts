@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
-import { resolvePoint, toLocator } from '../../src/browser/targets.ts';
+import { focusedLocator, resolvePoint, toLocator } from '../../src/browser/targets.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
 
 let fixture: FixtureServer;
@@ -107,6 +107,49 @@ test('locator candidates holding a JSON-escaped secret are skipped in frame chai
     const persisted = JSON.stringify(resolution.descriptor);
     assert.ok(!persisted.includes(JSON.stringify(secret).slice(1, -1)), persisted);
     assert.deepEqual(resolution.descriptor.target, { by: 'id', id: 'go' });
+  } finally {
+    await scratch.close();
+  }
+});
+
+test('the focused-element locator is null without focus and undefined when focus moves while it resolves', async () => {
+  const scratch = await browser.newPage();
+  try {
+    await scratch.setContent('<label>First <input id="a"></label><label>Second <input id="b"></label>');
+    assert.equal(await focusedLocator(scratch, () => false), null);
+    await scratch.evaluate(() => {
+      const [first, second] = document.querySelectorAll('input');
+      first!.getAttribute = (name) => (second!.focus(), Element.prototype.getAttribute.call(first, name));
+      first!.focus();
+    });
+    assert.equal(await focusedLocator(scratch, () => false), undefined);
+    assert.deepEqual(await focusedLocator(scratch, () => false), {
+      frames: [],
+      target: { by: 'role', role: 'textbox', name: 'Second' },
+    });
+  } finally {
+    await scratch.close();
+  }
+});
+
+test('the focused-element locator is undefined when focus is nested deeper than eight frames', async () => {
+  const scratch = await browser.newPage();
+  try {
+    const nest = (depth: number): string =>
+      depth === 0
+        ? '<input id="deep" autofocus>'
+        : `<iframe srcdoc="${nest(depth - 1)
+            .replaceAll('&', '&amp;')
+            .replaceAll('"', '&quot;')}"></iframe>`;
+    await scratch.setContent(nest(9));
+    let frame = scratch.mainFrame();
+    for (let depth = 0; depth < 9; depth += 1) {
+      const element = await frame.waitForSelector('iframe');
+      await element.focus();
+      frame = (await element.contentFrame())!;
+    }
+    await (await frame.waitForSelector('#deep')).focus();
+    assert.equal(await focusedLocator(scratch, () => false), undefined);
   } finally {
     await scratch.close();
   }

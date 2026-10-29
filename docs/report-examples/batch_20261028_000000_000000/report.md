@@ -2,7 +2,7 @@
 
 > trace.zip is private raw evidence and may contain secrets (DOM snapshots, network traffic, URLs, browser state); never share or upload it. Screenshots and reports are redacted for registered secrets but may still show sensitive content. Treat every artifact as sensitive until reviewed.
 
-> Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport.
+> Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport, except that keyboard-input personas are also told the focused element's role and name, even when it is off screen.
 
 > Blocked runs and user cancellations are excluded from the completion denominator; agent-declared blocks are unverified. Agent errors and limits count as non-completions but are not UX failures.
 
@@ -26,9 +26,9 @@ Total cost: $0.0084. Runs not started: 0.
 
 | Run | Outcome | Cost |
 | --- | --- | --- |
-| [run_20261028_123523_6a126b](../run_20261028_123523_6a126b/report.md) | completed (agent_reported) | $0.0012 |
-| [run_20261028_123524_5f6c4a](../run_20261028_123524_5f6c4a/report.md) | abandoned by the agent | $0.0012 |
-| [run_20261028_123525_20bb99](../run_20261028_123525_20bb99/report.md) | blocked: oauth (agent-declared, unverified) | $0.0012 |
-| [run_20261028_123526_d570b3](../run_20261028_123526_d570b3/report.md) | limit reached: steps (4 of 4; not a UX failure) | $0.0048 |
-| [run_20261028_123528_59a279](../run_20261028_123528_59a279/report.md) | cancelled by user (not an agent or UX failure) | $0.0000 (+$0.0103 unsettled) |
-| [run_20261028_123528_5acf71](../run_20261028_123528_5acf71/report.md) | agent error: browser_error (not a UX failure) | $0.0000 |
+| [run_20261029_063642_7e9f85](../run_20261029_063642_7e9f85/report.md) | completed (agent_reported) | $0.0012 |
+| [run_20261029_063643_83c20a](../run_20261029_063643_83c20a/report.md) | abandoned by the agent | $0.0012 |
+| [run_20261029_063643_6bdedc](../run_20261029_063643_6bdedc/report.md) | blocked: oauth (agent-declared, unverified) | $0.0012 |
+| [run_20261029_063644_08cf76](../run_20261029_063644_08cf76/report.md) | limit reached: steps (4 of 4; not a UX failure) | $0.0048 |
+| [run_20261029_063646_85b4de](../run_20261029_063646_85b4de/report.md) | cancelled by user (not an agent or UX failure) | $0.0000 (+$0.0103 unsettled) |
+| [run_20261029_063646_ab14a7](../run_20261029_063646_ab14a7/report.md) | agent error: browser_error (not a UX failure) | $0.0000 |

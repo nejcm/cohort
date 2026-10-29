@@ -74,7 +74,7 @@ The MVP ends with screening by outside developers. Add-ons follow in this order,
 1. Crawler and suggestions: an `explore` mode that proposes personas and replayable tests from observed paths.
 2. PR regression (done: `cohort compare` and the Action's `compare-run`): replay an approved script on base and head with confirmation and one advisory PR comment.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
-4. Keyboard and small-screen scenario packs.
+4. Keyboard and small-screen scenario packs (done: `input: keyboard` personas, focus and overflow claims, and the `keyboard-pack` and `small-screen-pack` suites; see [docs/personas.md](docs/personas.md#scenario-packs)).
 
 ## Development
 

@@ -206,6 +206,89 @@ function describe(element: Element) {
   };
 }
 
+export interface FocusState {
+  tag: string;
+  role: string | null;
+  name: string;
+  css: string;
+  /** Rendered and at least partly inside the viewport. */
+  visible: boolean;
+  /** `performance.timeOrigin`, telling documents at one URL apart. */
+  document: number;
+}
+
+function deepActiveElement(): Element | null {
+  let element = document.activeElement;
+  while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+  return element === document.body || element === document.documentElement ? null : element;
+}
+
+function onScreen(element: Element): boolean {
+  const rect = element.getBoundingClientRect();
+  return (
+    element.checkVisibility({ visibilityProperty: true, opacityProperty: true }) &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.right > 0 &&
+    rect.bottom > 0 &&
+    rect.left < innerWidth &&
+    rect.top < innerHeight
+  );
+}
+
+/** The focused element of the main frame, through open shadow roots; null when nothing but the page has focus. */
+export async function focusedElement(page: Page): Promise<ElementHandle<Element> | null> {
+  return (await page.evaluateHandle(deepActiveElement)).asElement();
+}
+
+// Undefined when focus is nested deeper than the frame limit.
+async function focusPath(page: Page): Promise<ElementHandle<Element>[] | undefined> {
+  const path: ElementHandle<Element>[] = [];
+  let frame: Frame | null = page.mainFrame();
+  for (let depth = 0; frame; depth += 1) {
+    const element = (await frame.evaluateHandle(deepActiveElement)).asElement();
+    if (!element) break;
+    if (depth === 8) return undefined;
+    path.push(element);
+    frame = await element.contentFrame();
+  }
+  return path;
+}
+
+/** A verified unique locator for the focused element through frames; null when only the page has focus, undefined when unresolvable or focus moved meanwhile. */
+export async function focusedLocator(
+  page: Page,
+  unsafe: (text: string) => boolean,
+): Promise<LocatorDescriptor | null | undefined> {
+  const path = await focusPath(page);
+  if (!path) return undefined;
+  if (path.length === 0) return null;
+  let scope: Scope = page;
+  const steps: LocatorStep[] = [];
+  for (const element of path) {
+    const step = await uniqueStep(scope, element, unsafe);
+    if (!step) return undefined;
+    steps.push(step);
+    scope = stepLocator(scope, step).contentFrame();
+  }
+  const now = (await focusPath(page))?.at(-1);
+  const still =
+    now &&
+    (await path
+      .at(-1)!
+      .evaluate((before, after) => before === after, now)
+      .catch(() => false));
+  return still ? { frames: steps.slice(0, -1), target: steps.at(-1)! } : undefined;
+}
+
+export async function focusState(page: Page): Promise<FocusState | null> {
+  const element = await focusedElement(page);
+  if (!element) return null;
+  const { tag, role, name, css } = await element.evaluate(describe);
+  const document = await page.evaluate(() => performance.timeOrigin);
+  return { tag, role, name, css, visible: await element.evaluate(onScreen), document };
+}
+
 function candidates(info: ReturnType<typeof describe>): LocatorStep[] {
   const steps: LocatorStep[] = [];
   if (info.role && info.name) steps.push({ by: 'role', role: info.role, name: info.name });

@@ -243,6 +243,8 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line));
+    for (const step of steps)
+      assert.equal('focus' in step && 'overflowX' in step, Boolean(step.afterScreenshotId), step.id);
     for (const claim of report.friction) {
       assert.equal(validateClaim(claim, item.runId, steps), null);
       for (const ref of claim.evidence) await stat(join(item.outDir, 'screenshots', `${ref.screenshotId}.png`));

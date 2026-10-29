@@ -74,6 +74,11 @@ export const BUILTIN_TOOLS: readonly ToolDefinition[] = [
     parameters: args(['observationId', 'key'], { observationId, key: { enum: PRESS_KEYS } }),
   },
   {
+    name: 'type',
+    description: 'Type text into the focused element; write secrets as their {{placeholder}}.',
+    parameters: args(['observationId', 'text'], { observationId, text: { type: 'string', maxLength: 4096 } }),
+  },
+  {
     name: 'scroll',
     description: 'Scroll the viewport (target null) or the scrollable region under a target.',
     parameters: args(['observationId', 'target', 'deltaX', 'deltaY'], {
@@ -119,8 +124,15 @@ export const BUILTIN_TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-export function validateToolCall(call: ToolCall): string | null {
-  const tool = BUILTIN_TOOLS.find((candidate) => candidate.name === call.name);
+const POINTER_TOOLS = new Set(['click', 'fill', 'scroll']);
+
+/** The built-in tools offered for a persona's input; `keyboard` drops the pointer tools. */
+export function toolsFor(input?: 'keyboard'): readonly ToolDefinition[] {
+  return input === 'keyboard' ? BUILTIN_TOOLS.filter((tool) => !POINTER_TOOLS.has(tool.name)) : BUILTIN_TOOLS;
+}
+
+export function validateToolCall(call: ToolCall, tools: readonly ToolDefinition[] = BUILTIN_TOOLS): string | null {
+  const tool = tools.find((candidate) => candidate.name === call.name);
   if (!tool) return `unknown tool: ${call.name}`;
   return validate(tool.parameters, call.args, call.name);
 }

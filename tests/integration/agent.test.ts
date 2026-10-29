@@ -9,6 +9,8 @@ import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
 import { captureMasked, MASK_RGB } from '../../src/browser/observations.ts';
 import { runAgent, type AgentOptions } from '../../src/core/agent.ts';
+import { deriveClaims, validateClaim } from '../../src/evidence/friction.ts';
+import { generateReplay } from '../../src/evidence/replay.ts';
 import { ProviderError, type DecideRequest, type Usage } from '../../src/providers/types.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
 import { startFixture, type FixtureServer } from '../../fixtures/friction-app/server.ts';
@@ -662,3 +664,111 @@ test('loop detection ignores argument key order', async () => {
   ]);
   assert.equal((result.outcome as { code?: string }).code, 'loop');
 });
+
+test('keyboard input withholds pointer tools, names the focus, masks typed secrets, and measures traps and overflow', async () => {
+  const seen: Record<string, unknown> = {};
+  const tab = act('press', { key: 'Tab' });
+  const { result, provider } = await run(
+    '/lab/keyboard',
+    (page) => [
+      async (request) => act('click', { target: await pointOf(page, page.locator('#continue'), request) })(request, 0),
+      tab,
+      (request, index) => {
+        seen.skipFocus = request.observation.text.split('\n').find((line) => line.startsWith('Focus:'));
+        return tab(request, index);
+      },
+      act('type', { text: '{{email}}' }),
+      async (request, index) => {
+        seen.masked = await fullyMasked(page.locator('#kname'), request);
+        seen.value = await page.locator('#kname').inputValue();
+        seen.history = request.history.join('\n');
+        return tab(request, index);
+      },
+      tab,
+      tab,
+      done,
+    ],
+    { input: 'keyboard' },
+  );
+  assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+  const request = provider.requests[0]!;
+  const names = request.tools.map((tool) => tool.name);
+  assert.ok(!names.includes('click') && !names.includes('fill') && !names.includes('scroll') && names.includes('type'));
+  assert.match(request.instructions, /You have no pointer/u);
+  assert.match(request.observation.text, /^Focus: none$/mu);
+  assert.deepEqual(
+    [result.steps[1]!.action.name, result.steps[1]!.result],
+    ['click', { status: 'rejected', code: 'invalid_tool', message: 'unknown tool: click' }],
+  );
+  const { document: documentId, ...skipFocus } = result.steps[2]!.focus!;
+  assert.equal(typeof documentId, 'number');
+  assert.deepEqual(skipFocus, {
+    tag: 'a',
+    role: 'link',
+    name: 'Skip to content',
+    css: 'html:nth-of-type(1) > body:nth-of-type(1) > a:nth-of-type(1)',
+    visible: false,
+  });
+  assert.equal(seen.skipFocus, 'Focus: link "Skip to content"');
+  assert.equal(result.steps[3]!.focus?.name, 'Name');
+  assert.equal(seen.masked, true);
+  assert.equal(seen.value, EMAIL);
+  assert.match(String(seen.history), /\{\{email\}\}/u);
+  assert.ok(!String(seen.history).includes(EMAIL));
+  assert.ok(!JSON.stringify(result.steps).includes(EMAIL));
+  for (const step of result.steps)
+    if (step.afterScreenshotId) assert.ok(typeof step.overflowX === 'number' && step.overflowX > 0, step.id);
+    else assert.equal('focus' in step || 'overflowX' in step, false, step.id);
+
+  const claims = deriveClaims('run_agent_test', result.steps);
+  const kinds = new Set(claims.map((claim) => claim.kind));
+  for (const kind of ['focus_trap', 'focus_not_visible', 'horizontal_overflow'])
+    assert.ok(kinds.has(kind as never), kind);
+  const trap = claims.find((claim) => claim.kind === 'focus_trap');
+  assert.deepEqual(trap?.kind === 'focus_trap' && trap.measurement, { element: 'div "Trap"', presses: 3 });
+  for (const claim of claims) assert.equal(validateClaim(claim, 'run_agent_test', result.steps), null, claim.id);
+
+  const replay = generateReplay(
+    {
+      runId: 'run_agent_test',
+      viewport: { width: 800, height: 1000 },
+      hasTouch: false,
+      locale: 'en-US',
+      timezone: 'UTC',
+    },
+    result.steps,
+  );
+  assert.deepEqual(result.steps[4]!.recipient, { frames: [], target: { by: 'role', role: 'textbox', name: 'Name' } });
+  assert.match(
+    replay,
+    /expect\(page\.getByRole\("textbox", \{ name: "Name", exact: true \}\)\)\.toBeFocused\(\);\n {4}await page\.keyboard\.type\(bind\("\{\{email\}\}"\)\)/u,
+  );
+  assert.match(replay, /page\.keyboard\.press\("Tab"\)/u);
+  assert.ok(!replay.includes(EMAIL));
+});
+
+for (const text of ['{{totp}}', TOTP])
+  test(`a secret typed as ${text === TOTP ? 'a literal' : 'a placeholder'} across auto-advancing inputs is masked in every input, and focus metadata is redacted`, async () => {
+    const seen: Record<string, boolean> = {};
+    const tab = act('press', { key: 'Tab' });
+    const { result } = await run(
+      `/lab/split-code#${TOKEN}`,
+      (page) => [
+        tab,
+        tab,
+        act('type', { text }),
+        async (request) => {
+          const inputs = await page.locator('#code input').all();
+          seen.typed = (await Promise.all(inputs.map((input) => input.inputValue()))).join('') === TOTP;
+          seen.masked = (await Promise.all(inputs.map((input) => fullyMasked(input, request)))).every(Boolean);
+          return done(request, 3);
+        },
+      ],
+      { input: 'keyboard' },
+    );
+    assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+    assert.deepEqual(seen, { typed: true, masked: true });
+    assert.equal(result.steps[1]!.focus?.role, '{{token}}');
+    const recorded = JSON.stringify(result.steps);
+    assert.ok(!recorded.includes(TOKEN) && !recorded.includes(TOTP));
+  });

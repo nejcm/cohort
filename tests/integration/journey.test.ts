@@ -236,3 +236,61 @@ test('runOnce keeps requests and redirect hops inside the allowlist and keeps ar
     resource.server.close();
   }
 });
+
+test('a type replay waits for focus that arrives late inside a frame', async () => {
+  let page: Page | undefined;
+  const provider = fakeProvider([
+    async () => {
+      await page!.waitForFunction(
+        () => document.querySelector('iframe')?.contentDocument?.activeElement?.id === 'pane-name',
+      );
+      return { name: 'type', args: { observationId: 'o0000', text: 'Mia Kranjc' } };
+    },
+    (request) => ({ name: 'press', args: { observationId: request.observation.id, key: 'Enter' } }),
+    async (request) => {
+      const sent = page!.frameLocator('#pane').getByRole('heading', { name: 'Request sent' });
+      await sent.waitFor();
+      // Clicking the confirmation makes the replay wait for the submission instead of racing it.
+      return {
+        name: 'click',
+        args: { observationId: request.observation.id, target: await pointOf(page!, sent, request) },
+      };
+    },
+    (request) => ({ name: 'done', args: { step: lastStepId(request), summary: 'Sent.' } }),
+  ]);
+  const outDir = join(dir, 'delayed-focus');
+  const result = await runOnce({
+    runId: 'run_test_004',
+    outDir,
+    provider,
+    model: 'fake-model',
+    effort: 'low',
+    prices: { input: 1, output: 4, cachedInput: 0.1 },
+    task: 'Send your name.',
+    startUrl: `${fixture.url}/lab/delayed-focus?scope=delayed-agent`,
+    allowedOrigins: [],
+    secrets: new SecretStore(),
+    limits: { steps: 5, timeMs: 30_000, dollars: 1 },
+    device: { viewport: { width: 800, height: 900 }, touch: false },
+    locale: 'en-US',
+    timezone: 'UTC',
+    onPage: (created: Page) => {
+      page = created;
+    },
+  });
+  assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+  assert.deepEqual(fixture.submissions('delayed-agent'), [{ name: 'Mia Kranjc', arrival: '', notes: '' }]);
+  const typed = result.steps.find((step) => step.action.name === 'type');
+  assert.equal(typed?.recipient?.frames.length, 1, JSON.stringify(typed?.recipient));
+  assert.deepEqual(typed?.recipient?.target, { by: 'role', role: 'textbox', name: 'Your name' });
+  assert.equal(result.steps.find((step) => step.action.name === 'click')?.result.status, 'ok');
+
+  await symlink(join(repoRoot, 'node_modules'), join(outDir, 'node_modules'));
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [join(repoRoot, 'node_modules/@playwright/test/cli.js'), 'test', '--reporter=line', 'replay.spec.ts'],
+    { cwd: outDir, env: { ...process.env, COHORT_START_URL: `${fixture.url}/lab/delayed-focus?scope=delayed-replay` } },
+  );
+  assert.match(stdout, /1 passed/u);
+  assert.deepEqual(fixture.submissions('delayed-replay'), [{ name: 'Mia Kranjc', arrival: '', notes: '' }]);
+});

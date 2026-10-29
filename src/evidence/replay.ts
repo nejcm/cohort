@@ -31,6 +31,10 @@ function statement(step: StepRecord, hasTouch: boolean, customTools: readonly st
     switch (step.action.name) {
       case 'press':
         return `await page.keyboard.press(${j(args.key)});`;
+      case 'type':
+        if (step.recipient === undefined)
+          return `throw new Error(${j(`${step.id}: the focused element had no unique locator; this step cannot replay`)});`;
+        return `${step.recipient ? `await expect(${renderLocator(step.recipient)}).toBeFocused();\n    ` : ''}await page.keyboard.type(${value(args.text)});`;
       case 'scroll':
         return `await page.mouse.move(viewport.width / 2, viewport.height / 2);\n    ${wheel}`;
       case 'goto':
@@ -83,7 +87,7 @@ export function generateReplay(session: ReplaySession, steps: readonly StepRecor
     (rule) =>
       `  await page.route(${j(rule.match)}, (route) => ${rule.action === 'block' ? "route.abort('blockedbyclient')" : `route.fulfill(${j({ status: rule.status ?? 200, contentType: rule.contentType ?? 'text/plain', body: rule.body ?? '' })})`});`,
   );
-  return `import { test } from '@playwright/test';
+  return `import { expect, test } from '@playwright/test';
 
 const viewport = ${j(session.viewport)};
 

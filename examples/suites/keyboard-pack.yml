@@ -1,0 +1,13 @@
+schemaVersion: 1
+id: keyboard-pack
+name: Keyboard-only scenario pack
+
+entries:
+  - persona: keyboard-only-navigator
+    goal: Reach the page's primary action with the keyboard and activate it.
+
+  - persona: keyboard-only-navigator
+    goal: Open a menu or dialog, close it with Escape, and say where focus returned.
+
+  - persona: keyboard-only-navigator
+    goal: Fill in the main form with Tab and type, without submitting it.

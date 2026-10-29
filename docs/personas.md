@@ -27,6 +27,7 @@ Required frontmatter:
 Optional frontmatter:
 
 - `goal`
+- `input: keyboard`: the agent gets no pointer tools (`click`, `fill`, `scroll`) and moves with `press` and `type` only. Each observation names the focused element. Leave it out for an unconstrained user.
 - `model`, in the form `<provider>/<id>`
 - `effort`: `low`, `medium`, or `high`
 - `limits`: `{ steps, timeMs, dollars }`
@@ -47,6 +48,7 @@ The package ships editable persona templates in `examples/personas/`. They are g
 | `comparison-shopper` | ecommerce, saas, comparison, desktop | Compares two or three products or plans side by side and picks one |
 | `developer-docs-reader` | devtools, docs, desktop, keyboard | Keyboard-first developer looking for setup steps and the smallest working example |
 | `first-time-host` | host, marketplace, first-time, desktop | Careful newcomer working out how to start offering something through the service |
+| `keyboard-only-navigator` | keyboard-only, keyboard, desktop | Uses no mouse or touch (`input: keyboard`); reaches and completes the main action, reporting where focus vanished or looped |
 | `mobile-first-guest` | guest, mobile, first-time | Skims on a phone while busy, looking for how to contact the people behind the service |
 | `mobile-shopper` | ecommerce, mobile, first-time | Finds a product under a budget and adds it to the cart, stopping before payment |
 | `news-reader` | content, media, mobile, low-bandwidth | Reads an article to the end on a small phone and notes everything in the way |
@@ -54,6 +56,7 @@ The package ships editable persona templates in `examples/personas/`. They are g
 | `public-service-applicant` | public-service, forms, desktop, careful | Checks eligibility and fills a long form with fictional details, without submitting |
 | `returning-desktop-user` | returning, desktop | Repeats the main task quickly and reports anything that changed or slows them down |
 | `saas-trial-evaluator` | saas, b2b, evaluator, desktop | Evaluates a business product's pricing and trial terms; stops at the sign-up form |
+| `small-screen-form-filler` | small-screen, mobile, forms | Fills the main form on a 360 x 640 touch screen with fictional details, without submitting; reports cut-off controls and sideways scrolling |
 | `subscription-manager` | subscription, saas, returning, desktop | Looks for how to downgrade or cancel; stops before confirming; needs saved login state |
 
 To use one:
@@ -82,9 +85,32 @@ A suite has `schemaVersion: 1`, an `id` that matches the file name, a `name`, op
 - `routes` (combined after the project's routes)
 - `storageState`
 
-Setup modules, custom tools, `storageState`, and `routes` are covered in [setup-and-login.md](setup-and-login.md). A guest suite example is in `examples/suites/fixture-guest.yml`.
+Setup modules, custom tools, `storageState`, and `routes` are covered in [setup-and-login.md](setup-and-login.md). A guest suite example is in `examples/suites/fixture-guest.yml` (repository only; it needs the fixture setup module).
 
 Every repetition of an entry runs before the next entry starts.
+
+## Scenario packs
+
+Two suites ship in `examples/suites/` for constrained users. They set no URL, setup, or defaults, so they run against any app:
+
+| Suite | Entries |
+| --- | --- |
+| `keyboard-pack` | `keyboard-only-navigator` three times: activate the primary action; open and close a menu or dialog with Escape and say where focus returned; fill the main form with Tab and `type` |
+| `small-screen-pack` | `small-screen-form-filler`, `mobile-first-guest`, `news-reader` |
+
+To use one, copy the suite and its personas into your project, then run it against your app:
+
+```sh
+cohort init --template keyboard-only-navigator
+cp node_modules/cohort-lab/examples/suites/keyboard-pack.yml .cohort/suites/
+cohort run --suite keyboard-pack --url http://localhost:3000/
+```
+
+For the small-screen pack, add `--template small-screen-form-filler --template mobile-first-guest --template news-reader`. Adjust the path to wherever the package is installed.
+
+The harness adds evidence for these packs to every run: each step with an after-screenshot records the focused element and the page's horizontal overflow, and the report derives `focus_trap`, `focus_not_visible`, and `horizontal_overflow` claims from them (rules in [compatibility.md](compatibility.md)). Small screens are emulated by viewport size and touch only, without a mobile user agent or device scaling, so a page without a viewport meta tag is not shrunk the way a phone would shrink it; sideways overflow is the signal to look for.
+
+These packs do not certify accessibility and do not reproduce disabled users' lived experiences; they surface friction a constrained synthetic user met, with evidence.
 
 ## Prompt layers
 

@@ -43,10 +43,14 @@ try {
     'LICENSE',
     'NOTICE',
     'examples/personas/first-time-host.md',
+    'examples/suites/keyboard-pack.yml',
   ])
     assert.ok(shipped.includes(required), `package contains ${required}`);
   for (const path of shipped)
-    assert.match(path, /^(dist\/|examples\/personas\/|LICENSE$|NOTICE$|README\.md$|package\.json$)/u);
+    assert.match(
+      path,
+      /^(dist\/|examples\/personas\/|examples\/suites\/[a-z-]+-pack\.yml$|LICENSE$|NOTICE$|README\.md$|package\.json$)/u,
+    );
   step(`packed ${packed!.filename}: ${shipped.length} files`);
 
   await mkdir(app);

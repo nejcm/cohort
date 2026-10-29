@@ -1,0 +1,10 @@
+schemaVersion: 1
+id: small-screen-pack
+name: Small-screen scenario pack
+
+entries:
+  - persona: small-screen-form-filler
+
+  - persona: mobile-first-guest
+
+  - persona: news-reader
