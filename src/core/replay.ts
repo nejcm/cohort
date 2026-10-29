@@ -28,6 +28,14 @@ interface ReplayOptions {
   signal?: AbortSignal;
 }
 
+interface ExecuteOptions extends ReplayOptions {
+  /** Replaces the start URL's origin, keeping its path, query, and fragment. */
+  origin?: string;
+  timeoutMs?: number;
+}
+
+export class ReplaySetupError extends BundleError {}
+
 function playwrightTestCli(projectRoot: string): string {
   try {
     return createRequire(join(projectRoot, 'package.json')).resolve('@playwright/test/cli');
@@ -42,8 +50,20 @@ export async function replayRun(
   runId: string,
   options: ReplayOptions,
 ): Promise<{ report: RunReport; output: string }> {
+  const { dir, passed, output } = await executeReplay(projectRoot, runId, options);
+  const status = passed ? 'passed' : 'failed';
+  const report = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));
+  return { report, output };
+}
+
+/** Runs the approved script once and leaves the bundle untouched. */
+export async function executeReplay(
+  projectRoot: string,
+  runId: string,
+  options: ExecuteOptions,
+): Promise<{ dir: string; passed: boolean; output: string }> {
   const { kind, dir } = await bundleDir(projectRoot, runId);
-  if (kind !== 'run') throw new BundleError('cohort replay takes a run ID, not a batch ID');
+  if (kind !== 'run') throw new BundleError(`${runId} is a batch; this command takes a run ID`);
   const report = await readBundleJson<RunReport>(dir, 'report.json');
   if (report.replay.status === 'unsupported')
     throw new BundleError(`run ${runId} has no faithful replay script; see its report issues`);
@@ -106,7 +126,7 @@ export async function replayRun(
           : deadline.signal.aborted
             ? 'it ran past the run time limit'
             : scrub(String((error as Error)?.message ?? error)).split('\n')[0]!;
-        throw new BundleError(`replay setup failed: ${reason}`);
+        throw new ReplaySetupError(`replay setup failed: ${reason}`);
       } finally {
         deadline.clear();
       }
@@ -115,6 +135,11 @@ export async function replayRun(
         throw new BundleError('the recorded start URL was reduced to origin and path; set COHORT_START_URL');
       env.COHORT_START_URL = config.startUrl;
     }
+    if (options.origin) {
+      if (!URL.canParse(env.COHORT_START_URL)) throw new BundleError('the start URL is not a valid URL');
+      const start = new URL(env.COHORT_START_URL);
+      env.COHORT_START_URL = `${options.origin}${start.pathname}${start.search}${start.hash}`;
+    }
     if (storageState) {
       env.COHORT_STORAGE_STATE = join(scratch, 'state.json');
       await writeFile(env.COHORT_STORAGE_STATE, JSON.stringify(storageState), { mode: 0o600 });
@@ -122,15 +147,20 @@ export async function replayRun(
     const { code, output } = await new Promise<{ code: number; output: string }>((resolve) => {
       execFile(
         process.execPath,
-        [cli, 'test', '--reporter=line', `--output=${join(scratch, 'results')}`, 'replay.spec.ts'],
+        [
+          cli,
+          'test',
+          '--reporter=line',
+          `--output=${join(scratch, 'results')}`,
+          ...(options.timeoutMs ? [`--timeout=${options.timeoutMs}`] : []),
+          'replay.spec.ts',
+        ],
         { cwd: dir, env, ...(options.signal ? { signal: options.signal } : {}) },
         (error, stdout, stderr) =>
           resolve({ code: error ? Number((error as { code?: unknown }).code) || 1 : 0, output: `${stdout}${stderr}` }),
       );
     });
-    const status = code === 0 ? 'passed' : 'failed';
-    const updated = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));
-    return { report: updated, output: scrub(output) };
+    return { dir, passed: code === 0, output: scrub(output) };
   } finally {
     bridge?.close();
     await runCleanups(cleanups, capMs, () => '');

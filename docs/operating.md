@@ -1,6 +1,6 @@
 # Operating the lab
 
-Keys, models, costs, limits, blockers, replay bindings, artifacts, and deletion. Setup modules and saved logins: [setup-and-login.md](setup-and-login.md). Personas and suites: [personas.md](personas.md).
+Keys, models, costs, limits, blockers, replay bindings, base/head comparison, artifacts, and deletion. Setup modules and saved logins: [setup-and-login.md](setup-and-login.md). Personas and suites: [personas.md](personas.md).
 
 ## Keys
 
@@ -51,6 +51,22 @@ Every run ends in exactly one state: `completed`, `abandoned`, `blocked(kind)`, 
 3. Otherwise the recorded start URL, only if it was not reduced to origin and path.
 
 Secrets are passed as `COHORT_SECRET_<NAME>` and a storage state as `COHORT_STORAGE_STATE` (a file path). Replay never saves screenshots, because it types real values.
+
+## Comparing base and head
+
+`cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` replays one approved run against two deployments, such as production and a pull-request preview, and reports whether the journey regressed. No model is called and the run's bundle, including its replay status, is not changed.
+
+- The run ID is the approval: any finalized run whose replay status is not `unsupported` and that has `replay.spec.ts`. The script is replayed exactly as recorded; nothing is re-planned or healed.
+- `--base` and `--head` must be bare `http(s)` origins: no path, query, fragment, or credentials. Each execution resolves the start URL as `cohort replay` does (setup module, then `COHORT_START_URL`, then the recorded URL) and then replaces only its origin, keeping the path, query, and fragment. Tokens therefore stay in setup bindings or `COHORT_START_URL`, never on the command line, and the printed origins hold nothing secret.
+- A setup module runs once per execution and can read the origin under test as `ctx.env('COHORT_COMPARE_ORIGIN')`, for example to seed an account on that deployment. Its returned `startUrl` origin is replaced like any other.
+- A run with a successful `goto` to an absolute or protocol-relative URL on the recorded origin is refused (exit 2): retargeting it would change the journey.
+- Each execution's replay test is bounded by the shorter of the run's time limit and Playwright's 30 s default test timeout. Setup and cleanup keep the run's time limit, as in `cohort replay`.
+
+Confirmation, at most four executions: base and head run once. If both pass, the result is `unchanged`. If they differ, both run once more; a base pass and head fail in both rounds is `regression`, the reverse is `fixed`, and any change between rounds is `inconclusive` (flaky). Everything else is `inconclusive` with a reason: the journey also fails on base, or an execution could not run because setup failed or Playwright reported an environment error (`net::ERR_…`, a missing replay binding, a browser that will not launch). Environment and setup failures are never a regression.
+
+Evidence per execution is text only: side, pass or fail, duration, and the first failing step with its error and locator, taken from Playwright output after the same redaction as `cohort replay`. No screenshots are saved, because replay types real values.
+
+Output is plain text by default; `--json` prints the structured result. `--markdown <file>` writes one advisory pull-request comment body that starts with `<!-- cohort-compare:<run-id> -->`, so a workflow can update the same comment on every push instead of adding new ones. Failure text in it is Markdown-escaped. Exit codes: `0` for `unchanged`, `fixed`, or `inconclusive`; `1` only for a confirmed `regression`; `2` for invalid invocation or configuration. [github-action.md](github-action.md#pull-request-comparison) has a workflow.
 
 ## Artifacts
 

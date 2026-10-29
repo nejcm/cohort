@@ -18,6 +18,15 @@ inputs:
   note:
     description: Ad-hoc goal or note.
     required: false
+  compare-run:
+    description: Approved run ID to replay on base-url and head-url with cohort compare instead of cohort run.
+    required: false
+  base-url:
+    description: Base deployment origin for compare-run, for example the production or main-branch preview.
+    required: false
+  head-url:
+    description: Head deployment origin for compare-run, for example the pull request preview.
+    required: false
   model:
     description: Optional <provider>/<id> override, same precedence as cohort run --model.
     required: false
@@ -52,7 +61,7 @@ outputs:
     description: Path of the batch report.html.
     value: ${{ steps.run.outputs.report-path }}
   exit-code:
-    description: 0 all completed, 1 any other outcome, 2 invalid configuration.
+    description: run 0 all completed, 1 any other outcome; compare 1 confirmed regression, else 0; 2 invalid configuration.
     value: ${{ steps.run.outputs.exit-code }}
   runs:
     description: Number of runs that started.
@@ -72,6 +81,12 @@ outputs:
   limit-reached:
     description: Runs that hit a step, time, or cost limit.
     value: ${{ steps.run.outputs.limit-reached }}
+  outcome:
+    description: compare-run result, unchanged, fixed, regression, or inconclusive; empty otherwise.
+    value: ${{ steps.run.outputs.outcome }}
+  markdown-path:
+    description: Path of the compare PR-comment body; empty when compare did not finish.
+    value: ${{ steps.run.outputs.markdown-path }}
 
 runs:
   using: composite
@@ -103,4 +118,7 @@ runs:
         INPUT_EFFORT: ${{ inputs.effort }}
         INPUT_REPEATS: ${{ inputs.repeats }}
         INPUT_ALLOW_UNTESTED: ${{ inputs.allow-untested }}
+        INPUT_COMPARE_RUN: ${{ inputs.compare-run }}
+        INPUT_BASE_URL: ${{ inputs.base-url }}
+        INPUT_HEAD_URL: ${{ inputs.head-url }}
       run: node "$GITHUB_ACTION_PATH/action/run.ts"

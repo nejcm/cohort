@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { appendFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Inputs arrive as environment variables, never interpolated into a shell, and keys stay in the job environment.
 const FLAGS = ['persona', 'tag', 'suite', 'url', 'note', 'model', 'effort', 'repeats'] as const;
@@ -10,16 +12,27 @@ interface RunJson {
   reportDir?: string;
   runs?: { outcome: { state: string } }[];
   exitCode?: number;
+  outcome?: string;
   error?: string;
 }
 
 const env = process.env;
-const args = ['run', '--json'];
-for (const flag of FLAGS) {
-  const value = env[`INPUT_${flag.toUpperCase()}`];
-  if (value) args.push(`--${flag}`, value);
+const markdownPath = join(
+  env.RUNNER_TEMP ?? tmpdir(),
+  `cohort-compare-${(env.INPUT_COMPARE_RUN ?? '').replace(/[^\w-]/gu, '_')}.md`,
+);
+const compare = env.INPUT_COMPARE_RUN;
+const args = compare
+  ? ['compare', compare, '--base', env.INPUT_BASE_URL ?? '', '--head', env.INPUT_HEAD_URL ?? '', '--json']
+  : ['run', '--json'];
+if (compare) args.push('--markdown', markdownPath);
+else {
+  for (const flag of FLAGS) {
+    const value = env[`INPUT_${flag.toUpperCase()}`];
+    if (value) args.push(`--${flag}`, value);
+  }
+  if (env.INPUT_ALLOW_UNTESTED === 'true') args.push('--allow-untested');
 }
-if (env.INPUT_ALLOW_UNTESTED === 'true') args.push('--allow-untested');
 
 const child = spawn(env.COHORT_BIN ?? 'cohort', args, { stdio: ['ignore', 'pipe', 'inherit'] });
 let stdout = '';
@@ -48,6 +61,8 @@ const outputs: Record<string, string | number> = {
   blocked: counts.blocked!,
   'agent-error': counts.agent_error!,
   'limit-reached': counts.limit_reached!,
+  outcome: result.outcome ?? '',
+  'markdown-path': result.outcome ? markdownPath : '',
 };
 if (env.GITHUB_OUTPUT)
   await appendFile(
@@ -58,6 +73,8 @@ if (env.GITHUB_OUTPUT)
   );
 const summary = result.error
   ? `cohort: ${result.error}`
-  : `cohort batch ${outputs['batch-id']}: ${outputs.runs} run(s), ${counts.completed} completed, ${counts.blocked} blocked, ${counts.abandoned} abandoned, ${counts.agent_error} agent error(s), ${counts.limit_reached} limit(s); report ${outputs['report-path']}`;
+  : compare
+    ? `cohort compare ${compare}: ${outputs.outcome}; comment body ${outputs['markdown-path']}`
+    : `cohort batch ${outputs['batch-id']}: ${outputs.runs} run(s), ${counts.completed} completed, ${counts.blocked} blocked, ${counts.abandoned} abandoned, ${counts.agent_error} agent error(s), ${counts.limit_reached} limit(s); report ${outputs['report-path']}`;
 process.stdout.write(`${summary}\nexit code ${exitCode}\n`);
 process.exitCode = exitCode;

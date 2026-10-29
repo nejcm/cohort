@@ -17,6 +17,7 @@ import {
 } from './config/resolve.ts';
 import { runBatch, type BatchResult } from './core/batch.ts';
 import { preflight } from './core/estimate.ts';
+import { compareRun, renderCompareMarkdown, renderCompareText } from './core/compare.ts';
 import { replayRun } from './core/replay.ts';
 import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
 import {
@@ -44,6 +45,7 @@ const USAGE = `Usage: cohort [options]
        cohort run (--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>) [run options]
        cohort report <run-or-batch-id> [--format json|md|html]
        cohort replay <run-id> [--json]
+       cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]
        cohort trace <run-id>
        cohort login --url <url> --state <name>
        cohort persona validate
@@ -95,6 +97,9 @@ const RUN_OPTIONS = {
   port: { type: 'string' },
   state: { type: 'string' },
   template: { type: 'string', multiple: true },
+  base: { type: 'string' },
+  head: { type: 'string' },
+  markdown: { type: 'string' },
 } as const;
 
 const GENERATE_DOLLARS = 0.5;
@@ -164,10 +169,11 @@ export async function run(
       write(`Error: ${error.message}\n`);
       return 2;
     });
-  if ((command === 'report' || command === 'replay' || command === 'trace') && id !== undefined && extra.length === 0) {
+  if (['report', 'replay', 'compare', 'trace'].includes(command!) && id !== undefined && extra.length === 0) {
     try {
       if (command === 'report') return await reportCommand(id, values.format ?? 'md', write, deps);
       if (command === 'replay') return await replayCommand(id, values.json === true, write, deps);
+      if (command === 'compare') return await compareCommand(id, values, write, deps);
       return await traceCommand(id, deps);
     } catch (error) {
       if (!(error instanceof BundleError || error instanceof ConfigError)) throw error;
@@ -219,6 +225,24 @@ async function replayCommand(id: string, json: boolean, write: Write, deps: Depe
       : `${output.trimEnd()}\nreplay ${id}: ${report.replay.status}\n`,
   );
   return passed ? 0 : 1;
+}
+
+async function compareCommand(
+  id: string,
+  values: { base?: string; head?: string; json?: boolean; markdown?: string },
+  write: Write,
+  deps: Dependencies,
+): Promise<number> {
+  const cwd = deps.cwd ?? process.cwd();
+  const result = await compareRun(cwd, id, {
+    base: values.base,
+    head: values.head,
+    env: deps.env ?? process.env,
+    ...(deps.signal ? { signal: deps.signal } : {}),
+  });
+  if (values.markdown) await writeFile(resolvePath(cwd, values.markdown), renderCompareMarkdown(result));
+  write(values.json ? `${JSON.stringify(result)}\n` : renderCompareText(result));
+  return result.outcome === 'regression' ? 1 : 0;
 }
 
 async function validateCommand(write: Write, deps: Dependencies): Promise<number> {

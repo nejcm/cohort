@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { screenshotToCss, renderLocator } from '../../src/browser/targets.ts';
+import { classify, renderCompareMarkdown, type ExecutionStatus } from '../../src/core/compare.ts';
 import { CostMeter, estimateCostUsd } from '../../src/core/cost.ts';
 import { BUILTIN_TOOLS, validateToolCall } from '../../src/core/tools.ts';
 import { generateReplay } from '../../src/evidence/replay.ts';
@@ -221,4 +222,49 @@ test('cached tokens above input tokens are not priced as negative spend', () => 
   const reserved = meter.reserve(1000, 100)!;
   meter.settle(reserved, usage(100, 0, { cachedInputTokens: 1000 }));
   assert.equal(meter.spentUsd, reserved);
+});
+
+test('compare classification: only a consistent base pass and head fail is a regression, in at most four executions', () => {
+  const statuses: ExecutionStatus[] = ['passed', 'failed', 'error'];
+  const worlds: ExecutionStatus[][] = [[]];
+  for (let length = 0; length < 4; length += 1)
+    for (const world of worlds.filter((item) => item.length === length))
+      for (const status of statuses) worlds.push([...world, status]);
+  for (const world of worlds.filter((item) => item.length === 4)) {
+    let seen = 0;
+    let decision = classify([]);
+    while (!decision) decision = classify(world.slice(0, ++seen));
+    assert.ok(seen <= 4, world.join());
+    const key = world.slice(0, seen).join();
+    const expected = world.slice(0, seen).includes('error')
+      ? 'inconclusive'
+      : ({
+          'passed,passed': 'unchanged',
+          'failed,failed': 'inconclusive',
+          'passed,failed,passed,failed': 'regression',
+          'failed,passed,failed,passed': 'fixed',
+        }[key] ?? 'inconclusive');
+    assert.equal(decision.outcome, expected, key);
+    if (key.includes('error')) assert.equal(world.indexOf('error'), seen - 1, `${key} stops at the first error`);
+  }
+  assert.deepEqual(classify(['passed', 'error']), {
+    outcome: 'inconclusive',
+    reason: 'head execution 2 could not run: setup or environment error',
+  });
+  assert.match(classify(['passed', 'failed', 'passed', 'passed'])!.reason, /flaky/u);
+  assert.match(classify(['failed', 'failed'])!.reason, /fails on base/u);
+  assert.equal(classify(['passed', 'failed']), null);
+});
+
+test('the compare comment starts with its marker and escapes failure text', () => {
+  const markdown = renderCompareMarkdown({
+    runId: 'run_20260101_000000_abcdef',
+    base: 'https://base.example',
+    head: 'https://head.example',
+    outcome: 'regression',
+    reason: 'the journey passed on base and failed on head in both rounds',
+    executions: [{ side: 'head', status: 'failed', durationMs: 1200, failure: 'Error: <img src=x> | `x`\nnext' }],
+  });
+  assert.ok(markdown.startsWith('<!-- cohort-compare:run_20260101_000000_abcdef -->\n'));
+  assert.match(markdown, /\| 1 \| head \| failed \| 1\.2 s \| Error: \\<img src=x\\> \\\| \\`x\\` next \|/u);
 });

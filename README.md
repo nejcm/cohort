@@ -41,22 +41,23 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 | `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--allow-untested`, `--json` |
 | `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
 | `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
+| `cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` | Replay an approved run on two deployments with confirmation; writes one advisory PR comment body ([details](docs/operating.md#comparing-base-and-head)) |
 | `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
 | `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
 | `cohort persona validate` | Check every persona and suite, reporting all problems |
 | `cohort persona generate --url <url> --description <text> [--out <file>]` | One metered call over a landing page; preview unless `--out` |
 | `cohort ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1` |
 
-Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration.
+Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration. `cohort compare` exits `1` only for a confirmed regression.
 
 Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
 
 ## Documentation
 
-- [Operating the lab](docs/operating.md): keys, models, costs and limits, blockers, replay bindings, artifacts, retention and deletion, diagnostics.
+- [Operating the lab](docs/operating.md): keys, models, costs and limits, blockers, replay bindings, base/head comparison, artifacts, retention and deletion, diagnostics.
 - [Personas and suites](docs/personas.md): formats, templates, prompt layers, generator guidance.
 - [Setup modules and saved login](docs/setup-and-login.md): custom tools for one-time codes, storage state, routes, blocker detection.
-- [GitHub Action](docs/github-action.md): the thin Action and a workflow that never uploads traces.
+- [GitHub Action](docs/github-action.md): the thin Action, a workflow that never uploads traces, and a pull-request comparison workflow.
 - [Compatibility](docs/compatibility.md): exact runtime, browser, and provider status, and what is unsupported.
 - [Security review notes](docs/security.md): the threat model, its controls, and what remains.
 - [Release-candidate checklist](docs/release-checklist.md): what is automated and what is still manual.
@@ -71,7 +72,7 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 The MVP ends with screening by outside developers. Add-ons follow in this order, each only after the previous one is useful:
 
 1. Crawler and suggestions: an `explore` mode that proposes personas and replayable tests from observed paths.
-2. PR regression: replay an approved script on base and head with confirmation and one advisory PR comment.
+2. PR regression (done: `cohort compare` and the Action's `compare-run`): replay an approved script on base and head with confirmation and one advisory PR comment.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
 4. Keyboard and small-screen scenario packs.
 

@@ -100,7 +100,7 @@ const claimLabel = (item: FrictionClaim): string =>
 
 const isShot = (id: string | null): id is string => id !== null && /^shot-[0-9]{4,}$/u.test(id);
 
-function md(text: unknown): string {
+export function md(text: unknown): string {
   return String(text)
     .replace(/[\r\n]+/gu, ' ')
     .replace(/[\\`*[\]|<>~]/gu, '\\$&');
