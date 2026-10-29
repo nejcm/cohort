@@ -4,7 +4,7 @@ import { ConfigError } from './files.ts';
 
 const CONFIG = `schemaVersion: 1
 # <provider>/<id> from the model catalog. \`cohort doctor\` shows whether it is usable.
-model: anthropic/claude-sonnet-5-5
+model: openai/gpt-6.1-terra
 repeats: 3
 limits:
   steps: 40

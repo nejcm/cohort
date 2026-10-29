@@ -34,6 +34,42 @@ test('help covers every command in the usage and rejects unknown topics', async 
   for (const name of names) assert.match(all, new RegExp(`^  cohort ${name}\\b`, 'm'));
   const one = await capture(['help', 'run', '--json']);
   assert.equal(JSON.parse(one.out).commands[0].name, 'run');
+  for (const argv of [
+    ['help', 'run', '--json'],
+    ['help', '--json'],
+    ['help', 'run'],
+  ]) {
+    const { code, out } = await capture(argv);
+    assert.equal(code, 0);
+    const command = argv.includes('--json')
+      ? JSON.stringify(JSON.parse(out).commands.find((item: { name: string }) => item.name === 'run'))
+      : out;
+    for (const flag of [
+      '--persona',
+      '--tag',
+      '--suite',
+      '--url',
+      '--note',
+      '--mode',
+      '--model',
+      '--effort',
+      '--repeats',
+      '--steps',
+      '--time-ms',
+      '--dollars',
+      '--max-usd',
+      '--allow-unpriced',
+      '--allow-untested',
+      '--detach',
+    ])
+      assert.ok(command.includes(flag), `${argv.join(' ')} omits ${flag}`);
+  }
+  const explore = JSON.stringify(
+    JSON.parse((await capture(['help', '--json'])).out).commands.find(
+      (item: { name: string }) => item.name === 'explore',
+    ),
+  );
+  for (const flag of ['--repeats', '--note']) assert.ok(!explore.includes(flag), `explore help lists ${flag}`);
   assert.equal((await capture(['help', 'nope'])).code, 2);
 });
 

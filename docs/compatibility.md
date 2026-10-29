@@ -14,7 +14,7 @@ Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, wi
 | Operating system | Linux | Local Linux 7.2; macOS and Windows untested |
 | OpenAI | Responses API through `fetch`, `reasoning.effort` | Fake HTTP server; live 2026-10-29 on `gpt-6.1-terra` and `gpt-6-luna` (efforts low/medium/high, vision, tool calls, usage and cached-token parsing) through a `.cohort/models.yml` entry. See `.plans/reports/live-openai.md` |
 | Anthropic | Messages API through `fetch`, `output_config.effort` | Fake HTTP server; live 2026-10-29 on `claude-sonnet-5-5` (efforts low/medium/high, vision, `tool_choice: auto` with `disable_parallel_tool_use`, cache-read and 5-minute cache-write usage parsing). See `.plans/reports/live-anthropic.md` |
-| Shipped models | `anthropic/claude-sonnet-5-5` | Enabled (`untested: false`, default effort `medium`). API live-checked and priced, including the $2.50/M 5-minute cache write (2026-10-29); fixture journey 2/3 at `medium` (1/3 low, 0/3 high); all 3 completed runs replay |
+| Shipped models | `openai/gpt-6.1-terra` (project default), `anthropic/claude-sonnet-5-5` | Both enabled (`untested: false`). Terra, default effort `low`: fixture journey vision 3/3 at `low` and 3/3 at `medium` in each of two batches (12/12 total), text mode 6/6; about $0.015 per vision run. Sonnet 5.5, default effort `medium`: vision 2/3 (1/3 low, 0/3 high), text 1/3; about $0.04 per run. Prices dated 2026-10-29. See `.plans/reports/live-phase0-final.md` |
 | Dashboard browsers | Chromium | Firefox and WebKit untested |
 
 ## Target resolution and replay

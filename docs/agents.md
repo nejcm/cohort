@@ -12,6 +12,24 @@ Rules every command follows:
 
 `cohort help` prints every command with its flags and `cohort help <command>` prints one; with `--json` it returns the same table as `commands[]`. The repository ships an agent skill for this CLI at `skills/cohort/SKILL.md` (copy it into your agent's skills directory).
 
+## Invoking the CLI
+
+Examples below use `cohort` as the command prefix:
+
+- Installed package: use `npx --no-install cohort ...` for a project-local install, or `cohort ...` if installed on `PATH`.
+- Uninstalled checkout: after `bun install --frozen-lockfile`, use `node src/cli.ts ...` from the repository root; no build is needed. For example, `node src/cli.ts help run --json`.
+- To operate on another project from a checkout, run `node /absolute/path/to/cohort/src/cli.ts ...` with that project as the working directory. `.cohort/` is resolved from the working directory, not the script's location.
+
+Export provider keys into the environment before commands that call a model. If a person has provided an environment file, Node can load it with `node --env-file=/path/to/file /absolute/path/to/cohort/src/cli.ts ...`; never print its contents.
+
+Run `cohort init --json` before estimating or running in a new project. Its config defaults to **3 repeats**: pass `--repeats 1` to both `estimate` and `run` for a single run, and inspect the estimate first.
+
+## Persona input
+
+Persona files are **Markdown with YAML frontmatter** between `---` delimiters, followed by a nonempty Markdown description. `cohort persona schema --json` describes the frontmatter fields, not a JSON document accepted by `persona add --file`.
+
+Use `cohort persona templates --json` for complete examples: each template's `source` is a valid persona document. Adapt that source, then pass the Markdown to `cohort persona add --file <path> --json` (or `--file -` for stdin) and run `cohort persona validate --json`. See [personas.md](personas.md#persona-format) for the format.
+
 ## Command map
 
 | Dashboard route or manual edit | Command |
@@ -65,6 +83,7 @@ Every JSON document has `schemaVersion: 1`. The version changes only when a fiel
 | `explore`, `explore suggest` | `runId`, `outcome`, `coverage`, `features[]`, `untried[]`, `personas[]`, `goals[]`, `suite`, `tests[]`, `dropped[]`, `estimatedCostUsd`; foreground `explore` adds `batchId`, `maxUsd`, `runOutcome`; `--detach` returns `batchId`, `runIds` |
 | `explore save` | `id`, `revision`, `path`, `action: "created" \| "replaced"` |
 | `--help`, or no command | `usage` |
+| `help [command]` | `commands[] {name, usage, summary, options?, notes?}`; `options` enumerates shared run flags |
 | `persona list` / `suite list` | `personas[]` / `suites[]`, each with `error` (null when valid) |
 | `persona show` / `suite show` | `id`, `source`, `revision`, `parsed`, `error`, `path` |
 | `add`, `edit`, `add-entry` | `id`, `revision`, `path`, `action` (`created`, `replaced`, `saved`) |
@@ -114,7 +133,7 @@ Every `cohort run` and `cohort estimate` checks the batch before anything starts
 - The batch's maximum cost must be at most `--max-usd`, default **$10** and at most $1000. Otherwise it is refused with `over_budget`.
 - A model without prices cannot be held to a dollar cap, so it is refused with `cap_unenforceable` unless `--allow-unpriced` is given.
 
-Run `cohort estimate` first; its `refusal` field says exactly what `run` would refuse, without calling a model.
+Run `cohort estimate` first; its `refusal` field says exactly what `run` would refuse, without calling a model. The config created by `init` defaults to **3 repeats**. For a single run, pass `--repeats 1` to both `estimate` and `run`, keeping the selector and budget flags identical.
 
 ## Background runs
 
@@ -125,7 +144,7 @@ Run `cohort estimate` first; its `refusal` field says exactly what `run` would r
 - `runs cancel` (and the dashboard's cancel button) records the request in the index; the owning process stops queued runs at once and running ones within about 200 ms, finalizing them as cancelled by the user. Cancelling a finished run is a `conflict`.
 - An open dashboard follows a detached run's events through the index, every half second.
 - `runs` commands need only the index, so a broken `config.yml` never prevents cancelling a batch.
-- The batch keeps running if the agent's session ends. Cancel it, or wait for it, before leaving.
+- The owner survives the launching CLI's exit. An agent sandbox or job supervisor can still kill detached descendants when its command or session ends; `--detach` cannot override that cleanup. Use foreground `run` with a tool that keeps the command alive in such environments. Cancel the batch, or wait for it, before leaving.
 
 ## Dashboard
 
@@ -148,10 +167,10 @@ Ask the person to run it, then reference the saved state with `storageState: hos
 
 - Always pass `--json` and read the exit code: 0 ok, 1 result not ok, 2 refused (see `code`).
 - Never edit `.cohort/personas` or `.cohort/suites` by hand: use `cohort persona|suite add|edit --file -`, then `cohort persona validate --json`.
-- Price first: `cohort estimate --suite <id> --json`; if `refusal` is not null, change the request or ask the user. Do not add `--allow-unpriced` or raise `--max-usd` without the user's approval.
-- Start with `cohort run --suite <id> --detach --json`, then `cohort runs wait <batchId> --json --timeout-ms 600000`. Cancel with `cohort runs cancel <id>` if you stop early.
+- Price first: `cohort estimate --suite <id> --repeats 1 --json`; if `refusal` is not null, change the request or ask the user. Do not add `--allow-unpriced` or raise `--max-usd` without the user's approval. `init` defaults to 3 repeats; choose the count explicitly.
+- Start with `cohort run --suite <id> --repeats 1 --detach --json`, then `cohort runs wait <batchId> --json --timeout-ms 600000`. Cancel with `cohort runs cancel <id>` if you stop early.
 - Read results from `cohort report <id> --format json`. Never open, upload, or quote `trace.zip`; it contains secrets.
 - If a command returns `code: "blocked"`, ask the user to run its `command`; do not try to log in yourself.
 ```
 
-Outstanding: this workflow has been tested end to end with a scripted model only; a recorded session of a real coding agent driving a live provider is not yet in the repository.
+The [2026-10-30 agent session](agent-session.md) records a real coding agent creating, estimating, launching, inspecting, and deleting a persona through the CLI. Its detached owner stopped before any recorded action, so a completed live-provider journey remains unverified.

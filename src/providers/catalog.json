@@ -20,7 +20,7 @@
     {
       "id": "gpt-6.1-terra",
       "provider": "openai",
-      "label": "GPT-6.1 Terra",
+      "label": "GPT-6.1 Terra (live-checked 2026-10-29)",
       "visionCapable": true,
       "supportedEffortLevels": ["low", "medium", "high"],
       "defaultEffort": "low",
@@ -31,7 +31,7 @@
         "cacheWrite": 1.25
       },
       "pricingVerifiedAt": "2026-10-29",
-      "untested": true
+      "untested": false
     }
   ]
 }

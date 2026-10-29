@@ -2,10 +2,19 @@ export interface CommandHelp {
   name: string;
   usage: string[];
   summary: string;
+  options?: string[];
   notes?: string[];
 }
 
 const SELECTOR = '(--persona <id> | --tag <tag> | --suite <id> | --url <url> --note <text>)';
+
+const RUN_OPTION_LINES = [
+  '--mode vision|text        --model <provider>/<id>   --effort low|medium|high',
+  '--repeats <n>             --steps <n>               --time-ms <n>   --dollars <n>',
+  '--url <url>               --note <text>             --allow-untested',
+  '--max-usd <n>             batch ceiling, default $10',
+  '--allow-unpriced          run models with unknown prices (no enforceable dollar cap)',
+];
 
 export const COMMANDS: CommandHelp[] = [
   {
@@ -35,12 +44,14 @@ export const COMMANDS: CommandHelp[] = [
     name: 'estimate',
     usage: [`cohort estimate ${SELECTOR} [run options]`],
     summary: 'Price a batch without calling a model.',
+    options: RUN_OPTION_LINES,
   },
   {
     name: 'run',
     usage: [`cohort run ${SELECTOR} [run options] [--detach]`],
     summary:
       'Run synthetic users against a site. Blocks until done, or with --detach starts a background batch and returns its ids.',
+    options: RUN_OPTION_LINES,
     notes: [
       'Selectors: --persona <id>, --tag <tag>, --suite <id>, or an ad-hoc --url with --note.',
       'Exit 0 when every run completed, 1 when any did not, 2 on invalid invocation.',
@@ -54,6 +65,12 @@ export const COMMANDS: CommandHelp[] = [
       'cohort explore save <run-id> (--persona <id> | --suite <id>) [--revision <sha256>] --yes',
     ],
     summary: 'Let an agent explore a site with no persona, suggest personas or a suite from the run, and save one.',
+    options: [
+      '--url <url>               --mode vision|text        --model <provider>/<id>   --effort low|medium|high',
+      '--steps <n>               --time-ms <n>             --dollars <n>             --allow-untested',
+      '--max-usd <n>             batch ceiling, default $10',
+      '--allow-unpriced          run models with unknown prices (no enforceable dollar cap)',
+    ],
   },
   {
     name: 'runs',
@@ -142,14 +159,6 @@ const GLOBAL_OPTIONS = [
   '--file <path>  Input file for add/edit commands; `-` reads stdin (max 1 MiB)',
 ];
 
-const RUN_OPTION_LINES = [
-  '--mode vision|text        --model <provider>/<id>   --effort low|medium|high',
-  '--repeats <n>             --steps <n>               --time-ms <n>   --dollars <n>',
-  '--url <url>               --note <text>             --allow-untested',
-  '--max-usd <n>             batch ceiling, default $10',
-  '--allow-unpriced          run models with unknown prices (no enforceable dollar cap)',
-];
-
 const ENV_LINES = [
   'ANTHROPIC_API_KEY, OPENAI_API_KEY   provider keys; read from the environment only',
   'GITHUB_TOKEN                        used by `cohort publish`',
@@ -158,17 +167,15 @@ const ENV_LINES = [
 function renderCommand(command: CommandHelp): string {
   const lines = command.usage.map((line) => `  ${line}`);
   const body = [command.summary, ...(command.notes ?? [])].map((line) => `    ${line}`);
-  return [...lines, ...body].join('\n');
+  const options = command.options?.map((line) => `  ${line}`) ?? [];
+  return [...lines, ...body, ...options].join('\n');
 }
 
 export function renderHelp(topic?: string): string | undefined {
   if (topic !== undefined) {
     const command = COMMANDS.find((item) => item.name === topic);
     if (!command) return undefined;
-    const extra = ['run', 'estimate', 'explore'].includes(command.name)
-      ? `\nRun options:\n${RUN_OPTION_LINES.map((line) => `  ${line}`).join('\n')}\n`
-      : '';
-    return `${renderCommand(command)}\n${extra}\nGlobal options:\n${GLOBAL_OPTIONS.map((line) => `  ${line}`).join('\n')}\n`;
+    return `${renderCommand(command)}\n\nGlobal options:\n${GLOBAL_OPTIONS.map((line) => `  ${line}`).join('\n')}\n`;
   }
   return [
     'cohort: AI synthetic users operate a web app and leave an inspectable trail.',
@@ -178,9 +185,6 @@ export function renderHelp(topic?: string): string | undefined {
     '',
     'Global options:',
     ...GLOBAL_OPTIONS.map((line) => `  ${line}`),
-    '',
-    'Run options (run, estimate, explore):',
-    ...RUN_OPTION_LINES.map((line) => `  ${line}`),
     '',
     'Environment:',
     ...ENV_LINES.map((line) => `  ${line}`),

@@ -22,7 +22,7 @@ npx cohort init      # .cohort/ with config, three example personas, and a .giti
 npx cohort doctor    # runtime, browser, config, model, keys, paths; never calls a model
 ```
 
-`cohort doctor` reports that the default model is disabled: no model has been verified live yet. Add a model you have checked to `.cohort/models.yml` ([how](docs/operating.md#models)) and set its key, for example `export ANTHROPIC_API_KEY=...`.
+`cohort init` defaults to `openai/gpt-6.1-terra` (set `OPENAI_API_KEY`); `anthropic/claude-sonnet-5-5` is also shipped (set `ANTHROPIC_API_KEY`). Pick either with `model:` in `.cohort/config.yml`.
 
 Try it on the bundled fixture app (from a clone of this repository; it needs only Node):
 
@@ -64,6 +64,7 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 
 - [Operating the lab](docs/operating.md): keys, models, costs and limits, blockers, replay bindings, base/head comparison, artifacts, retention and deletion, diagnostics.
 - [Driving cohort from an agent](docs/agents.md): command map, JSON output, error codes, cost safety, background runs, and an AGENTS.md snippet.
+- [Agent session](docs/agent-session.md): a real coding agent's CLI workflow, friction, and interrupted fixture run.
 - [Personas and suites](docs/personas.md): formats, templates, prompt layers, generator guidance.
 - [Setup modules and saved login](docs/setup-and-login.md): custom tools for one-time codes, storage state, routes, blocker detection.
 - [GitHub Action](docs/github-action.md): the thin Action, a workflow that never uploads traces, and a pull-request comparison workflow.
@@ -84,7 +85,7 @@ The MVP ends with screening by outside developers. Add-ons follow in this order,
 2. PR regression: `cohort compare` replays a hash-pinned approved run on base and head with provenance, verified scoped resets, and confirmation, and `cohort publish` posts one comment after rechecking the PR head ([docs/compare.md](docs/compare.md)). Still to come: validation on real apps and previews.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
 
-An agent-operable CLI is available: every dashboard action has a `--json` command, runs can be detached and waited on, and batches are capped at $10 by default ([docs/agents.md](docs/agents.md)). Still to come: a recorded session of a real coding agent driving a live provider.
+An agent-operable CLI is available: every dashboard action has a `--json` command, runs can be detached and waited on, and batches are capped at $10 by default ([docs/agents.md](docs/agents.md)). A [recorded agent session](docs/agent-session.md) reached launch and cleanup; a completed live-provider journey remains unverified.
 
 Keyboard-only personas and small-screen packs are available; see [docs/personas.md](docs/personas.md#scenario-packs).
 

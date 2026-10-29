@@ -11,7 +11,7 @@ Keys, models, costs, limits, blockers, replay bindings, base/head comparison, ar
 
 ## Models
 
-The shipped catalog (`src/providers/catalog.json`) has one entry, `anthropic/claude-sonnet-5-5` (Claude Sonnet 5.5), live-checked and priced on 2026-10-29. To use another model, add an entry to `.cohort/models.yml` (by hand, or validated with `cohort models edit --file -`):
+The shipped catalog (`src/providers/catalog.json`) has two live-checked, priced entries (2026-10-29): `openai/gpt-6.1-terra` (the `cohort init` default) and `anthropic/claude-sonnet-5-5`. To use another model, add an entry to `.cohort/models.yml` (by hand, or validated with `cohort models edit --file -`):
 
 ```yaml
 version: local-2026-10

@@ -7,6 +7,12 @@ description: Use when working with the cohort CLI, where AI synthetic users oper
 
 `cohort help` prints every command; `cohort help <command>` prints one. Full agent contract: `docs/agents.md`.
 
+## Invocation
+
+Examples use `cohort` as the prefix. With an installed package, use `npx --no-install cohort ...` for a project-local install, or `cohort ...` if on `PATH`. From an uninstalled checkout, run `bun install --frozen-lockfile`, then `node src/cli.ts ...` from its root; no build is needed. To operate on another project, use `node /absolute/path/to/cohort/src/cli.ts ...` with that project as the working directory. `.cohort/` belongs to the working directory.
+
+Keys must already be in the environment. Node can load a person-provided environment file with `node --env-file=/path/to/file /absolute/path/to/cohort/src/cli.ts ...`; never print it.
+
 ## Rules
 
 - Always pass `--json`. One JSON document on stdout, errors included (`{"error", "code"}`); nothing prompts.
@@ -17,10 +23,10 @@ description: Use when working with the cohort CLI, where AI synthetic users oper
 
 ## Workflow
 
-1. `cohort init` then `cohort doctor --json` (exit 2 means fix the listed errors first).
-2. Personas and suites are files edited through the CLI: `persona schema|templates|list`, then `persona add --file <f>` (`-` reads stdin), `persona validate`. Edits take `--revision <sha256>` from the last `show` so concurrent edits conflict instead of overwriting. Deleting needs `--yes`.
-3. Selector for `estimate` and `run`: `--persona <id>`, `--tag <tag>`, `--suite <id>`, or `--url <url> --note <text>`.
-4. `cohort run <selector> --detach --json` returns `batchId` and `runIds`; then `cohort runs wait <id> --json` (`timeout` code 1 means wait again), or `runs show|cancel`.
+1. `cohort init --json` then `cohort doctor --json` (exit 2 means fix the listed errors first). Init's config defaults to **3 repeats**; pass `--repeats 1` to both `estimate` and `run` for one run.
+2. Personas are Markdown with YAML frontmatter between `---` delimiters and a nonempty description body. `persona schema --json` describes only the frontmatter; JSON alone is not valid input to `persona add`. Start from a `source` returned by `persona templates --json`, then `persona add --file <f>` (`-` reads stdin), `persona validate`. Suites are YAML. Edits take `--revision <sha256>` from the last `show` so concurrent edits conflict instead of overwriting. Deleting needs `--yes`.
+3. Selector for `estimate` and `run`: `--persona <id>`, `--tag <tag>`, `--suite <id>`, or `--url <url> --note <text>`. Estimate first, check `refusal`, and use the same selector, repeat count, and budget flags for the run.
+4. `cohort run <selector> --repeats 1 --detach --json` returns `batchId` and `runIds`; then `cohort runs wait <id> --json` (`timeout` code 1 means wait again), or `runs show|cancel`. Sandboxes may kill detached descendants when a command ends; use foreground `run` with a tool that keeps the command alive there.
 5. Read results from `runs show --json` (`report`, `dir`, `artifacts`, `screenshots`) or `cohort report <id> --format json|md|html`.
 6. No persona yet: `cohort explore --url <url>`, then `explore suggest <run-id>` and `explore save <run-id> --persona <id> --yes`.
 7. Regression checks: `cohort replay <run-id>` (no model), `cohort compare` between two deployments, `cohort publish` posts the comment (needs `GITHUB_TOKEN`).

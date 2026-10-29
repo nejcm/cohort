@@ -31,7 +31,7 @@ test('shipped catalog is the approved set, and untested entries need explicit co
     catalog.models.map((entry) => [entry.provider, entry.id, entry.label, entry.defaultEffort, entry.untested]),
     [
       ['anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5', 'medium', false],
-      ['openai', 'gpt-6.1-terra', 'GPT-6.1 Terra', 'low', true],
+      ['openai', 'gpt-6.1-terra', 'GPT-6.1 Terra (live-checked 2026-10-29)', 'low', false],
     ],
   );
   assert.deepEqual(catalog.models[0]?.pricesPerMTok, { input: 2, output: 10, cachedInput: 0.1, cacheWrite: 2.5 });
