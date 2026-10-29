@@ -99,7 +99,7 @@ bun run build           # dist/ and the dashboard in dist/ui
 bun run smoke:package   # npm-installed tarball, no Bun on PATH
 ```
 
-Bun is for development only; the published package runs on Node. Tests use a scripted fake model and never call a provider. Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md), [original idea](docs/original-idea.md).
+Bun is for development only; the published package runs on Node. Tests use a scripted fake model and never call a provider. Background: [competitive research](docs/COMPETITIVE-INTELLIGENCE.md), [product improvements](docs/PRODUCT-IMPROVEMENTS.md), [original idea](docs/original-idea.md).
 
 ## License
 
