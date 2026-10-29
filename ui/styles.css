@@ -21,6 +21,7 @@
   --surface: #1c1b1a; /* the sheet, dialog */
   --surface-2: #222120; /* cards, inputs, wells */
   --surface-3: #2c2a28; /* hover, active, skeleton */
+  --band: #272523; /* table header band */
   --active: #34312e; /* the current nav item, on the frame */
   --fg-2: #c9c4bf;
   --rule: #292725; /* row rules */
@@ -191,6 +192,10 @@ body {
   text-align: right;
   white-space: nowrap;
 }
+.tab {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .muted,
 .hint {
   color: var(--muted);
@@ -334,10 +339,6 @@ body {
   align-items: center;
   gap: var(--s-3);
 }
-.app > .top .top-actions button.small {
-  height: 28px;
-}
-
 .app > main {
   grid-column: 2;
   grid-row: 2;
@@ -385,6 +386,8 @@ body {
 }
 .app a.back {
   display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--muted);
   font-size: var(--text-sm);
 }
@@ -464,7 +467,16 @@ body {
   gap: var(--s-3);
   flex-wrap: wrap;
 }
+.section > h2,
+.section-head h2,
+.app dialog header h2 {
+  font-family: var(--font-figure);
+  font-size: 20px;
+  line-height: 26px;
+  letter-spacing: -0.01em;
+}
 .section-head .count {
+  font-family: var(--font-sans);
   color: var(--muted);
   font-weight: var(--w-regular);
   font-size: var(--text-sm);
@@ -648,6 +660,31 @@ progress.prog::-moz-progress-bar {
 }
 
 /* ---------- 4. Buttons ---------- */
+/* Control sizes shared by buttons and fields: md is the default; radius scales with height. */
+.app :where(button, .button, input, select, textarea) {
+  --ctl-h: var(--control-h);
+  --ctl-px: 12px;
+  --ctl-r: var(--r-md);
+  --ctl-fs: var(--text-md);
+}
+.app :is(button, .button, input, select, textarea).sm {
+  --ctl-h: 28px;
+  --ctl-px: 10px;
+  --ctl-r: var(--r-sm);
+  --ctl-fs: var(--text-sm);
+}
+.app :is(button, .button, input, select, textarea).lg {
+  --ctl-h: 44px;
+  --ctl-px: 18px;
+  --ctl-r: 12px;
+  --ctl-fs: 15px;
+}
+.app :is(button, .button, input, select, textarea).xl {
+  --ctl-h: 52px;
+  --ctl-px: 22px;
+  --ctl-r: 14px;
+  --ctl-fs: var(--text-lg);
+}
 .app button,
 .app .button {
   appearance: none;
@@ -655,13 +692,13 @@ progress.prog::-moz-progress-bar {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: var(--control-h);
-  padding: 0 12px;
+  height: var(--ctl-h);
+  padding: 0 var(--ctl-px);
   border: var(--bw) solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--ctl-r);
   background: var(--surface-2);
   color: var(--fg);
-  font: var(--w-medium) var(--text-md) / 1 var(--font-sans);
+  font: var(--w-medium) var(--ctl-fs) / 1 var(--font-sans);
   white-space: nowrap;
   cursor: pointer;
   box-shadow: none;
@@ -685,6 +722,14 @@ progress.prog::-moz-progress-bar {
 .app button svg,
 .app .button svg {
   flex: none;
+}
+/* Negative margins shrink a 16px icon's line box to the cap height so it centres without growing the line. */
+.app button .icon,
+.app .button .icon {
+  margin-block: calc(0.5cap - 8px);
+}
+.app button[aria-busy='true'] .icon {
+  display: none;
 }
 
 .app button.primary,
@@ -725,13 +770,14 @@ progress.prog::-moz-progress-bar {
   text-underline-offset: 2px;
 }
 
-.app button.small,
-.app .button.small {
-  height: 26px;
-  padding: 0 8px;
-  font-size: var(--text-sm);
+.app button.sm,
+.app .button.sm {
   /* Even line box in an even-height button; 13px leaves a half pixel that rounds the text low. */
   line-height: 14px;
+}
+.app button.xl,
+.app .button.xl {
+  gap: 8px;
 }
 
 .app button:disabled,
@@ -920,6 +966,44 @@ progress.prog::-moz-progress-bar {
   border-color: var(--bad-line);
 }
 
+/* Centre the cap height rather than the font's ascent/descent box, which differs per system font. */
+@supports (text-box: trim-both cap alphabetic) {
+  .badge,
+  .chip,
+  .av,
+  .app button:not(.link, .menu, .timeline button),
+  .app .button {
+    display: inline-block;
+    align-content: center;
+    text-align: center;
+    text-box: trim-both cap alphabetic;
+  }
+  .badge::before,
+  .chip::before,
+  .app button[aria-busy='true']::before {
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .chip::before {
+    margin-right: 5px;
+  }
+  .app button[aria-busy='true']::before {
+    margin-block: -2px;
+  }
+  .app :is(button, .button) .icon {
+    margin-right: 6px;
+  }
+  /* Trim against the mono face's cap height when the label is mono. */
+  .app button:has(> .mono) {
+    font-family: var(--font-mono);
+    font-size: calc(var(--ctl-fs) - 1px);
+  }
+  .app button > .mono {
+    font-size: inherit;
+  }
+}
+
 /* ---------- 6. Form controls ---------- */
 .app label {
   display: grid;
@@ -940,13 +1024,13 @@ progress.prog::-moz-progress-bar {
 .app textarea {
   width: 100%;
   min-width: 0;
-  height: var(--control-h);
-  padding: 0 10px;
+  height: var(--ctl-h);
+  padding: 0 var(--ctl-px);
   border: var(--bw) solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--ctl-r);
   background: var(--surface-2);
   color: var(--fg);
-  font: var(--w-regular) var(--text-md) / var(--lh-md) var(--font-sans);
+  font: var(--w-regular) var(--ctl-fs) / var(--lh-md) var(--font-sans);
   transition: border-color var(--dur-1) var(--ease);
 }
 .app input::placeholder,
@@ -968,17 +1052,27 @@ progress.prog::-moz-progress-bar {
 }
 .app input[type='number'] {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: calc(var(--ctl-fs) - 1px);
   font-variant-numeric: tabular-nums;
 }
 .app select {
-  /* native control: the platform draws the chevron, themed by color-scheme */
-  padding-right: 6px;
+  appearance: none;
+  padding-right: calc(var(--ctl-px) + 20px);
+  /* Chevron from two gradient triangles: the CSP forbids url() images. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--ctl-px) - 6px) 50%,
+    calc(100% - var(--ctl-px) - 1px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
 }
 .app textarea {
   height: auto;
   min-height: 96px;
-  padding: 8px 10px;
+  padding: calc(var(--ctl-px) - 4px) var(--ctl-px);
   resize: vertical;
 }
 .app input:disabled,
@@ -1117,6 +1211,21 @@ progress.prog::-moz-progress-bar {
 .app td:last-child {
   padding-right: 0;
 }
+.table-wrap.boxed {
+  background: var(--surface-2);
+}
+.app .table-wrap.boxed th {
+  height: 40px;
+  padding-bottom: 0;
+  background: var(--band);
+  vertical-align: middle;
+}
+.app .table-wrap.boxed th + th {
+  box-shadow: inset var(--bw) 0 var(--line);
+}
+.app .table-wrap.boxed tbody tr:first-child td {
+  border-top: 0;
+}
 .table-wrap.boxed th:first-child,
 .table-wrap.boxed td:first-child {
   padding-left: 14px;
@@ -1145,8 +1254,18 @@ progress.prog::-moz-progress-bar {
   border-bottom: 0;
 }
 .app a.rid {
+  display: block;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.app td .goal {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
 }
 .st {
   display: inline-flex;
@@ -1189,10 +1308,16 @@ progress.prog::-moz-progress-bar {
   position: sticky;
   left: 0;
   z-index: 1;
-  background: var(--surface);
-}
-.table-wrap.runs tbody tr:hover td:first-child {
   background: var(--surface-2);
+}
+.table-wrap.runs th:first-child {
+  background: var(--band);
+}
+.table-wrap.runs td {
+  height: 60px;
+}
+.table-wrap.runs tbody tr:hover td {
+  background: var(--surface-3);
 }
 
 /* Live change cue: add .changed to a row for one poll after its data changes */
@@ -1211,6 +1336,7 @@ progress.prog::-moz-progress-bar {
   margin: 0;
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+  align-items: baseline;
   gap: var(--s-3) var(--s-5);
   padding: var(--s-4) var(--s-5);
   background: var(--surface-2);
@@ -1494,15 +1620,12 @@ progress.prog::-moz-progress-bar {
   gap: var(--s-2);
 }
 .card.tone-warn {
-  background: var(--warn-soft);
   border-color: var(--warn-line);
 }
 .card.tone-good {
-  background: var(--good-soft);
   border-color: var(--good-line);
 }
 .card.tone-bad {
-  background: var(--bad-soft);
   border-color: var(--bad-line);
 }
 .outcome .state {
@@ -1516,8 +1639,8 @@ progress.prog::-moz-progress-bar {
 }
 .outcome .meta {
   color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .claims {
@@ -1542,7 +1665,6 @@ progress.prog::-moz-progress-bar {
 .claims .source {
   color: var(--muted);
   font-size: var(--text-xs);
-  font-family: var(--font-mono);
 }
 .claims .opinion {
   color: var(--fg-2);
@@ -1557,10 +1679,10 @@ progress.prog::-moz-progress-bar {
 }
 .steps li {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s-2);
-  min-height: 36px;
+  min-height: 40px;
   padding: 4px 0;
   border-top: var(--bw) solid var(--line);
   font-size: var(--text-sm);
@@ -1581,13 +1703,14 @@ progress.prog::-moz-progress-bar {
   white-space: nowrap;
 }
 .steps .end {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(48px, auto) 72px;
   align-items: center;
-  gap: var(--s-2);
+  justify-items: end;
+  gap: var(--s-3);
 }
-.steps .end a {
-  font-family: var(--font-mono);
-  font-size: 12px;
+.app .steps .end button.link {
+  font: var(--w-regular) 12px / 1 var(--font-mono);
 }
 .steps li.waiting {
   grid-template-columns: 1fr;
@@ -1610,7 +1733,6 @@ progress.prog::-moz-progress-bar {
   flex: none;
 }
 .app .timeline button {
-  height: 44px;
   min-width: 56px;
   padding: 0 10px;
   flex-direction: column;
@@ -1765,24 +1887,40 @@ progress.prog::-moz-progress-bar {
 }
 .app .item-list a {
   display: grid;
-  gap: 2px;
+  gap: 0 10px;
+  align-content: center;
   padding: 8px 10px;
   border-radius: var(--r-md);
   color: var(--fg);
 }
 .app .item-list a:hover {
-  background: var(--surface-2);
+  background: var(--surface-3);
   text-decoration: none;
 }
 .app .item-list a[aria-current='page'] {
-  background: var(--surface-3);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  background: var(--active);
+}
+.app .item-list a:has(.av) {
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+.item-list .av {
+  grid-row: span 2;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border-radius: var(--r-sm);
+  font-size: 10px;
 }
 .item-list .id {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  line-height: 1.3;
+  font-weight: var(--w-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .item-list .sub {
+  line-height: 1.3;
   color: var(--muted);
   font-size: var(--text-xs);
 }
@@ -1824,7 +1962,10 @@ progress.prog::-moz-progress-bar {
 }
 .app textarea.source {
   display: block;
-  min-height: 480px;
+  /* Grows with the file so a short YAML doesn't sit in a 480px void. */
+  field-sizing: content;
+  min-height: 240px;
+  max-height: 72vh;
   padding: var(--s-4);
   border: 0;
   border-radius: 0;
@@ -1943,9 +2084,6 @@ progress.prog::-moz-progress-bar {
 }
 @container app (max-width: 640px) {
   .app {
-    --control-h: 40px;
-  }
-  .app {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: var(--topbar-h) auto;
   }
@@ -2021,15 +2159,15 @@ progress.prog::-moz-progress-bar {
     clip-path: inset(50%);
   }
   .table-wrap.runs tr {
-    display: grid;
-    grid-template-columns: auto auto auto auto minmax(0, 1fr) auto;
-    column-gap: 8px;
-    row-gap: 2px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
     padding: 12px 0;
     border-top: var(--bw) solid var(--rule);
   }
   .table-wrap.runs tbody tr:first-child {
-    border-top-color: var(--line);
+    border-top: 0;
   }
   .table-wrap.runs td {
     display: block;
@@ -2041,63 +2179,54 @@ progress.prog::-moz-progress-bar {
     max-width: none;
   }
   .table-wrap.runs td:nth-child(1) {
-    grid-row: 1;
-    grid-column: 1 / 6;
-  }
-  .table-wrap.runs td:nth-child(10) {
-    grid-row: 1;
-    grid-column: 6;
-  }
-  .table-wrap.runs td:nth-child(2) {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    margin: 4px 0;
-  }
-  .table-wrap.runs td:nth-child(3) {
-    grid-row: 3;
-    grid-column: 1 / -1;
-  }
-  .table-wrap.runs td:nth-child(4) {
-    grid-row: 4;
-    grid-column: 1 / -1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .table-wrap.runs td:nth-child(7) {
-    grid-row: 5;
-    grid-column: 1 / -1;
-    color: var(--muted);
-  }
-  .table-wrap.runs td:nth-child(5) {
-    grid-row: 6;
-    grid-column: 1;
-  }
-  .table-wrap.runs td:nth-child(6) {
-    grid-row: 6;
-    grid-column: 2;
-  }
-  .table-wrap.runs td:nth-child(8) {
-    grid-row: 6;
-    grid-column: 3;
+    flex: 1 1 calc(100% - 96px);
+    min-width: 0;
   }
   .table-wrap.runs td:nth-child(9) {
-    grid-row: 6;
-    grid-column: 4;
+    order: 1;
+    margin-left: auto;
+    align-self: flex-start;
   }
-  .table-wrap.runs td:nth-child(n + 5):nth-child(-n + 9):not(:nth-child(7)) {
+  .table-wrap.runs td:nth-child(2) {
+    order: 2;
+  }
+  .table-wrap.runs td:nth-child(3) {
+    order: 3;
+    min-width: 0;
+  }
+  .table-wrap.runs td:nth-child(6) {
+    order: 4;
+    flex-basis: 100%;
+    color: var(--muted);
+  }
+  .table-wrap.runs td:nth-child(4) {
+    order: 5;
+  }
+  .table-wrap.runs td:nth-child(5) {
+    order: 6;
+  }
+  .table-wrap.runs td:nth-child(7) {
+    order: 7;
+  }
+  .table-wrap.runs td:nth-child(8) {
+    order: 8;
+  }
+  .table-wrap.runs td:nth-child(n + 4):nth-child(-n + 8):not(:nth-child(6)) {
     color: var(--muted);
     font-size: var(--text-xs);
     text-align: left;
   }
-  .table-wrap.runs td:nth-child(6)::before,
-  .table-wrap.runs td:nth-child(8)::before,
-  .table-wrap.runs td:nth-child(9)::before {
+  .table-wrap.runs td:nth-child(5)::before,
+  .table-wrap.runs td:nth-child(7)::before,
+  .table-wrap.runs td:nth-child(8)::before {
     content: '·';
-    margin-right: 6px;
+    margin-right: 8px;
   }
-  .table-wrap.runs td:nth-child(10) {
-    padding-left: 8px;
+  .table-wrap.runs.boxed {
+    padding: 0 var(--s-4);
+  }
+  .table-wrap.runs.boxed td {
+    padding: 0;
   }
   .app .tabs a {
     height: 44px;
@@ -2122,15 +2251,18 @@ progress.prog::-moz-progress-bar {
     font-size: 24px;
     line-height: 30px;
   }
-  .app button,
-  .app .button {
-    min-height: 40px;
+  /* Touch: sm and md step up one size; lg and xl already clear the target. */
+  .app :is(button, .button, input, select, textarea):not(.sm, .lg, .xl, .link) {
+    --ctl-h: 44px;
+    --ctl-px: 18px;
+    --ctl-r: 12px;
+    --ctl-fs: 15px;
   }
-  .app button.link {
-    min-height: 0;
-  }
-  .app .timeline button {
-    height: 44px;
+  .app :is(button, .button, input, select, textarea).sm {
+    --ctl-h: 36px;
+    --ctl-px: 12px;
+    --ctl-r: var(--r-md);
+    --ctl-fs: var(--text-md);
   }
   .form-grid,
   .form-grid.cols-4 {
@@ -2318,7 +2450,7 @@ body {
   align-self: end;
 }
 .app textarea.source.short {
-  min-height: 400px;
+  min-height: 200px;
 }
 .app .brand .stop {
   color: var(--brand);
@@ -2343,35 +2475,38 @@ body {
 .logo .dot {
   fill: var(--brand);
 }
+/* 1440 window: 1440 - 220 side - 8 inset - 48 padding - 2 border = 1162px; the run column takes the rest. */
 .table-wrap.runs table {
-  min-width: 1240px;
-}
-.table-wrap.runs col:nth-child(1) {
-  width: 224px;
+  min-width: 1040px;
 }
 .table-wrap.runs col:nth-child(2) {
-  width: 180px;
-}
-.table-wrap.runs col:nth-child(3) {
   width: 150px;
 }
+.table-wrap.runs col:nth-child(3) {
+  width: 160px;
+}
+.table-wrap.runs col:nth-child(4) {
+  width: 124px;
+}
 .table-wrap.runs col:nth-child(5) {
-  width: 128px;
+  width: 68px;
 }
 .table-wrap.runs col:nth-child(6) {
-  width: 64px;
+  width: 190px;
 }
 .table-wrap.runs col:nth-child(7) {
-  width: 180px;
+  width: 68px;
 }
 .table-wrap.runs col:nth-child(8) {
-  width: 56px;
+  width: 84px;
 }
 .table-wrap.runs col:nth-child(9) {
-  width: 72px;
+  width: 84px;
 }
-.table-wrap.runs col:nth-child(10) {
-  width: 64px;
+@container app (max-width: 640px) {
+  .table-wrap.runs table {
+    min-width: 0;
+  }
 }
 .editor .metered-body {
   display: grid;

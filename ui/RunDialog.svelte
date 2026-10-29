@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { api, usd, type Models, type ProjectDefaults } from './api.ts';
   import { navigate } from './nav.ts';
   import ModelPicker from './ModelPicker.svelte';
@@ -276,7 +277,7 @@
       {#if untested && !allowUntested}<p class="notice warn">Allow the untested model to start.</p>{/if}
       <button type="button" onclick={() => dialog.close()}>Close</button>
       <button type="submit" class="primary" disabled={!preview || submitting || (untested && !allowUntested)} aria-busy={submitting}>
-        Start {runCount} run{runCount === 1 ? '' : 's'}
+        <Icon name="play" />Start {runCount} run{runCount === 1 ? '' : 's'}
       </button>
     </footer>
   </form>

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, badge, isActive, statusLabel, usd, type RunSummary } from './api.ts';
+  import Icon from './Icon.svelte';
+  import { api, badge, initials, isActive, statusLabel, tint, usd, type RunSummary } from './api.ts';
 
   let { filter }: { filter: string } = $props();
   let runs = $state<RunSummary[]>([]);
@@ -54,13 +55,6 @@
     ['finished', 'Finished'],
   ];
 
-  const initials = (id: string): string =>
-    id
-      .split(/[-_\s]+/u)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? '')
-      .join('');
-  const tint = (id: string): string => `p${[...id].reduce((hash, char) => hash + char.charCodeAt(0), 0) % 5}`;
   const seconds = (ms: number | null): string => (ms === null ? '—' : `${(ms / 1000).toFixed(1)} s`);
   const started = (at: string | null): string => {
     if (!at) return '—';
@@ -83,6 +77,7 @@
 {/if}
 {#if loaded && runs.length === 0 && !error}
   <div class="empty">
+    <Icon name="play" size={24} />
     <strong>No runs yet.</strong>
     <p>Start one with <strong>New run</strong>.</p>
   </div>
@@ -113,13 +108,13 @@
       </li>
     {/each}
   </ul>
-  <div class="toolbar"><span>Newest first</span><span>{runs.length} loaded · <span class="mono">{usd(sum(runs))}</span></span></div>
-  <div class="table-wrap runs">
+  <div class="toolbar"><span>Newest first</span><span class="tab">{runs.length} loaded · {usd(sum(runs))}</span></div>
+  <div class="table-wrap runs boxed">
     <table class="runs fixed">
-      <colgroup>{#each { length: 10 } as _, index (index)}<col />{/each}</colgroup>
+      <colgroup>{#each { length: 9 } as _, index (index)}<col />{/each}</colgroup>
       <thead>
         <tr>
-          <th scope="col">Run</th><th scope="col">Status</th><th scope="col">Persona</th><th scope="col">Goal</th>
+          <th scope="col">Run and goal</th><th scope="col">Status</th><th scope="col">Persona</th>
           <th scope="col">Started</th><th scope="col">Mode</th><th scope="col">Model</th>
           <th scope="col" class="num">Repeat</th><th scope="col" class="num">Duration</th><th scope="col" class="num">Cost</th>
         </tr>
@@ -127,7 +122,10 @@
       <tbody>
         {#each shown as run (run.id)}
           <tr>
-            <td><a class="rid" href="/runs/{encodeURIComponent(run.id)}">{run.id}</a></td>
+            <td class="clip">
+              <a class="rid" href="/runs/{encodeURIComponent(run.id)}">{run.id}</a>
+              <span class="goal" title={run.goal}>{run.goal}</span>
+            </td>
             <td>
               <span class="st">
                 <span class="badge {badge(run.status, run.outcome, run.interruptedBy)}">{statusLabel(run)}</span>
@@ -137,8 +135,7 @@
             <td class="clip">
               <span class="who"><span class="av {tint(run.personaId)}" aria-hidden="true">{initials(run.personaId)}</span><span class="nm">{run.personaId}</span></span>
             </td>
-            <td class="clip muted" title={run.goal}>{run.goal}</td>
-            <td class="mono muted">{started(run.startedAt)}</td>
+            <td class="muted tab">{started(run.startedAt)}</td>
             <td class="muted">{run.mode}</td>
             <td class="clip" title="{run.provider}/{run.model} · {run.effort}">
               {run.provider}/{run.model} · {run.effort}
@@ -154,6 +151,6 @@
   </div>
   <div class="toolbar">
     <span>Showing {shown.length} runs</span>
-    {#if cursor}<button type="button" onclick={() => load(true)}>Load more</button>{/if}
+    {#if cursor}<button type="button" onclick={() => load(true)}><Icon name="chevronDown" />Load more</button>{/if}
   </div>
 {/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, usd, type Models } from './api.ts';
+  import Icon from './Icon.svelte';
+  import { api, initials, tint, usd, type Models } from './api.ts';
   import { navigate } from './nav.ts';
   import Editor from './Editor.svelte';
   import ModelPicker from './ModelPicker.svelte';
@@ -101,13 +102,13 @@ Describe who this person is and how they behave.
 
 {#if id === 'new'}
   <div class="head-stack">
-    <a class="back" href="/personas">← Personas</a>
+    <a class="back" href="/personas"><Icon name="back" />Personas</a>
     <div class="page-head"><div class="title"><h1>New persona</h1></div></div>
   </div>
 {:else}
   <div class="page-head">
     <div class="title"><h1>Personas</h1></div>
-    <div class="actions"><a class="button" href="/personas/new">New persona</a></div>
+    <div class="actions"><a class="button" href="/personas/new"><Icon name="plus" />New persona</a></div>
     <p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <span class="mono">.cohort/personas/</span>, each a Markdown file with YAML frontmatter.</p>
   </div>
 {/if}
@@ -129,7 +130,7 @@ Describe who this person is and how they behave.
       <textarea id="draft-source" class="source short" spellcheck="false" bind:value={draft}></textarea>
       <div class="editor-foot">
         <span>New personas cannot reference setup code; add one by editing the file locally.</span>
-        <button type="submit" class="primary small">Validate and create</button>
+        <button type="submit" class="primary sm"><Icon name="check" />Validate and create</button>
       </div>
     </form>
     <form class="metered" onsubmit={generate} aria-labelledby="generate-title" aria-busy={generating}>
@@ -154,7 +155,7 @@ Describe who this person is and how they behave.
           </label>
         {/if}
         <div class="form-actions">
-          <button type="submit" disabled={generating} aria-busy={generating}>{generating ? 'Generating…' : 'Generate preview'}</button>
+          <button type="submit" disabled={generating} aria-busy={generating}><Icon name="sparkle" />{generating ? 'Generating…' : 'Generate preview'}</button>
         </div>
       </div>
     </form>
@@ -166,6 +167,7 @@ Describe who this person is and how they behave.
         {#each personas as persona (persona.id)}
           <li>
             <a href="/personas/{encodeURIComponent(persona.id)}" aria-current={persona.id === id ? 'page' : undefined}>
+              <span class="av {tint(persona.id)}" aria-hidden="true">{initials(persona.id)}</span>
               <span class="id">{persona.name ?? persona.id}</span>
               <span class="sub">
                 {persona.tags.join(' · ')}
@@ -181,7 +183,7 @@ Describe who this person is and how they behave.
       {#if id}
         <Editor kind="personas" {id} onsaved={list} />
       {:else}
-        <div class="empty"><p>Select a persona to edit it.</p></div>
+        <div class="empty"><Icon name="persona" size={24} /><p>Select a persona to edit it.</p></div>
       {/if}
     </div>
   </div>

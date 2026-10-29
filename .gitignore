@@ -7,6 +7,8 @@ coverage/
 .tanstack/
 .turbo/
 .vite/
+.examples/
+.lab/
 test-results/
 playwright-report/
 *.tsbuildinfo

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { stringify } from 'yaml';
   import { api, ApiError, type Editable } from './api.ts';
   import { personaMarkdown } from './source.ts';
@@ -80,7 +81,7 @@
             {#each suites as item (item.id)}<option value={item.id}>{item.name ?? item.id}</option>{/each}
           </select>
         </label>
-        <div class="form-actions end"><button type="button" onclick={preview}>Preview entry</button></div>
+        <div class="form-actions end"><button type="button" onclick={preview}><Icon name="eye" />Preview entry</button></div>
       </div>
       {#if suite}
         <p>Appends this entry to <code>.cohort/suites/{suite.id}.yml</code>:</p>
@@ -90,7 +91,7 @@
           <pre class="diff">{#each persona.trimEnd().split('\n') as line, index (index)}<span class="add">+ {line}</span>{/each}</pre>
         {/if}
         <div class="form-actions">
-          <button type="button" class="primary" onclick={save}>Save</button>
+          <button type="button" class="primary" onclick={save}><Icon name="plus" />Save</button>
           <span class="notice">Appends one entry. Existing entries are unchanged.</span>
         </div>
       {/if}

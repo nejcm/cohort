@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { api, ApiError, type Editable, type Models, type ProjectDefaults } from './api.ts';
   import ModelPicker from './ModelPicker.svelte';
   import { readAt, setAt } from './source.ts';
@@ -92,8 +93,8 @@
   <div class="editor-head">
     <h2 id="editor-title">{file}{#if dirty}{" "}<span class="unsaved">(unsaved)</span>{/if}</h2>
     <div class="actions">
-      <button type="button" onclick={load} disabled={!dirty}>Revert</button>
-      <button type="submit" class="primary" disabled={saving || !dirty} aria-busy={saving}>Validate and save</button>
+      <button type="button" onclick={load} disabled={!dirty}><Icon name="undo" />Revert</button>
+      <button type="submit" class="primary" disabled={saving || !dirty} aria-busy={saving}><Icon name="check" />Validate and save</button>
     </div>
   </div>
   {#if conflict}
@@ -102,7 +103,7 @@
         <strong>Changed on disk.</strong>
         <span>{file} changed on disk since you opened it. Your edits are still here; nothing was overwritten.</span>
       </div>
-      <div class="actions"><button type="button" class="small danger" onclick={load}>Reload from disk (discard my edits)</button></div>
+      <div class="actions"><button type="button" class="sm danger" onclick={load}><Icon name="reload" />Reload from disk (discard my edits)</button></div>
     </div>
   {:else if error}
     <div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>

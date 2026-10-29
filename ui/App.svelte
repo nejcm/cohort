@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { bootstrapToken } from './api.ts';
   import Logo from './Logo.svelte';
   import Personas from './Personas.svelte';
@@ -80,17 +81,17 @@
         <ul>
           <li>
             <a href="/runs" aria-current={section === 'runs' ? 'page' : undefined}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 3.5l7 4.5-7 4.5z" stroke-linejoin="round" /></svg>Runs
+              <Icon name="play" />Runs
             </a>
           </li>
           <li>
             <a href="/personas" aria-current={section === 'personas' ? 'page' : undefined}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.5 2.7-3.5 5-3.5s4.2 1 5 3.5" stroke-linecap="round" /></svg>Personas
+              <Icon name="persona" />Personas
             </a>
           </li>
           <li>
             <a href="/suites" aria-current={section === 'suites' ? 'page' : undefined}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1" /><rect x="2.5" y="9" width="11" height="3" rx="1" /></svg>Suites
+              <Icon name="suites" />Suites
             </a>
           </li>
         </ul>
@@ -99,7 +100,7 @@
     </aside>
     <div class="top">
       <button class="menu" type="button" aria-label="Open navigation" aria-expanded={navOpen} onclick={() => (navOpen = !navOpen)}>
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 5h12M3 9h12M3 13h12" stroke-linecap="round" /></svg>
+        <Icon name="menu" size={18} />
       </button>
       <span class="crumb">
         <span class="host mono">{location.host}</span><span class="sep" aria-hidden="true">/</span>
@@ -110,7 +111,7 @@
         {/if}
       </span>
       <div class="top-actions">
-        <button type="button" class="primary small" onclick={() => dialog?.open()}>New run</button>
+        <button type="button" class="primary sm" onclick={() => dialog?.open()}><Icon name="plus" />New run</button>
       </div>
     </div>
     <main>

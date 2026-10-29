@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import {
     api,
     artifactPath,
@@ -215,7 +216,7 @@
 </script>
 
 <div class="head-stack">
-  <a class="back" href="/runs">← Runs</a>
+  <a class="back" href="/runs"><Icon name="back" />Runs</a>
   {#if run}
     <div class="page-head">
       <div class="title">
@@ -224,7 +225,7 @@
         {#if isActive(run.status)}<span class="live">Live</span>{/if}
       </div>
       {#if isActive(run.status)}
-        <div class="actions"><button type="button" class="danger" onclick={cancel}>Cancel run</button></div>
+        <div class="actions"><button type="button" class="danger" onclick={cancel}><Icon name="stop" />Cancel run</button></div>
       {/if}
     </div>
   {/if}
@@ -238,13 +239,13 @@
     <dt>Goal</dt><dd>{run.goal}</dd>
     <dt>Model</dt>
     <dd>
-      <span class="mono">{run.provider}/{run.model} · {run.effort} · {run.mode}</span>
+      <span>{run.provider}/{run.model} · {run.effort} · {run.mode}</span>
       {#if run.untested}<span class="badge untested">untested</span>{/if}
       {#if report?.returnedModel && report.returnedModel !== run.model}<span class="hint">(returned {report.returnedModel})</span>{/if}
     </dd>
-    <dt>Batch</dt><dd><span class="mono">{run.batchId}</span> · repeat <span class="mono">#{run.repeat + 1}</span></dd>
+    <dt>Batch</dt><dd><span class="mono">{run.batchId}</span> · repeat #{run.repeat + 1}</dd>
     <dt>Limits</dt>
-    <dd class={resolved ? 'mono' : 'muted'}>
+    <dd class={resolved ? 'tab' : 'muted'}>
       {resolved
         ? `${resolved.request.limits.steps} steps · ${resolved.request.limits.timeMs / 1000} s · ${usd(resolved.request.limits.dollars)}`
         : 'shown when the run finishes'}
@@ -270,7 +271,7 @@
           <ol class="timeline" role="toolbar" aria-label="Screenshots; use the arrow keys" tabindex="-1" onkeydown={onTimelineKey}>
             {#each shots as shot, index (shot)}
               <li>
-                <button type="button" id="shot-{shot}" aria-label={shot} aria-pressed={current === shot} onclick={() => (selected = shot)}>
+                <button type="button" class="lg" id="shot-{shot}" aria-label={shot} aria-pressed={current === shot} onclick={() => (selected = shot)}>
                   <span class="n">{String(index + 1).padStart(2, '0')}</span>{shot}
                 </button>
               </li>
@@ -359,7 +360,7 @@
             <span class="label">Report</span>
             <div class="row">
               {#each REPORTS.filter(([name]) => has(name)) as [name, label] (name)}
-                <button type="button" aria-label="Report ({label})" onclick={() => save(name)}>{label}</button>
+                <button type="button" aria-label="Report ({label})" onclick={() => save(name)}><Icon name="download" />{label}</button>
               {/each}
             </div>
           </div>
@@ -367,17 +368,17 @@
         {#if has('replay.spec.ts')}
           <div class="dl-group">
             <span class="label">Replay script</span>
-            <div class="row"><button type="button" onclick={() => save('replay.spec.ts')}><span class="mono">replay.spec.ts</span></button></div>
+            <div class="row"><button type="button" onclick={() => save('replay.spec.ts')}><Icon name="code" /><span class="mono">replay.spec.ts</span></button></div>
           </div>
         {/if}
         {#if has('trace.zip')}
           <div class="private-zone" role="note" aria-labelledby="trace-title">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="9" width="12" height="8.5" rx="2" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
+            <Icon name="lock" size={20} />
             <div class="body">
               <strong id="trace-title">Trace <span class="badge private">private</span></strong>
               <p>The trace is private raw evidence that may contain secrets; never share or upload it.</p>
             </div>
-            <button type="button" class="danger" aria-label="Trace (private)" onclick={() => save('trace.zip')}>Download trace</button>
+            <button type="button" class="danger" aria-label="Trace (private)" onclick={() => save('trace.zip')}><Icon name="download" />Download trace</button>
           </div>
         {/if}
       </div>

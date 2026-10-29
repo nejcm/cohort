@@ -128,6 +128,16 @@ export const usd = (value: number | null | undefined): string =>
     ? 'unknown'
     : `$${value < 0.01 && value > 0 ? value.toFixed(4) : value.toFixed(2)}`;
 
+export const initials = (id: string): string =>
+  id
+    .split(/[-_,\s]+/u)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]!.toUpperCase())
+    .join('');
+/** A stable identity tint class (p0-p4) for a persona id. */
+export const tint = (id: string): string => `p${[...id].reduce((hash, char) => hash + char.charCodeAt(0), 0) % 5}`;
+
 export const isActive = (status: string): boolean => status === 'queued' || status === 'running';
 
 const BADGES: Record<string, string> = {

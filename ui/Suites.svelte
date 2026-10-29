@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { api } from './api.ts';
   import Editor from './Editor.svelte';
 
@@ -42,7 +43,7 @@
     {#if id}
       <Editor kind="suites" {id} onsaved={list} />
     {:else}
-      <div class="empty"><p>Select a suite to edit it.</p></div>
+      <div class="empty"><Icon name="suites" size={24} /><p>Select a suite to edit it.</p></div>
     {/if}
   </div>
 </div>
