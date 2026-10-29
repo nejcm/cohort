@@ -322,6 +322,17 @@ async function finalizeBatch(projectRoot: string, db: LabDb, batchId: string): P
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await writeBatchReports(dir, buildBatchReport(batchId, reports, rows.length - reports.length));
   }
+  // Comparison claims are added to the bundles after their runs finished, so recount from the final reports.
+  for (const row of db.batchRuns(batchId)) {
+    if (row.status !== 'finished') continue;
+    const report = await readBundleJson<RunReport>(join(projectRoot, relativeDir(row.id)), 'report.json').catch(
+      () => null,
+    );
+    if (report) {
+      const { friction_count, opinion_count } = reportColumns(report);
+      db.updateRun(row.id, { friction_count, opinion_count });
+    }
+  }
   db.finishBatch(batchId);
 }
 
@@ -454,16 +465,22 @@ async function writeRecovered(dir: string, row: RunRow, report: RunReport, steps
   });
 }
 
-// Adds finalized run bundles on disk (for example from `cohort run`) that the index does not know yet.
+// Adds finalized run bundles on disk (for example from `cohort run`) that the index does not know yet, and fills claim counts indexed before they existed.
 async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
   let added = 0;
   const names = await readdir(join(projectRoot, '.cohort', 'runs')).catch(() => []);
   for (const name of names.filter((candidate) => candidate.startsWith('run_')).toSorted()) {
-    if (db.hasRun(name)) continue;
+    const known = db.run(name);
+    if (known && (known.friction_count !== null || !known.report_path)) continue;
     try {
       const { dir } = await bundleDir(projectRoot, name);
       const report = await readBundleJson<RunReport>(dir, 'report.json');
       if (report.runId !== name) continue;
+      if (known) {
+        const { friction_count, opinion_count } = reportColumns(report);
+        db.updateRun(name, { friction_count, opinion_count });
+        continue;
+      }
       const resolvedText = await readBundleFile(dir, 'resolved-config.json');
       const resolved = resolvedText ? (JSON.parse(resolvedText) as ResolvedConfigFile) : null;
       const manifest = await readBundleJson<RunManifest>(dir, 'manifest.json').catch(() => null);

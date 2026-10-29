@@ -54,6 +54,8 @@ const MIGRATIONS = [
   ALTER TABLE batches ADD COLUMN finished_at TEXT;
   ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;`,
   `ALTER TABLE batches ADD COLUMN owner_start TEXT;`,
+  `ALTER TABLE runs ADD COLUMN friction_count INTEGER;
+  ALTER TABLE runs ADD COLUMN opinion_count INTEGER;`,
 ];
 
 export type RunStatus = 'queued' | 'running' | 'finished' | 'cancelled' | 'interrupted';
@@ -90,6 +92,9 @@ export interface RunRow {
   report_path: string | null;
   config_hash: string;
   cancel_requested_at?: string | null;
+  /** Harness-measured friction claims and agent opinions; null until the report is read. */
+  friction_count?: number | null;
+  opinion_count?: number | null;
 }
 
 export interface BatchRow {
@@ -109,6 +114,22 @@ export interface RunEvent {
   payload: Record<string, unknown>;
 }
 
+export interface Journey {
+  personaId: string;
+  goal: string;
+  lastAt: string;
+  /** Every finished run of this journey; the other figures cover only the latest window. */
+  total: number;
+  models: number;
+  completed: number;
+  /** The completion denominator: blocked runs and user cancellations are left out, as in the batch report. */
+  counted: number;
+  blocked: number;
+  /** Harness claims; null when no run in the window has been counted yet. */
+  friction: number | null;
+  latest: { id: string; outcome: string; interruptedBy: string | null }[];
+}
+
 const now = (): string => new Date().toISOString();
 
 /** Sort keys never NULL, so `(key, id)` row-value comparisons page correctly. */
@@ -123,10 +144,13 @@ export const RUN_SORTS = {
   repeat: 'repeat_index',
   duration: 'COALESCE(duration_ms, -1)',
   cost: 'COALESCE(estimated_cost_usd, -1)',
+  friction: 'COALESCE(friction_count, -1)',
 } as const;
 
 const ACTIVE = "status IN ('queued', 'running')";
 const LOOK = "(status = 'finished' AND outcome_state IN ('blocked', 'limit_reached', 'agent_error'))";
+const COUNTED =
+  "outcome_state != 'blocked' AND NOT (outcome_state = 'agent_error' AND outcome_code = 'interrupted' AND COALESCE(interrupted_by, '') != 'process')";
 export const RUN_FILTERS = { active: ACTIVE, look: LOOK, finished: `NOT ${ACTIVE}` } as const;
 
 export interface RunQuery {
@@ -147,6 +171,7 @@ export type RunCounts = Record<
   | 'running'
   | 'queued'
   | 'finishedToday'
+  | 'frictionToday'
   | 'spentToday',
   number
 >;
@@ -175,6 +200,8 @@ export function reportColumns(report: RunReport): Partial<RunRow> {
       outcome.state === 'agent_error' ? outcome.code : outcome.state === 'limit_reached' ? outcome.limit : null,
     interrupted_by: outcome.state === 'agent_error' ? (outcome.interruptedBy ?? null) : null,
     steps: report.steps,
+    friction_count: report.friction.filter((claim) => claim.source === 'harness').length,
+    opinion_count: report.friction.filter((claim) => claim.source === 'agent').length,
     duration_ms: report.durationMs,
     estimated_cost_usd: usage.providerReportedCostUsd ?? usage.estimatedCostUsd,
     cap_enforcement: usage.capEnforcement,
@@ -289,10 +316,6 @@ export class LabDb {
     return (this.db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined) ?? null;
   }
 
-  hasRun(id: string): boolean {
-    return this.db.prepare('SELECT 1 FROM runs WHERE id = ?').get(id) !== undefined;
-  }
-
   batch(id: string): BatchRow | null {
     return (this.db.prepare('SELECT * FROM batches WHERE id = ?').get(id) as BatchRow | undefined) ?? null;
   }
@@ -327,10 +350,44 @@ export class LabDb {
         SELECT TOTAL(hit) AS "all", TOTAL(hit AND ${ACTIVE}) AS active, TOTAL(hit AND ${LOOK}) AS look,
           TOTAL(hit AND NOT ${ACTIVE}) AS finished, COUNT(*) AS total, TOTAL(${LOOK}) AS lookTotal,
           TOTAL(status = 'running') AS running, TOTAL(status = 'queued') AS queued,
-          TOTAL(created_at >= ? AND NOT ${ACTIVE}) AS finishedToday, TOTAL(IIF(created_at >= ?, estimated_cost_usd, 0)) AS spentToday
+          TOTAL(COALESCE(finished_at, created_at) >= ? AND NOT ${ACTIVE}) AS finishedToday,
+          TOTAL(IIF(COALESCE(finished_at, created_at) >= ?, friction_count, 0)) AS frictionToday,
+          TOTAL(IIF(COALESCE(finished_at, created_at) >= ?, estimated_cost_usd, 0)) AS spentToday
         FROM matched`,
       )
-      .get(...(text ? [text] : []), since, since) as unknown as RunCounts;
+      .get(...(text ? [text] : []), since, since, since) as unknown as RunCounts;
+  }
+
+  /** Finished runs grouped by persona and goal, over each journey's latest `window` runs, worst completion first. */
+  journeys(window: number): Journey[] {
+    const rows = this.db
+      .prepare(
+        `WITH recent AS (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY persona_id, goal ORDER BY created_at DESC, id DESC) AS n
+          FROM runs WHERE outcome_state IS NOT NULL)
+        SELECT persona_id AS personaId, goal, MAX(created_at) AS lastAt,
+          (SELECT COUNT(*) FROM runs r WHERE r.persona_id = recent.persona_id AND r.goal = recent.goal AND r.outcome_state IS NOT NULL) AS total,
+          COUNT(DISTINCT provider || '/' || model) AS models,
+          TOTAL(outcome_state = 'completed') AS completed,
+          TOTAL(${COUNTED}) AS counted,
+          TOTAL(outcome_state = 'blocked') AS blocked,
+          SUM(friction_count) AS friction,
+          json_group_array(json_array(id, outcome_state, interrupted_by) ORDER BY n DESC) AS latest
+        FROM recent WHERE n <= ? GROUP BY persona_id, goal`,
+      )
+      .all(window) as unknown as (Omit<Journey, 'latest'> & { latest: string })[];
+    const rate = (journey: Omit<Journey, 'latest'>): number =>
+      journey.counted === 0 ? 2 : journey.completed / journey.counted;
+    return rows
+      .map((row) => ({
+        ...row,
+        latest: (JSON.parse(row.latest) as [string, string, string | null][]).map(([id, outcome, interruptedBy]) => ({
+          id,
+          outcome,
+          interruptedBy,
+        })),
+      }))
+      .toSorted((a, b) => rate(a) - rate(b) || b.lastAt.localeCompare(a.lastAt));
   }
 
   runsWithStatus(...statuses: RunStatus[]): RunRow[] {

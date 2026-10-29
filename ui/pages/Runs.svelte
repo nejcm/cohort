@@ -2,12 +2,12 @@
   import { untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import Skeleton from '../components/Skeleton.svelte';
-  import { api, badge, initials, statusLabel, tint, usd, type RunSummary } from '../lib/api.ts';
+  import { api, badge, initials, statusLabel, tint, tone, usd, words, type Journey, type RunSummary } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
 
   let { params }: { params: URLSearchParams } = $props();
   let runs = $state<RunSummary[]>([]);
-  let counts = $state<Record<'all' | 'active' | 'look' | 'finished' | 'total' | 'lookTotal' | 'running' | 'queued' | 'finishedToday' | 'spentToday', number> | null>(null);
+  let counts = $state<Record<'all' | 'active' | 'look' | 'finished' | 'total' | 'lookTotal' | 'running' | 'queued' | 'finishedToday' | 'frictionToday' | 'spentToday', number> | null>(null);
   let cursor = $state<string | null>(null);
   let error = $state('');
   let loaded = $state(false);
@@ -15,15 +15,20 @@
   let latest = 0;
   let busy = $state(false);
   let changed = $state(new Set<string>());
+  let journeys = $state<Journey[]>([]);
+  let span = $state(10);
+  let allJourneys = $state(false);
+  const JOURNEY_ROWS = 6;
+  const worst = $derived(journeys.find((journey) => journey.counted > 0 && journey.completed < journey.counted));
+  const rate = (journey: Journey): string =>
+    journey.counted === 0 ? '—' : `${Math.round((journey.completed / journey.counted) * 100)}%`;
 
   const COLUMNS: [string, string, string?][] = [
-    ['id', 'Run and goal'],
-    ['status', 'Status'],
-    ['persona', 'Persona'],
+    ['persona', 'Persona and goal'],
+    ['status', 'Outcome'],
+    ['friction', 'Friction', 'num'],
     ['started', 'Started'],
-    ['mode', 'Mode'],
     ['model', 'Model'],
-    ['repeat', 'Repeat', 'num'],
     ['duration', 'Duration', 'num'],
     ['cost', 'Cost', 'num'],
   ];
@@ -73,6 +78,12 @@
       } while (next && list.length < keep);
       const before = new Map(runs.map((run) => [run.id, statusLabel(run)]));
       changed = new Set(list.filter((run) => before.has(run.id) && before.get(run.id) !== statusLabel(run)).map((run) => run.id));
+      if (!more) {
+        const found = await api<{ window: number; journeys: Journey[] }>('GET', '/api/journeys');
+        if (ticket !== latest) return;
+        journeys = found.journeys;
+        span = found.window;
+      }
       runs = list;
       counts = page.counts;
       cursor = next;
@@ -99,8 +110,13 @@
   $effect(() => {
     void load(false, 0);
     // shortcut: refetches every loaded page every 3 s while runs are active or the last load failed; subscribe to a list event stream if that gets heavy.
+    // A batch recounts comparison claims just after its last run ends, so keep polling a few ticks past that.
+    let tail = 0;
     const timer = setInterval(() => {
-      if ((error || (counts && counts.running + counts.queued > 0)) && !busy) void load();
+      if (counts && counts.running + counts.queued > 0) tail = 3;
+      else if (tail > 0) tail -= 1;
+      else if (!error) return;
+      if (!busy) void load();
     }, 3000);
     return () => clearInterval(timer);
   });
@@ -133,7 +149,20 @@
 
 <div class="page-head">
   <div class="title"><h1>Runs</h1></div>
-  {#if counts}<p class="sub">{counts.running} running, {counts.queued} queued.</p>{/if}
+  {#if counts && counts.total > 0}
+    <p class="sub">
+      {#if counts.running + counts.queued > 0}{counts.running} running, {counts.queued} queued.{/if}
+      {#if worst}
+        <strong>{worst.personaId}</strong> completed {worst.completed} of {worst.counted} recent runs of “{worst.goal}”
+      {:else if journeys.length > 0 && journeys.every((journey) => journey.counted > 0)}
+        Every journey completed its recent runs.
+      {:else if journeys.some((journey) => journey.counted === 0)}
+        {@const stuck = journeys.find((journey) => journey.counted === 0)!}
+        <strong>{stuck.personaId}</strong> was blocked or cancelled on every recent run of “{stuck.goal}”
+      {/if}
+    </p>
+    <p class="spend">Spent today <span class="fig">{usd(counts.spentToday)}</span>, reported or estimated</p>
+  {/if}
 </div>
 {#if error}
   <div class="banner error" role="alert">
@@ -149,21 +178,74 @@
 {:else if counts}
   <dl class="kpis" aria-label="Runs at a glance">
     <div>
-      <dt>Running</dt><dd>{counts.running}</dd>
-      <dd class="note">{counts.queued} queued behind them</dd>
+      <dt>Needs a look</dt><dd class:warn={counts.lookTotal > 0}>{#if counts.lookTotal > 0}<span class="tick" aria-hidden="true"></span>{/if}{counts.lookTotal}</dd>
+      <dd class="note">blocked, limit reached, failed</dd>
     </div>
     <div>
-      <dt>Needs a look</dt><dd class="warn"><span class="tick" aria-hidden="true"></span>{counts.lookTotal}</dd>
-      <dd class="note">blocked, limit reached, failed</dd>
+      <dt>Friction today</dt><dd>{counts.frictionToday}</dd>
+      <dd class="note">claims the harness measured</dd>
     </div>
     <div>
       <dt>Finished today</dt><dd>{counts.finishedToday}</dd>
       <dd class="note">of {counts.total} runs</dd>
     </div>
     <div>
-      <dt>Spent today</dt><dd>{usd(counts.spentToday)}</dd><dd class="note">provider-reported</dd>
+      <dt>Running</dt><dd>{counts.running}</dd>
+      <dd class="note">{counts.queued} queued behind them</dd>
     </div>
   </dl>
+  {#if journeys.length > 0}
+    <section class="section journeys" aria-labelledby="journeys-title">
+      <div class="section-head">
+        <h2 id="journeys-title">Journeys <span class="count">{journeys.length}</span></h2>
+        <span class="hint">Each persona and goal over its latest {span} runs, lowest completion first</span>
+      </div>
+      <div class="table-wrap boxed">
+        <table class="journeys">
+          <thead>
+            <tr>
+              <th scope="col">Persona and goal</th>
+              <th scope="col">Latest runs</th>
+              <th scope="col" class="num">Completed</th>
+              <th scope="col" class="num">Friction</th>
+              <th scope="col" class="num">Last run</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each allJourneys ? journeys : journeys.slice(0, JOURNEY_ROWS) as journey (journey.personaId + '\n' + journey.goal)}
+              <tr>
+                <td class="clip">
+                  <span class="who"><span class="av {tint(journey.personaId)}" aria-hidden="true">{initials(journey.personaId)}</span><span class="nm">{journey.personaId}</span></span>
+                  <span class="goal" title={journey.goal}>{journey.goal}</span>
+                </td>
+                <td>
+                  <ol class="marks" aria-label="Latest {journey.latest.length} runs, oldest first">
+                    {#each journey.latest as run (run.id)}
+                      <li><a class="mark {tone(run.outcome, run.interruptedBy)}" href="/runs/{encodeURIComponent(run.id)}" title="{run.id}: {words(run.outcome)}" aria-label="{run.id}: {words(run.outcome)}"></a></li>
+                    {/each}
+                  </ol>
+                </td>
+                <td class="num">
+                  <span class="fig rate">{rate(journey)}</span>
+                  <span class="of">{journey.completed} of {journey.counted}{journey.blocked ? `, ${journey.blocked} blocked` : ''}</span>
+                </td>
+                <td class="num" class:muted={!journey.friction}>{journey.friction ?? '—'}<span class="ph"> friction</span></td>
+                <td class="num muted">
+                  {started(journey.lastAt)}
+                  {#if journey.models > 1}<span class="of">{journey.models} models</span>{/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      {#if journeys.length > JOURNEY_ROWS}
+        <button type="button" class="link more" onclick={() => (allJourneys = !allJourneys)}>
+          {allJourneys ? 'Show fewer' : `Show all ${journeys.length} journeys`}
+        </button>
+      {/if}
+    </section>
+  {/if}
   <ul class="tabs" aria-label="Filter runs">
     {#each TABS as [key, label] (key)}
       <li>
@@ -181,7 +263,7 @@
     <span class="tab">{runs.length} loaded · {usd(sum(runs))}</span></div>
   <div class="table-wrap runs boxed">
     <table class="runs fixed">
-      <colgroup>{#each { length: 9 } as _, index (index)}<col />{/each}</colgroup>
+      <colgroup>{#each COLUMNS as [key] (key)}<col />{/each}</colgroup>
       <thead>
         <tr>
           {#each COLUMNS as [key, label, kind] (key)}
@@ -198,7 +280,7 @@
         {#each runs as run (run.id)}
           <tr class:changed={changed.has(run.id)}>
             <td class="clip">
-              <a class="rid" href="/runs/{encodeURIComponent(run.id)}">{run.id}</a>
+              <a class="rid who" href="/runs/{encodeURIComponent(run.id)}"><span class="av {tint(run.personaId)}" aria-hidden="true">{initials(run.personaId)}</span><span class="nm">{run.personaId}</span></a>
               <span class="goal" title={run.goal}>{run.goal}</span>
             </td>
             <td>
@@ -207,21 +289,20 @@
                 {#if run.status === 'running'}<em>{run.steps} steps</em>{/if}
               </span>
             </td>
-            <td class="clip">
-              <span class="who"><span class="av {tint(run.personaId)}" aria-hidden="true">{initials(run.personaId)}</span><span class="nm">{run.personaId}</span></span>
+            <td class="num" class:muted={!run.friction} title={run.opinions ? `plus ${run.opinions} agent opinion${run.opinions === 1 ? '' : 's'}` : undefined}>
+              {run.friction ?? '—'}<span class="ph"> friction</span>
             </td>
-            <td class="muted tab">{started(run.startedAt)}</td>
-            <td class="muted">{run.mode}</td>
-            <td class="clip" title="{run.provider}/{run.model} · {run.effort}">
-              {run.provider}/{run.model} · {run.effort}
+            <td class="muted tab clip">{started(run.startedAt)}<span class="goal mono">{run.id}</span></td>
+            <td class="clip muted" title="{run.provider}/{run.model} · {run.effort} · {run.mode} · repeat #{run.repeat + 1}">
+              {run.provider}/{run.model}
               {#if run.untested}<span class="badge untested">untested</span>{/if}
+              <span class="goal">{run.effort} · {run.mode} · #{run.repeat + 1}</span>
             </td>
-            <td class="num muted">#{run.repeat + 1}</td>
-            <td class="num">{seconds(run.durationMs)}</td>
-            <td class="num">{usd(run.costUsd)}</td>
+            <td class="num muted">{seconds(run.durationMs)}</td>
+            <td class="num muted">{usd(run.costUsd)}</td>
           </tr>
         {:else}
-          <tr><td colspan="9" class="muted">No runs match.</td></tr>
+          <tr><td colspan={COLUMNS.length} class="muted">No runs match.</td></tr>
         {/each}
       </tbody>
     </table>

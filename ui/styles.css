@@ -1747,14 +1747,31 @@ progress.prog::-moz-progress-bar {
 .card.tone-bad {
   border-color: var(--bad-line);
 }
-.outcome .state {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  flex-wrap: wrap;
+.outcome .meta strong {
+  color: var(--fg);
+  font-weight: var(--w-regular);
+}
+.findings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s-5);
+  align-items: start;
 }
 .outcome .reason {
-  font-size: var(--text-md);
+  font-size: var(--text-xl);
+  line-height: 1.35;
+}
+.claim-group + .claim-group {
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: var(--bw) solid var(--line);
+}
+.claim-group h3 {
+  margin: 0 0 var(--s-3);
+  color: var(--muted);
+}
+.setup dl.facts {
+  grid-template-columns: max-content minmax(0, 1fr);
 }
 .outcome .meta {
   color: var(--muted);
@@ -2215,8 +2232,8 @@ progress.prog::-moz-progress-bar {
   .detail-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .detail-grid > .summary {
-    order: -1;
+  .findings {
+    grid-template-columns: minmax(0, 1fr);
   }
   .app dl.facts {
     grid-template-columns: max-content minmax(0, 1fr);
@@ -2324,50 +2341,46 @@ progress.prog::-moz-progress-bar {
     background: none !important;
     max-width: none;
   }
+  /* Line 1: persona and goal, outcome at the right; line 2: friction, then the run's grey facts. */
   .table-wrap.runs td:nth-child(1) {
-    flex: 1 1 calc(100% - 96px);
+    flex: 1 1 calc(100% - 160px);
     min-width: 0;
   }
-  .table-wrap.runs td:nth-child(9) {
-    order: 1;
+  .table-wrap.runs td:nth-child(2) {
     margin-left: auto;
     align-self: flex-start;
   }
-  .table-wrap.runs td:nth-child(2) {
-    order: 2;
-  }
-  .table-wrap.runs td:nth-child(3) {
-    order: 3;
-    flex: 1 1 0;
-    min-width: 0;
-  }
-  .table-wrap.runs td:nth-child(6) {
-    order: 4;
-    flex-basis: 100%;
-    color: var(--muted);
-  }
-  .table-wrap.runs td:nth-child(4) {
-    order: 5;
-  }
-  .table-wrap.runs td:nth-child(5) {
-    order: 6;
-  }
-  .table-wrap.runs td:nth-child(7) {
-    order: 7;
-  }
-  .table-wrap.runs td:nth-child(8) {
-    order: 8;
-  }
-  .table-wrap.runs td:nth-child(n + 4):nth-child(-n + 8):not(:nth-child(6)) {
-    color: var(--muted);
+  .table-wrap.runs td:nth-child(n + 3) {
     font-size: var(--text-xs);
     text-align: left;
   }
-  .table-wrap.runs td:nth-child(5)::before,
-  .table-wrap.runs td:nth-child(7)::before,
-  .table-wrap.runs td:nth-child(8)::before {
+  .table-wrap.runs td:nth-child(3) {
+    flex-basis: 100%;
+    order: 1;
+  }
+  .table-wrap.runs td:nth-child(n + 4) {
+    order: 2;
+    color: var(--muted);
+  }
+  .table-wrap.runs td:nth-child(6) {
+    display: none;
+  }
+  .table-wrap.runs td:nth-child(n + 5)::before {
     content: '·';
     margin-right: 8px;
+  }
+  .table-wrap.runs td .goal {
+    display: none;
+  }
+  .table-wrap.runs td:first-child .goal {
+    display: block;
+    margin-left: 0;
+  }
+  .table-wrap.runs td.num .ph {
+    display: inline;
+  }
+  .journeys .marks {
+    flex-wrap: wrap;
   }
   .table-wrap.runs.boxed {
     padding: 0 var(--s-4);
@@ -2632,34 +2645,34 @@ body {
 }
 /* Fits a 1400 window (1400 - 220 side - 8 inset - 48 padding - 2 border = 1122px); narrower ones scroll under the sticky run column. */
 .table-wrap.runs table {
-  min-width: 1120px;
+  min-width: 1000px;
 }
 .table-wrap.runs col:nth-child(2) {
-  width: 136px;
+  width: 168px;
 }
 .table-wrap.runs col:nth-child(3) {
-  width: 200px;
-}
-.table-wrap.runs col:nth-child(4) {
-  width: 124px;
-}
-.table-wrap.runs col:nth-child(5) {
-  width: 64px;
-}
-.table-wrap.runs col:nth-child(6) {
-  width: 190px;
-}
-.table-wrap.runs col:nth-child(7) {
-  width: 64px;
-}
-.table-wrap.runs col:nth-child(8) {
-  width: 76px;
-}
-.table-wrap.runs col:nth-child(9) {
   width: 88px;
 }
-.table-wrap.runs a.rid {
-  font-size: var(--text-xs);
+.table-wrap.runs col:nth-child(4) {
+  width: 200px;
+}
+.table-wrap.runs col:nth-child(5) {
+  width: 200px;
+}
+.table-wrap.runs col:nth-child(6) {
+  width: 88px;
+}
+.table-wrap.runs col:nth-child(7) {
+  width: 88px;
+}
+.app a.rid.who {
+  display: flex;
+  height: 24px;
+  font-size: var(--text-sm);
+}
+.app td .ph {
+  display: none;
+  margin-left: 1ch;
 }
 .table-wrap.runs td .badge {
   max-width: 100%;
@@ -2695,5 +2708,246 @@ body {
 @media (pointer: coarse) {
   .hint.keys {
     display: none;
+  }
+}
+
+/* Batch summary */
+.batch-group .goal {
+  margin: 0 0 var(--s-3);
+}
+.batch-group .rate {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.outcome-bar {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: var(--s-3) 0 var(--s-2);
+  background: var(--band);
+}
+.outcome-bar .succeeded,
+.swatch.succeeded {
+  fill: var(--good);
+  background: var(--good);
+}
+.outcome-bar .interrupted,
+.swatch.interrupted {
+  fill: var(--fg-2);
+  background: var(--fg-2);
+}
+.outcome-bar .limit,
+.swatch.limit {
+  fill: var(--warn);
+  background: var(--warn);
+}
+.outcome-bar .failed,
+.swatch.failed {
+  fill: var(--bad);
+  background: var(--bad);
+}
+.outcome-bar .blocked,
+.swatch.blocked {
+  fill: var(--warn-line);
+  background: var(--warn-line);
+}
+.outcome-bar .cancelled,
+.swatch.cancelled {
+  fill: var(--muted);
+  background: var(--muted);
+}
+.legend,
+.group-runs,
+.batch-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  font-size: var(--text-sm);
+}
+.swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--s-2);
+}
+.group-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s-1) var(--s-4);
+  margin: var(--s-4) 0;
+  font-size: var(--text-sm);
+}
+.group-facts dt {
+  color: var(--muted);
+}
+.group-facts dd {
+  margin: 0;
+}
+.group-runs li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-top: var(--bw) solid var(--rule);
+  font-size: var(--text-sm);
+}
+.group-runs .num {
+  margin-left: auto;
+}
+@container app (max-width: 640px) {
+  .group-runs .num {
+    display: none;
+  }
+}
+.batch-notes {
+  display: grid;
+  gap: var(--s-2);
+}
+
+/* Journeys: the runs page's lead block */
+.page-head .spend {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  align-self: center;
+}
+.page-head .spend .fig {
+  color: var(--fg);
+}
+.journeys table {
+  width: 100%;
+  table-layout: fixed;
+}
+.journeys th:nth-child(2) {
+  width: 196px;
+}
+.journeys th:nth-child(3) {
+  width: 160px;
+}
+.journeys th:nth-child(4) {
+  width: 96px;
+}
+.journeys th:nth-child(5) {
+  width: 160px;
+}
+.journeys td {
+  height: auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.journeys td .goal {
+  margin-top: 2px;
+}
+.journeys td .of {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+.journeys .rate {
+  font-size: var(--text-lg);
+  line-height: var(--lh-lg);
+}
+.marks {
+  display: flex;
+  gap: 3px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.marks li {
+  display: flex;
+}
+.mark {
+  display: block;
+  width: 14px;
+  height: 22px;
+  background: var(--band);
+}
+.mark:hover,
+.mark:focus-visible {
+  outline: var(--bw) solid var(--fg);
+  outline-offset: 2px;
+}
+.mark.succeeded {
+  background: var(--good);
+}
+.mark.interrupted {
+  background: var(--fg-2);
+}
+.mark.limit {
+  background: var(--warn);
+}
+.mark.failed {
+  background: var(--bad);
+}
+.mark.blocked {
+  background: var(--warn-line);
+}
+.mark.cancelled {
+  background: var(--muted);
+}
+.journeys .more {
+  justify-self: start;
+}
+@container app (max-width: 640px) {
+  .journeys table,
+  .journeys tbody {
+    display: block;
+  }
+  .journeys thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .journeys tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    padding: 12px 0;
+    border-top: var(--bw) solid var(--rule);
+  }
+  .journeys tbody tr:first-child {
+    border-top: 0;
+  }
+  .journeys td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0 !important;
+    background: none !important;
+  }
+  .journeys .table-wrap.boxed {
+    padding: 0 var(--s-4);
+  }
+  .journeys .table-wrap.boxed td {
+    padding: 0;
+  }
+  .journeys td.clip {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+  .journeys td:nth-child(n + 4) {
+    font-size: var(--text-xs);
+    text-align: left;
+    color: var(--muted);
+  }
+  .journeys td:nth-child(5) {
+    text-align: right;
+  }
+  .journeys td:nth-child(5) .of {
+    display: inline;
+  }
+  .journeys td .ph {
+    display: inline;
   }
 }

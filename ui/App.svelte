@@ -2,6 +2,7 @@
   import Icon from './components/Icon.svelte';
   import { bootstrapToken } from './lib/api.ts';
   import Logo from './components/Logo.svelte';
+  import BatchDetail from './pages/BatchDetail.svelte';
   import Personas from './pages/Personas.svelte';
   import RunDetail from './pages/RunDetail.svelte';
   import RunDialog from './components/RunDialog.svelte';
@@ -118,6 +119,8 @@
         <Personas id={route[1] || undefined} />
       {:else if section === 'suites'}
         <Suites id={route[1] || undefined} />
+      {:else if route[0] === 'batches' && route[1]}
+        {#key route[1]}<BatchDetail id={route[1]} />{/key}
       {:else if route[1]}
         {#key route[1]}<RunDetail id={route[1]} />{/key}
       {:else}

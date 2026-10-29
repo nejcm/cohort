@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
-import { LabDb } from '../../src/dashboard/db.ts';
+import { LabDb, type RunRow } from '../../src/dashboard/db.ts';
 import { saveEditable, type EditError } from '../../src/dashboard/files.ts';
+import { openIndex } from '../../src/dashboard/runner.ts';
 import { CSP, startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
@@ -169,15 +170,27 @@ after(async () => {
 test('the database migrates once, enforces foreign keys, and indexes CLI runs', async () => {
   const path = join(await mkdtemp(join(tmpdir(), 'lab-db-')), 'lab.db');
   const db = new LabDb(path);
-  assert.equal(db.schemaVersion, 3);
+  assert.equal(db.schemaVersion, 4);
   db.close();
   const reopened = new LabDb(path);
-  assert.equal(reopened.schemaVersion, 3);
+  assert.equal(reopened.schemaVersion, 4);
   assert.throws(() => reopened.appendEvent('run_missing', 'run.queued', {}), /FOREIGN KEY/u);
   reopened.close();
   const { runs } = (await call('GET', '/api/runs')).json();
   assert.equal(runs.length, 1);
   assert.deepEqual([runs[0].personaId, runs[0].status, runs[0].outcome], ['guest', 'finished', 'completed']);
+  const counted = [runs[0].friction, runs[0].opinions];
+  assert.ok(counted.every((n: unknown) => typeof n === 'number'));
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
+  side.updateRun(runs[0].id, { friction_count: null, opinion_count: null });
+  side.close();
+  (await openIndex(root)).close();
+  const backfilled = (await call('GET', `/api/runs/${runs[0].id}`)).json().run;
+  assert.deepEqual(
+    [backfilled.friction, backfilled.opinions],
+    counted,
+    'reopening fills counts indexed before they existed',
+  );
 });
 
 test('every API route requires the bearer token; static assets carry the CSP', async () => {
@@ -680,6 +693,8 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
       goal: index === 1 ? 'ΟΔΟΣ ΚΑΙ' : 'Look around.',
       estimated_cost_usd: cost,
       created_at: `2026-01-0${index + 1}T00:00:00.000Z`,
+      finished_at: index === 0 ? '2026-01-03T01:00:00.000Z' : null,
+      friction_count: index === 0 ? 2 : index === 1 ? 5 : null,
       started_at: index === 3 ? null : `2026-02-0${5 - index}T00:00:00.000Z`,
     });
   const pages = (query: Parameters<LabDb['listRuns']>[1]) => {
@@ -708,7 +723,7 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
     'tabs follow the search; headline counts cover every run',
   );
   const counts = db.runCounts('', '2026-01-03');
-  assert.equal(Math.round(counts.spentToday * 100), 60);
+  assert.equal(Math.round(counts.spentToday * 100), 90, 'a run counts on the day it finished');
   assert.deepEqual(
     { ...counts, spentToday: 0 },
     {
@@ -720,7 +735,8 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
       lookTotal: 1,
       running: 1,
       queued: 1,
-      finishedToday: 1,
+      finishedToday: 2,
+      frictionToday: 2,
       spentToday: 0,
     },
   );
@@ -732,6 +748,57 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
   assert.equal(typeof first.counts.all, 'number');
   const next = (await call('GET', `/api/runs?sort=id&dir=asc&limit=1&cursor=${first.nextCursor}`)).json();
   assert.ok(next.runs[0].id > first.runs[0].id);
+});
+
+test('journeys group finished runs by persona and goal over a recent window, worst completion first', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lab-journeys-'));
+  const db = new LabDb(join(dir, 'lab.db'));
+  db.insertBatch('batch_20260101_000000_aaaaaa', {});
+  const runs: [string, string | null, Partial<RunRow>][] = [
+    ['guest', 'completed', { friction_count: 1 }],
+    ['guest', 'blocked', { friction_count: null }],
+    ['guest', 'agent_error', { interrupted_by: 'user' }],
+    ['guest', 'abandoned', { friction_count: 2, model: 'other-model' }],
+    ['guest', 'completed', {}],
+    ['guest', 'agent_error', { status: 'interrupted', outcome_code: 'interrupted', interrupted_by: 'process' }],
+    ['admin', 'completed', {}],
+    ['admin', null, { status: 'running' }],
+  ];
+  for (const [index, [persona, outcome, extra]] of runs.entries())
+    db.insertRun({
+      ...orphan(`run_20260101_000000_jour0${index}`, 'queued', index),
+      status: 'finished',
+      persona_id: persona,
+      outcome_state: outcome,
+      created_at: `2026-01-0${index + 1}T00:00:00.000Z`,
+      ...extra,
+    });
+  const [worst, best, ...rest] = db.journeys(4);
+  assert.equal(rest.length, 0, 'the running run forms no journey of its own');
+  assert.equal(best!.personaId, 'admin');
+  assert.deepEqual(
+    { ...worst, lastAt: '' },
+    {
+      personaId: 'guest',
+      goal: 'Look around.',
+      lastAt: '',
+      total: 6,
+      models: 2,
+      completed: 1,
+      counted: 3,
+      blocked: 0,
+      friction: 2,
+      latest: [
+        { id: 'run_20260101_000000_jour02', outcome: 'agent_error', interruptedBy: 'user' },
+        { id: 'run_20260101_000000_jour03', outcome: 'abandoned', interruptedBy: null },
+        { id: 'run_20260101_000000_jour04', outcome: 'completed', interruptedBy: null },
+        { id: 'run_20260101_000000_jour05', outcome: 'agent_error', interruptedBy: 'process' },
+      ],
+    },
+    'the window drops the oldest runs; user cancellations leave the denominator, recovered crashes count against it',
+  );
+  db.close();
+  await rm(dir, { recursive: true, force: true });
 });
 
 test('a restart marks orphaned runs interrupted with a bounded report and never resumes them', async () => {

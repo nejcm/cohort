@@ -275,9 +275,9 @@ test('a dispatched run streams live steps, cancels nothing finished, and offers 
   assert.ok((await readFile((await download.path())!)).subarray(0, 2).equals(Buffer.from('PK')));
 
   await page.goto(`${dashboard.origin}/runs`);
-  const row = page.getByRole('row').filter({ hasText: 'guest' }).first();
+  const row = page.locator('table.runs').getByRole('row').filter({ hasText: 'guest' }).first();
   await row.getByText('completed').waitFor();
-  await row.getByText('openai/priced · medium').waitFor();
+  await row.getByText(/^openai\/priced\s+medium · vision/u).waitFor();
   await row.getByText(/^\$0\.\d+$/u).waitFor();
 });
 
@@ -304,7 +304,7 @@ test('queued and running runs cancel from the run view', async () => {
   blocker.release();
   turn = done;
   await page.getByRole('heading', { name: 'Outcome: agent error' }).waitFor();
-  await page.getByText('(interrupted by user)').waitFor();
+  await page.locator('.outcome .meta', { hasText: 'interrupted by user' }).waitFor();
 });
 
 test('persona edits keep the user text on a revision conflict and keep setup read-only', async () => {
@@ -525,7 +525,38 @@ test('a run view picks up comparison claims added after its own run finished', a
   await page.getByRole('heading', { name: 'Friction claims (0)' }).waitFor();
   blocker.release();
   await page.getByRole('heading', { name: 'Friction claims (1)' }).waitFor({ timeout: 15_000 });
+  await page.getByRole('heading', { name: 'Measured by the harness 1' }).waitFor();
+  const indexed = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/runs/${id}`, {
+      headers: { authorization: `Bearer ${sessionStorage.getItem('cohort-token')}` },
+    });
+    return ((await response.json()) as { run: { friction: number; opinions: number } }).run;
+  }, started.runIds[0]!);
+  assert.deepEqual([indexed.friction, indexed.opinions], [1, 0], 'the index recounts claims added after the run ended');
   turn = done;
+});
+
+test('the batch view links from a run and shows each comparison group once the summary lands', async () => {
+  turn = done;
+  const started = await page.evaluate(async (url) => {
+    const response = await fetch('/api/runs', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${sessionStorage.getItem('cohort-token')}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ submission: { selector: { kind: 'persona', id: 'guest' }, url, repeats: 2 } }),
+    });
+    return (await response.json()) as { batchId: string; runIds: string[] };
+  }, `${fixture.url}/`);
+  await page.goto(`${dashboard.origin}/runs/${started.runIds[0]}`);
+  await page.getByRole('link', { name: started.batchId }).click();
+  await page.getByRole('heading', { name: started.batchId }).waitFor();
+  const group = page.getByRole('region', { name: 'guest on openai/priced' });
+  await group.getByText('completed 2 of 2 counted runs').waitFor({ timeout: 15_000 });
+  assert.equal(await group.locator('.fig').textContent(), '100%');
+  assert.equal(await group.getByRole('link').count(), 2);
+  assert.deepEqual(violations, []);
 });
 
 test('polling while a run is active keeps rows loaded through Load more', async () => {
@@ -562,6 +593,12 @@ test('polling while a run is active keeps rows loaded through Load more', async 
 test('run headers sort on the server and the filter box narrows rows', async () => {
   await page.goto(`${dashboard.origin}/runs`);
   const cost = page.getByRole('columnheader', { name: 'Cost' });
+  const journey = page.locator('table.journeys tbody tr').first();
+  await journey
+    .getByRole('link', { name: /^run_\w+: completed$/u })
+    .first()
+    .waitFor();
+  assert.match((await journey.locator('td').nth(2).innerText()).trim(), /^\d+%\s+\d+ of \d+/u);
   assert.equal(await page.getByRole('combobox', { name: 'Sort runs' }).inputValue(), 'created:desc');
   assert.equal(await page.locator('th[aria-sort]').count(), 0);
   const sorted = page.waitForResponse((response) => response.url().includes('sort=cost'));
@@ -570,8 +607,8 @@ test('run headers sort on the server and the filter box narrows rows', async () 
   assert.equal(await cost.getAttribute('aria-sort'), 'descending');
   await cost.getByRole('button').click();
   assert.equal(await cost.getAttribute('aria-sort'), 'ascending');
-  await page.getByRole('combobox', { name: 'Sort runs' }).selectOption('Mode, descending');
-  await page.locator('th[aria-sort="descending"]', { hasText: 'Mode' }).waitFor();
+  await page.getByRole('combobox', { name: 'Sort runs' }).selectOption('Friction, descending');
+  await page.locator('th[aria-sort="descending"]', { hasText: 'Friction' }).waitFor();
   const kpis = await page.locator('.kpis').textContent();
   await page.getByRole('searchbox', { name: 'Search runs' }).fill('no-such-run');
   await page.getByText('No runs match.').waitFor();
@@ -586,13 +623,15 @@ test('run sort, tab, and search live in the URL so reload and back keep them', a
   assert.equal(await pick.inputValue(), 'cost:asc');
   assert.equal(await search.inputValue(), 'run');
   assert.equal(await page.getByRole('link', { name: /^Finished/u }).getAttribute('aria-current'), 'true');
-  await pick.selectOption('Mode, descending');
-  await page.waitForURL((url) => url.searchParams.get('sort') === 'mode' && url.searchParams.get('f') === 'finished');
+  await pick.selectOption('Friction, descending');
+  await page.waitForURL(
+    (url) => url.searchParams.get('sort') === 'friction' && url.searchParams.get('f') === 'finished',
+  );
   await search.fill('');
   await page.waitForURL((url) => !url.searchParams.has('q'));
   await page.reload();
   await pick.waitFor();
-  assert.equal(await pick.inputValue(), 'mode:desc');
+  assert.equal(await pick.inputValue(), 'friction:desc');
   await page.goBack();
   await page.waitForURL((url) => url.searchParams.get('sort') === 'cost');
   assert.equal(await pick.inputValue(), 'cost:asc');

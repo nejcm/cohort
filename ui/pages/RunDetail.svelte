@@ -10,6 +10,7 @@
     badge,
     isActive,
     screenshotPath,
+    statusLabel,
     usd,
     words,
     type LiveEvent,
@@ -225,6 +226,8 @@
   const TONES: Record<string, string> = { completed: 'tone-good', blocked: 'tone-warn', limit_reached: 'tone-warn', agent_error: 'tone-bad' };
   const run = $derived(detail?.run);
   const report = $derived(detail?.report ?? null);
+  const measured = $derived(report?.friction.filter((claim) => claim.source === 'harness') ?? []);
+  const opinions = $derived(report?.friction.filter((claim) => claim.source !== 'harness') ?? []);
   const cost = $derived(
     report
       ? (report.usage.providerReportedCostUsd ?? report.usage.estimatedCostUsd)
@@ -238,9 +241,10 @@
     <div class="page-head">
       <div class="title">
         <h1 class="mono">{run.id}</h1>
-        <span class="badge {badge(run.status, run.outcome, run.interruptedBy)}">{run.status}</span>
+        <span class="badge {badge(run.status, run.outcome, run.interruptedBy)}">{statusLabel(run)}</span>
         {#if isActive(run.status)}<span class="live" role="status">{linked ? 'Live' : 'Reconnecting…'}</span>{/if}
       </div>
+      <p class="sub"><strong>{run.personaId}</strong> on “{run.goal}”</p>
       {#if isActive(run.status)}
         <div class="actions"><button type="button" class="danger" disabled={cancelling} aria-busy={cancelling} onclick={cancel}><Icon name="stop" />Cancel run</button></div>
       {/if}
@@ -250,30 +254,50 @@
 {#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
 {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 {#if run}
-  <dl class="facts">
-    <dt>Status</dt><dd>{run.status}</dd>
-    <dt>Persona</dt><dd>{run.personaId}</dd>
-    <dt>Goal</dt><dd>{run.goal}</dd>
-    <dt>Model</dt>
-    <dd>
-      <span>{run.provider}/{run.model} · {run.effort} · {run.mode}</span>
-      {#if run.untested}<span class="badge untested">untested</span>{/if}
-      {#if report?.returnedModel && report.returnedModel !== run.model}<span class="hint">(returned {report.returnedModel})</span>{/if}
-    </dd>
-    <dt>Batch</dt><dd><span class="mono">{run.batchId}</span> · repeat #{run.repeat + 1}</dd>
-    <dt>Limits</dt>
-    <dd class={resolved ? 'tab' : 'muted'}>
-      {resolved
-        ? `${resolved.request.limits.steps} steps · ${resolved.request.limits.timeMs / 1000} s · ${usd(resolved.request.limits.dollars)}`
-        : 'shown when the run finishes'}
-    </dd>
-    <dt>Cost</dt>
-    <dd>
-      <span class="fig lg">{usd(cost)}</span>
-      {#if report}<span class="hint">({report.usage.accounting}; cap: {report.usage.capEnforcement})</span>
-      {:else}<span class="hint">(cap: {run.capEnforcement})</span>{/if}
-    </dd>
-  </dl>
+
+  <div class="findings">
+    {#if report}
+      <section class="section" aria-labelledby="outcome-title">
+        <h2 id="outcome-title">Outcome: {words(report.outcome.state)}</h2>
+        <div class="card outcome {TONES[report.outcome.state] ?? ''}">
+          <p class="reason">{report.outcome.reason}</p>
+          <p class="meta">
+            {#if report.outcome.interruptedBy}<strong>interrupted by {report.outcome.interruptedBy}</strong> ·
+            {:else if report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}<strong>{report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}</strong> ·
+            {/if}
+            {report.steps} steps · {report.browserActions} browser actions · {(report.durationMs / 1000).toFixed(1)} s · replay {report.replay.status}
+          </p>
+          {#each report.issues as issue (issue.code + issue.message)}<p class="notice warn">{issue.code}: {issue.message}</p>{/each}
+        </div>
+      </section>
+      <section class="section" aria-labelledby="claims-title">
+        <h2 id="claims-title">Friction claims ({report.friction.length})</h2>
+        <div class="card">
+          {#if report.friction.length === 0}<p class="muted">No friction recorded.</p>{/if}
+          {#each [['Measured by the harness', measured], ['Agent opinions, unverified', opinions]] as const as [label, claims] (label)}
+            {#if claims.length > 0}
+              <div class="claim-group">
+                <h3>{label} <span class="count">{claims.length}</span></h3>
+                <ul class="claims">
+                  {#each claims as claim (claim.id)}
+                    <li>
+                      <span class="kind">{words(claim.kind)}</span>
+                      {#if claim.statement}<p>{claim.statement}</p>{:else if claim.opinion}<p class="opinion">{claim.opinion.reason}</p>{/if}
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          {/each}
+        </div>
+      </section>
+    {:else}
+      <section class="section" aria-labelledby="claims-title">
+        <h2 id="claims-title">Friction claims</h2>
+        <p class="card muted" role="status">{liveClaims} friction claim{liveClaims === 1 ? '' : 's'} so far.</p>
+      </section>
+    {/if}
+  </div>
 
   <div class="detail-grid">
     <div class="stack evidence">
@@ -326,46 +350,34 @@
       </section>
     </div>
 
-    <div class="stack summary">
-      {#if report}
-        <section class="section" aria-labelledby="outcome-title">
-          <h2 id="outcome-title">Outcome: {words(report.outcome.state)}</h2>
-          <div class="card outcome {TONES[report.outcome.state] ?? ''}">
-            <div class="state">
-              <span class="badge {badge(report.outcome.state)}">{words(report.outcome.state)}</span>
-              {#if report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}
-                <span class="muted">reason</span><strong>{report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}</strong>
-              {/if}
-            </div>
-            {#if report.outcome.interruptedBy}<p class="muted">(interrupted by {report.outcome.interruptedBy})</p>{/if}
-            <p class="reason">{report.outcome.reason}</p>
-            <p class="meta">
-              {report.steps} steps · {report.browserActions} browser actions · {(report.durationMs / 1000).toFixed(1)} s · replay {report.replay.status}
-            </p>
-            {#each report.issues as issue (issue.code + issue.message)}<p class="notice warn">{issue.code}: {issue.message}</p>{/each}
-          </div>
-        </section>
-        <section class="section" aria-labelledby="claims-title">
-          <div class="section-head"><h2 id="claims-title">Friction claims ({report.friction.length})</h2></div>
-          <div class="card">
-            {#if report.friction.length === 0}<p class="muted">None.</p>{/if}
-            <ul class="claims">
-              {#each report.friction as claim (claim.id)}
-                <li>
-                  <span class="kind">{words(claim.kind)}</span><span class="source">{claim.source}</span>
-                  {#if claim.statement}<p>{claim.statement}</p>{:else if claim.opinion}<p class="opinion">{claim.opinion.reason}</p>{/if}
-                </li>
-              {/each}
-            </ul>
-          </div>
-        </section>
-      {:else}
-        <section class="section" aria-labelledby="claims-title">
-          <h2 id="claims-title">Friction claims</h2>
-          <p class="card muted" role="status">{liveClaims} friction claim{liveClaims === 1 ? '' : 's'} so far.</p>
-        </section>
-      {/if}
-    </div>
+    <section class="section setup" aria-labelledby="setup-title">
+      <h2 id="setup-title">Run setup</h2>
+      <dl class="facts">
+        <dt>Model</dt>
+        <dd>
+          <span>{run.provider}/{run.model} · {run.effort} · {run.mode}</span>
+          {#if run.untested}<span class="badge untested">untested</span>{/if}
+          {#if report?.returnedModel && report.returnedModel !== run.model}<span class="hint">(returned {report.returnedModel})</span>{/if}
+        </dd>
+        <dt>Batch</dt><dd><a class="mono" href="/batches/{encodeURIComponent(run.batchId)}">{run.batchId}</a> · repeat #{run.repeat + 1}</dd>
+        <dt>Limits</dt>
+        <dd class={resolved ? 'tab' : 'muted'}>
+          {resolved
+            ? `${resolved.request.limits.steps} steps · ${resolved.request.limits.timeMs / 1000} s · ${usd(resolved.request.limits.dollars)}`
+            : 'shown when the run finishes'}
+        </dd>
+        <dt>Cost</dt>
+        <dd class="tab">
+          {usd(cost)}
+          {#if report}<span class="hint">{report.usage.accounting}; cap: {report.usage.capEnforcement}</span>
+          {:else}<span class="hint">cap: {run.capEnforcement}</span>{/if}
+        </dd>
+        {#if report}
+          <dt>Tokens</dt>
+          <dd class="tab">{report.usage.inputTokens.toLocaleString()} in · {report.usage.outputTokens.toLocaleString()} out</dd>
+        {/if}
+      </dl>
+    </section>
   </div>
 
   {#if detail && detail.artifacts.length > 0}

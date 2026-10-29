@@ -67,6 +67,7 @@ const EVENT_POLL_MS = 500;
 const MAX_SSE_BUFFER = 1024 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
+const JOURNEY_WINDOW = 10;
 export const CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const ARTIFACT_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
@@ -359,6 +360,13 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
           }),
           ...plan,
         });
+      },
+    ],
+    [
+      'GET',
+      /^\/api\/journeys$/u,
+      async (_m, _q, response) => {
+        json(response, 200, { window: JOURNEY_WINDOW, journeys: db.journeys(JOURNEY_WINDOW) });
       },
     ],
     [

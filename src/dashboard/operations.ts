@@ -47,6 +47,8 @@ function publicRun(row: RunRow) {
     steps: row.steps,
     durationMs: row.duration_ms,
     costUsd: row.estimated_cost_usd,
+    friction: row.friction_count ?? null,
+    opinions: row.opinion_count ?? null,
     capEnforcement: row.cap_enforcement,
   };
 }

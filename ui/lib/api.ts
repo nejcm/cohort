@@ -113,6 +113,9 @@ export interface RunSummary {
   durationMs: number | null;
   costUsd: number | null;
   capEnforcement: string;
+  /** Harness-measured friction claims and agent opinions; null until counted. */
+  friction: number | null;
+  opinions: number | null;
 }
 
 export interface Editable {
@@ -152,6 +155,31 @@ const BADGES: Record<string, string> = {
 /** The lab.css badge class for a run's status or outcome. */
 export const badge = (status: string, outcome?: string | null, interruptedBy?: string | null): string =>
   interruptedBy ? 'interrupted' : (BADGES[outcome ?? status] ?? BADGES[status] ?? status);
+
+/** The outcome-mark class for a finished run; a user's cancellation is not an agent error. */
+export const tone = (outcome: string | null, interruptedBy?: string | null): string =>
+  outcome === 'agent_error' && interruptedBy && interruptedBy !== 'process'
+    ? 'cancelled'
+    : ({
+        completed: 'succeeded',
+        abandoned: 'interrupted',
+        limit_reached: 'limit',
+        agent_error: 'failed',
+        blocked: 'blocked',
+      }[outcome ?? ''] ?? 'cancelled');
+
+export interface Journey {
+  personaId: string;
+  goal: string;
+  lastAt: string;
+  total: number;
+  models: number;
+  completed: number;
+  counted: number;
+  blocked: number;
+  friction: number | null;
+  latest: { id: string; outcome: string; interruptedBy: string | null }[];
+}
 
 /** Outcome and claim codes read as words: limit_reached → limit reached. */
 export const words = (code: string): string => code.replaceAll('_', ' ');
