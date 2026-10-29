@@ -4,7 +4,7 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 
 ## Constraints
 
-- Nothing shipped may be specific to any one target app. Staywise (`/home/nejc/Work/staywise`) is the owner's external test target only; keep its notes in the PLAN.md appendix.
+- Nothing shipped may be specific to any one target app. Staywise (`/home/nejc/Work/staywise`) is the owner's external test target only; keep notes about it out of this repository.
 - Secrets never reach prompts, LLM transcripts, screenshots, generated scripts, logs, or API responses. Native traces are private evidence that may contain secrets; never publish or commit them. Keys come from the environment only.
 - Runtime stays Node 24; the published package is compiled JavaScript and must not need Bun. Use Node built-ins first (HTTP, fs, hashing, `parseArgs`, `node:test`, `node:sqlite`).
 - Runtime dependencies are Playwright and a maintained YAML parser only; no provider SDKs. Add a dependency only for a concrete need.
@@ -32,7 +32,7 @@ TypeScript uses `NodeNext` with explicit `.ts` relative imports (rewritten on bu
 ## Change workflow
 
 - Trace the relevant code path and callers before editing shared behavior.
-- Add or update tests for behavior changes and keep PLAN.md and docs accurate.
+- Add or update tests for behavior changes and keep docs accurate.
 - Run the narrowest relevant checks, then `bun run verify` when practical.
 - Do not weaken checks to make a change pass; record intentional exceptions beside the config and here.
   - `docs/report-examples/` is generated tool output (byte-exact bundles), so oxfmt and oxlint ignore it like `.cohort/runs`; regenerate with `node examples/report-examples.ts`.

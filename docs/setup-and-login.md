@@ -13,9 +13,11 @@ When a run hits something none of these cover, it ends as an evidenced `blocked(
 
 ## Setup modules
 
-A setup module is a TypeScript or JavaScript file inside `.cohort/setup/`. You reference it from a persona (`setup: ../setup/x.ts`) or from a suite's defaults. A suite default overrides the persona's setup. The module's default export is called once for every repetition, before the browser opens. Its signature is in PLAN §5:
+A setup module is a TypeScript or JavaScript file inside `.cohort/setup/`. You reference it from a persona (`setup: ../setup/x.ts`) or from a suite's defaults. A suite default overrides the persona's setup. The module's default export is called once for every repetition, before the browser opens. Its type, `SetupModule`, is exported from `cohort-lab`:
 
 ```ts
+import type { SetupModule } from 'cohort-lab';
+
 const setup: SetupModule = async (ctx) => ({
   startUrl, // required; the run starts here, even if a URL is configured
   storageState, // optional; Playwright storage state for this run's fresh context
