@@ -15,7 +15,7 @@ const step = (id: string, extra: Partial<PlayerStep> = {}): PlayerStep => ({
   ...extra,
 });
 
-test('frames fall back to before, skip shotless steps, and split clicks', () => {
+test('frames fall back to before, skip shotless steps, and split clicks without dropping repeats', () => {
   const frames = framesOf([
     step('s1', { afterId: 'a' }),
     step('s2', { beforeId: 'b' }),
@@ -28,6 +28,7 @@ test('frames fall back to before, skip shotless steps, and split clicks', () => 
     [
       ['s1', 'a', false],
       ['s2', 'b', false],
+      ['s3', 'b', false],
       ['s4', 'c', true],
       ['s4', 'd', false],
     ],
@@ -41,15 +42,11 @@ test('delay is clamped per speed', () => {
   assert.equal(delayFor(9000, 1, 0.5), 750);
 });
 
-test('next stops at the end and before a failed step', () => {
-  const frames = framesOf([
-    step('a', { afterId: '1' }),
-    step('b', { afterId: '2', status: 'error: x' }),
-    step('c', { afterId: '3' }),
-  ]);
-  assert.equal(nextIndex(frames, 0), null);
-  assert.equal(nextIndex(frames, 1), 2);
-  assert.equal(nextIndex(frames, 2), null);
+test('next advances to the end and a failed step keeps its frame', () => {
+  const frames = framesOf([step('a', { afterId: '1' }), step('b', { afterId: '2', status: 'error: x' })]);
+  assert.equal(frames[1]!.failed, true);
+  assert.equal(nextIndex(frames.length, 0), 1);
+  assert.equal(nextIndex(frames.length, 1), null);
   assert.equal(clampIndex(-1, 3), 0);
   assert.equal(clampIndex(9, 3), 2);
 });

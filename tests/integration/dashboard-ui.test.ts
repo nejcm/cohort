@@ -282,8 +282,9 @@ test('a dispatched run streams live steps, cancels nothing finished, and offers 
   await row.getByText(/^\$0\.\d+$/u).waitFor();
 });
 
-test('the replay player plays a finished run frame by frame and lands on the last step', async () => {
-  turn = (request, index) => (index < 2 ? { name: 'wait', args: { ms: 100 } } : done(request, index));
+async function runWith(script: Turn): Promise<string> {
+  let calls = 0;
+  turn = (request) => script(request, calls++);
   const started = await page.evaluate(async (url) => {
     const response = await fetch('/api/runs', {
       method: 'POST',
@@ -298,13 +299,42 @@ test('the replay player plays a finished run frame by frame and lands on the las
   await page.goto(`${dashboard.origin}/runs/${started.runIds[0]}`);
   await page.getByRole('heading', { name: 'Outcome: completed' }).waitFor();
   turn = done;
+  return started.runIds[0]!;
+}
+
+test('the replay player plays a finished run to its exact last frame', async () => {
+  await runWith((request, index) => (index < 2 ? { name: 'wait', args: { ms: 100 } } : done(request, index)));
   const player = page.getByRole('toolbar', { name: 'Replay player' });
+  await player.getByText(/s0003 done/u).waitFor();
   await page.getByRole('button', { name: 'Previous step' }).click();
-  await player.getByText(/s0000 navigate/u).waitFor();
-  const play = player.getByRole('button', { name: 'Play' });
-  await play.click();
-  await player.getByText(/s000\d wait/u).waitFor();
+  await player.getByText(/s0002 wait/u).waitFor();
+  await player.getByRole('button', { name: 'Play' }).click();
+  await player.getByText(/s0003 done/u).waitFor();
   await player.getByRole('button', { name: 'Play' }).waitFor();
+});
+
+test('the replay player pauses on a rejected step and plays on from it', async () => {
+  await runWith((request, index) =>
+    index === 0
+      ? {
+          name: 'click',
+          args: { observationId: request.observation.id, target: { kind: 'point', x: 99999, y: 99999 } },
+        }
+      : index === 1
+        ? { name: 'wait', args: { ms: 100 } }
+        : done(request, index),
+  );
+  const player = page.getByRole('toolbar', { name: 'Replay player' });
+  await page.locator('#shot-shot-0000').click();
+  await player.getByText(/s0000 navigate/u).waitFor();
+  await player.getByRole('button', { name: 'Play' }).click();
+  await player.getByText(/s0001 click/u).waitFor();
+  await player.getByText(/rejected/u).waitFor();
+  await player.getByRole('button', { name: 'Play' }).waitFor();
+  await page.waitForTimeout(800);
+  await player.getByText(/s0001 click/u).waitFor();
+  await player.getByRole('button', { name: 'Play' }).click();
+  await player.getByText(/s0003 done/u).waitFor();
 });
 
 test('queued and running runs cancel from the run view', async () => {
