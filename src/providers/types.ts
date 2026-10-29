@@ -11,6 +11,13 @@ interface VisionObservation {
   pngBase64: string;
 }
 
+interface TextObservation {
+  kind: 'text';
+  id: string;
+  /** Model-safe text holding the redacted accessibility snapshot. */
+  text: string;
+}
+
 export interface Usage {
   /** Total input tokens, including cached and cache-write tokens. */
   inputTokens: number;
@@ -27,7 +34,7 @@ export interface DecideRequest {
   effort: Effort;
   instructions: string;
   history: readonly string[];
-  observation: VisionObservation;
+  observation: VisionObservation | TextObservation;
   tools: readonly ToolDefinition[];
   maxOutputTokens: number;
 }

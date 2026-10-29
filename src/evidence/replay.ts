@@ -86,17 +86,22 @@ export function replayGaps(steps: readonly StepRecord[]): string[] {
 /** Generates a standalone Playwright test from recorded steps; secrets stay as placeholders bound from the environment. */
 export function generateReplay(session: ReplaySession, steps: readonly StepRecord[]): string {
   const body: string[] = [];
+  const answered = steps.filter((step) => step.result.status === 'ok' && step.action.name === 'dialog');
+  const track = (id: string): string => (answered.length > 0 ? `current = ${j(id)};\n    ` : '');
   const start = steps.find((step) => step.action.name === 'navigate')?.action.args.url as string | undefined;
   for (const step of steps) {
     if (step.result.status !== 'ok') continue;
     if (step.action.name === 'navigate') {
       body.push(
-        `  await test.step(${j(`${step.id} navigate`)}, async () => {\n    await page.goto(binding('COHORT_START_URL'));\n  });`,
+        `  await test.step(${j(`${step.id} navigate`)}, async () => {\n    ${track(step.id)}await page.goto(binding('COHORT_START_URL'));\n  });`,
       );
       continue;
     }
     const code = statement(step, session.hasTouch, session.customTools, start);
-    if (code) body.push(`  await test.step(${j(`${step.id} ${step.action.name}`)}, async () => {\n    ${code}\n  });`);
+    if (code)
+      body.push(
+        `  await test.step(${j(`${step.id} ${step.action.name}`)}, async () => {\n    ${track(step.id)}${code}\n  });`,
+      );
   }
   const custom = steps.some((step) => step.result.status === 'ok' && session.customTools?.includes(step.action.name));
   const tap = body.some((line) => line.includes('await tap('));
@@ -104,6 +109,16 @@ export function generateReplay(session: ReplaySession, steps: readonly StepRecor
     (rule) =>
       `  await page.route(${j(rule.match)}, (route) => ${rule.action === 'block' ? "route.abort('blockedbyclient')" : `route.fulfill(${j({ status: rule.status ?? 200, contentType: rule.contentType ?? 'text/plain', body: rule.body ?? '' })})`});`,
   );
+  const answers = answered.map(({ action: { args }, dialog }) =>
+    j({
+      step: dialog?.openedBy ?? null,
+      type: dialog?.type ?? null,
+      message: dialog && !dialog.message.includes('[redacted]') ? dialog.message : null,
+      accept: args.action === 'accept',
+      text: args.text === undefined ? null : String(args.text),
+    }),
+  );
+  if (answers.length > 0) routes.push(DIALOGS.replace('ANSWERS', answers.join(',\n    ')));
   return `import { expect, test${tap ? ', type Locator' : ''} } from '@playwright/test';
 
 const viewport = ${j(session.viewport)};
@@ -138,7 +153,7 @@ ${custom ? CUSTOM_TOOL_CLIENT : ''}test.use({
 
 test(${j(`replay ${session.runId}`)}, async ({ page }) => {
 ${tap ? TAP : ''}${[...routes, ...body].join('\n')}
-  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});${answers.length > 0 ? `\n  expect(unexpectedDialogs).toEqual([]);\n  expect(dialogs).toEqual([]);` : ''}
 });
 `;
 }
@@ -180,3 +195,20 @@ const TAP = `  async function tap(locator: Locator, position: { x: number; y: nu
   }
 
 `;
+
+// Answers are matched to the step that opened them and bound only when used, after custom tools may have supplied secrets.
+const DIALOGS = `  let current = '';
+  const unexpectedDialogs: string[] = [];
+  const dialogs: { step: string | null; type: string | null; message: string | null; accept: boolean; text: string | null }[] = [
+    ANSWERS,
+  ];
+  page.on('dialog', (dialog) => {
+    const answer = dialogs[0];
+    if (!answer || answer.step !== current || answer.type !== dialog.type() || (answer.message !== null && answer.message !== dialog.message())) {
+      unexpectedDialogs.push(\`\${dialog.type()} during \${current}\`);
+      void dialog.dismiss();
+      return;
+    }
+    dialogs.shift();
+    void (answer.accept ? dialog.accept(answer.text === null ? undefined : bind(answer.text)) : dialog.dismiss());
+  });`;

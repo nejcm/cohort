@@ -16,7 +16,7 @@ import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
-import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
+import { imageOf, fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 import { decodePng } from '../helpers/png.ts';
 
 const repoRoot = new URL('../..', import.meta.url).pathname;
@@ -700,7 +700,7 @@ test('a setup module signs in with storage state; its code tool rebinds just bef
   const afterFill = sent.filter((request) => request.history.at(-1)?.split(' ')[1] === 'fill');
   assert.equal(afterFill.length, 2);
   for (const request of afterFill) {
-    const png = decodePng(Buffer.from(request.observation.pngBase64, 'base64'));
+    const png = decodePng(imageOf(request));
     assert.deepEqual(png.pixel(codeAt!.x, codeAt!.y), [...MASK_RGB], 'the typed code is masked in the sent PNG');
   }
   const outbound = JSON.stringify(sent.map(({ observation, ...rest }) => ({ ...rest, text: observation.text })));

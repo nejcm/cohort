@@ -30,7 +30,9 @@ export function createOpenAIAdapter(options: AdapterOptions = {}): ProviderAdapt
           {
             role: 'user',
             content: [
-              { type: 'input_image', image_url: `data:image/png;base64,${request.observation.pngBase64}` },
+              ...(request.observation.kind === 'vision'
+                ? [{ type: 'input_image', image_url: `data:image/png;base64,${request.observation.pngBase64}` }]
+                : []),
               { type: 'input_text', text: userText(request) },
             ],
           },

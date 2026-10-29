@@ -425,6 +425,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         maskSelectors: entry.screenshots.maskSelectors,
         device: persona.device,
         ...(persona.input ? { input: persona.input } : {}),
+        mode: request.mode,
         ...(entry.explore ? { refuse: destructiveTarget } : {}),
         locale: persona.locale,
         timezone: persona.timezone,

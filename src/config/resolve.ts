@@ -195,7 +195,6 @@ export async function resolveSubmission(submission: RunSubmission, options: Reso
   return targets.map(({ persona, entry }, entryIndex) => {
     const where = suite ? `.cohort/suites/${suite.id}.yml entries[${entryIndex}]` : `persona ${persona.id}`;
     const mode = submission.mode ?? defaults.mode ?? project.mode ?? DEFAULT_MODE;
-    if (mode === 'text') throw new ConfigError('text mode is not implemented yet; use vision');
     const repeats = submission.repeats ?? defaults.repeats ?? project.repeats ?? DEFAULT_REPEATS;
     const limits = {
       ...DEFAULT_LIMITS,

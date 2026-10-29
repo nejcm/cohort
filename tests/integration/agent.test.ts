@@ -14,7 +14,7 @@ import { generateReplay } from '../../src/evidence/replay.ts';
 import { ProviderError, type DecideRequest, type Usage } from '../../src/providers/types.ts';
 import { SecretStore } from '../../src/setup/secrets.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
-import { fakeProvider, lastStepId, pointOf, type Turn } from '../helpers/fake-provider.ts';
+import { imageOf, fakeProvider, lastStepId, pointOf, type Turn } from '../helpers/fake-provider.ts';
 import { decodePng } from '../helpers/png.ts';
 
 const EMAIL = 'ana.canary@example.test';
@@ -86,7 +86,7 @@ const goto =
 async function maskedAt(page: Page, request: DecideRequest, selector: string, inset: number): Promise<boolean> {
   const box = await page.locator(selector).boundingBox();
   assert.ok(box, selector);
-  const png = decodePng(Buffer.from(request.observation.pngBase64, 'base64'));
+  const png = decodePng(imageOf(request));
   const pixel = png.pixel(Math.round(box.x + box.width * inset), Math.round(box.y + box.height / 2));
   return pixel.every((channel, index) => channel === MASK_RGB[index]);
 }
@@ -95,7 +95,7 @@ async function maskedAt(page: Page, request: DecideRequest, selector: string, in
 async function fullyMasked(locator: Locator, request: DecideRequest): Promise<boolean> {
   const box = await locator.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0);
-  const png = decodePng(Buffer.from(request.observation.pngBase64, 'base64'));
+  const png = decodePng(imageOf(request));
   assert.equal(png.width, 800);
   for (let y = Math.ceil(box.y); y < Math.floor(box.y + box.height); y += 1)
     for (let x = Math.ceil(box.x); x < Math.floor(box.x + box.width); x += 1)

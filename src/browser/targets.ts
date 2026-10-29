@@ -393,3 +393,31 @@ export async function resolvePoint(
   }
   return { ok: false, reason: 'frame_depth' };
 }
+
+/** Resolves a main-frame ref from the latest `ariaSnapshot({ mode: 'ai' })` to a verified unique locator. */
+export async function resolveRef(
+  page: Page,
+  ref: string,
+  { unsafe, timeout }: { unsafe: (text: string) => boolean; timeout: number },
+): Promise<Resolution> {
+  const element = await page
+    .getByRef(ref)
+    .elementHandle({ timeout })
+    .catch(() => null);
+  if (!element) return { ok: false, reason: 'unknown_ref' };
+  if ((await element.ownerFrame()) !== page.mainFrame()) return { ok: false, reason: 'frame_ref' };
+  if (await element.evaluate(changedSinceCapture, WATCH_KEY)) return { ok: false, reason: 'changed_since_capture' };
+  const step = await uniqueStep(page, element, unsafe);
+  if (!step) return { ok: false, reason: 'no_unique_locator' };
+  const locator = stepLocator(page, step);
+  const box = await locator.boundingBox();
+  if (!box) return { ok: false, reason: 'not_visible' };
+  return {
+    ok: true,
+    descriptor: { frames: [], target: step },
+    stability: STABILITY[step.by],
+    locator,
+    position: { x: halfPixel(box.width / 2), y: halfPixel(box.height / 2) },
+    tag: await element.evaluate((node) => node.tagName.toLowerCase()),
+  };
+}

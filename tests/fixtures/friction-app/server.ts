@@ -20,6 +20,8 @@ export interface FixtureServer {
   /** Synthetic auth: open sessions and every one-time code issued per scope. */
   auth(scope: string): { sessions: number; codes: string[]; verified: number };
   authScopes(): string[];
+  /** Dialog outcomes /lab/dialogs reported, per scope. */
+  dialogResults(scope: string): string[];
   close(): Promise<void>;
 }
 
@@ -70,6 +72,7 @@ export async function startFixture(
   const mutations = new Set(options.mutations ?? []);
   const store = new Map<string, Submission[]>();
   const visits: { scope: string; cookie: string }[] = [];
+  const dialogResults = new Map<string, string[]>();
   const sessions = new Map<string, string>();
   const codes = new Map<string, string[]>();
   const verified = new Map<string, number>();
@@ -222,6 +225,35 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
 <label for="upload">Upload ID</label><input id="upload" type="file">`,
           ),
         );
+      case 'GET /lab/dialogs':
+        return send(
+          page(
+            'Dialogs',
+            `<output id="log">ready</output>
+<script>
+  function report(text) {
+    document.getElementById('log').textContent = text;
+    fetch('/lab/dialog-result${q}&v=' + encodeURIComponent(text));
+  }
+</script>
+<p><button onclick="report('confirm: '+confirm('Proceed?'))">Ask confirm</button></p>
+<p><button onclick="report('prompt: '+prompt('Your email?'))">Ask prompt</button></p>
+<p><button onclick="setTimeout(() => { alert('Later'); report('later closed'); }, 50)">Alert later</button></p>
+<p><span id="short">Pay</span> <button>Pay</button> <button>PayPal</button> <button id="ctl"></button></p>
+<script>document.getElementById('ctl').textContent = 'Ctl\\x01Key9';</script>
+<p><a href="/lab/dialogs?code=abc12345#frag-xyz">Same page</a></p>
+<p>Quoted K&quot;9\\z end <button>Key K&quot;9\\z</button></p>
+<p><span id="code-label">Code 7731</span> <button aria-labelledby="code-label">x</button></p>
+<p id="note">Note 5512</p><button aria-labelledby="note">y</button>
+<p><button id="tip">Tip</button> <button aria-labelledby="tip">z</button></p>
+<iframe title="Sentinel frame" srcdoc="<button>Sentinel</button>"></iframe>`,
+          ),
+        );
+      case 'GET /lab/dialog-result':
+        dialogResults.set(scope, [...(dialogResults.get(scope) ?? []), url.searchParams.get('v') ?? '']);
+        return send('ok');
+      case 'GET /lab/onload-alert':
+        return send(page('Welcome', `<script>alert('Welcome aboard')</script><p>Loaded after the alert.</p>`));
       case 'GET /lab/redirect':
         // Lab-only open redirect for testing that redirect hops stay inside the allowlist.
         response.writeHead(302, { location: url.searchParams.get('to') ?? '/' });
@@ -431,6 +463,7 @@ ${cross ? `<iframe id="cross" title="Cross-origin frame" src="${escape(cross)}" 
     url: `http://${options.host ?? '127.0.0.1'}:${port}`,
     submissions: (scope) => store.get(scope) ?? [],
     stateVisits: () => [...visits],
+    dialogResults: (scope) => [...(dialogResults.get(scope) ?? [])],
     auth: (scope) => ({
       sessions: [...sessions.values()].filter((owner) => owner === scope).length,
       codes: [...(codes.get(scope) ?? [])],

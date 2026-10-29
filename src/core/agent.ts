@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Page } from 'playwright';
+import type { Dialog, Page } from 'playwright';
 import { captureMasked, installMaskGuard, MaskError, type Capture } from '../browser/observations.ts';
 import {
   focusedElement,
@@ -9,9 +9,11 @@ import {
   elementText,
   focusState,
   resolvePoint,
+  resolveRef,
   screenshotToCss,
   selectListOpen,
 } from '../browser/targets.ts';
+import { textSnapshot } from '../browser/snapshot.ts';
 import { focusLabel, type StepRecord } from '../evidence/steps.ts';
 import { canonical, type Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
@@ -35,6 +37,8 @@ export interface AgentOptions {
   hasTouch: boolean;
   /** `keyboard` offers no pointer tools and names the focused element in each observation. */
   input?: 'keyboard';
+  /** `text` sends a redacted accessibility snapshot instead of the screenshot and targets elements by ref. */
+  mode?: 'vision' | 'text';
   provider: ProviderAdapter;
   model: string;
   effort: Effort;
@@ -107,6 +111,9 @@ Use report_friction with the step ID where something was confusing or slow. Repo
 Use report_blocked when an external prerequisite (email code, CAPTCHA, login provider, payment, third party) stops you. Never try to solve or bypass a CAPTCHA.
 Call done when the goal is achieved, citing the step whose screenshot shows it. Call give_up honestly when you cannot continue.`;
 
+const TEXT_INSTRUCTIONS = `You see a text accessibility snapshot instead of a screenshot. Target elements with {"kind":"ref","ref":"e5"} using refs from the current snapshot; point targets are rejected.
+Choose a select option by filling the select with the option label. Answer an open browser dialog with the dialog tool before anything else.`;
+
 const KEYBOARD_INSTRUCTIONS =
   'You have no pointer. Move focus with Tab, Shift+Tab, and arrow keys; activate with Enter or Space; put text into the focused field with type. Each observation names the focused element.';
 
@@ -158,7 +165,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const allowed = [new URL(options.startUrl).origin, ...options.allowedOrigins];
   const resources = options.resourceOrigins ?? [];
   const keyboard = options.input === 'keyboard';
-  const instructions = `${SAFETY_INSTRUCTIONS}${keyboard ? `\n${KEYBOARD_INSTRUCTIONS}` : ''}\n\nTask:\n${options.task}`;
+  const textMode = options.mode === 'text';
+  const instructions = `${SAFETY_INSTRUCTIONS}${textMode ? `\n${TEXT_INSTRUCTIONS}` : ''}${keyboard ? `\n${KEYBOARD_INSTRUCTIONS}` : ''}\n\nTask:\n${options.task}`;
   const maxOutputTokens = options.maxOutputTokens ?? 1024;
   const steps: StepRecord[] = [];
   const history: string[] = [];
@@ -178,7 +186,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   let shots = 0;
   let observations = 0;
   let current = null as
-    | ({ id: string; capture: Capture; screenshotId: string; url: string } & Pick<StepRecord, 'focus' | 'overflowX'>)
+    | ({
+        id: string;
+        capture: Capture | null;
+        screenshotId: string | null;
+        url: string;
+        snapshot?: { text: string; refs: Set<string> };
+      } & Pick<StepRecord, 'focus' | 'overflowX'>)
     | null;
   let pending = null as { call: ToolCall; started: number; target?: StepRecord['target'] } | null;
   let escapedTo: string | null = null;
@@ -187,7 +201,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const signal = options.signal;
   const customTools = options.customTools ?? {};
   const customDefinitions = customToolDefinitions(customTools);
-  const builtins = toolsFor(options.input);
+  const builtins = toolsFor(options.input, options.mode);
   const tools = [...builtins, ...customDefinitions];
   const customText = customDefinitions.length > 0 ? JSON.stringify(customDefinitions) : null;
 
@@ -202,16 +216,30 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     if (!permitted.includes(url.origin)) escapedTo ??= url.origin;
   });
 
+  let openDialog: Dialog | null = null;
+  let dialogWaiters: (() => void)[] = [];
+  let dialogOpenedBy: string | null = null;
+  const pendingMarks: (() => Promise<unknown>)[] = [];
+  const notices: string[] = [];
+  const dialogOpened = (): Promise<null> => new Promise((resolve) => dialogWaiters.push(() => resolve(null)));
   page.on('dialog', (dialog) => {
+    if (textMode) {
+      openDialog = dialog;
+      dialogOpenedBy = pending ? pad('s', steps.length) : (steps.at(-1)?.id ?? pad('s', 0));
+      for (const wake of dialogWaiters) wake();
+      dialogWaiters = [];
+      return;
+    }
     issues.push({
       code: 'dialog_dismissed',
       message: `${dialog.type()}: ${secrets.redact(dialog.message()).slice(0, 200)}`,
     });
     dialog.dismiss().catch(() => {});
   });
-  page.on('filechooser', () =>
-    issues.push({ code: 'file_chooser_cancelled', message: 'file uploads are not supported' }),
-  );
+  page.on('filechooser', () => {
+    issues.push({ code: 'file_chooser_cancelled', message: 'file uploads are not supported' });
+    if (textMode) notices.push('A file chooser opened and was cancelled: file uploads are not supported.');
+  });
 
   const actionTimeout = (factor = 1): number =>
     Math.max(1, Math.min(ACTION_TIMEOUT_MS * factor, deadline - Date.now()));
@@ -230,6 +258,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       clearTimeout(timer);
       if (onAbort) signal?.removeEventListener('abort', onAbort);
     });
+  };
+  // A dialog blocks the action that opened it until it is answered, so text mode stops waiting once one opens.
+  const act = async (work: Promise<unknown>): Promise<void> => {
+    if (!textMode) {
+      await bounded(work);
+      return;
+    }
+    work.catch(() => {});
+    await bounded(Promise.race([work, dialogOpened()]));
   };
   const captureWithRetry = async (attempt = 0): Promise<Capture> => {
     try {
@@ -270,11 +307,45 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   };
 
   const observe = async (): Promise<void> => {
-    const capture = await bounded(captureWithRetry());
-    const state = await bounded(pageState());
+    if (!openDialog) for (const mark of pendingMarks.splice(0)) await bounded(mark());
+    const work = openDialog
+      ? null
+      : (async () => {
+          const capture = await bounded(captureWithRetry());
+          const state = await bounded(pageState());
+          const snapshot = textMode
+            ? await bounded(
+                textSnapshot(page, {
+                  maskSelectors: options.maskSelectors ?? [],
+                  secrets: secrets.values,
+                  redact: (value) => secrets.redact(value),
+                  timeout: actionTimeout(),
+                }),
+              )
+            : undefined;
+          return { capture, state, snapshot };
+        })();
+    work?.catch(() => {});
+    const observed = work && (await (textMode ? bounded(Promise.race([work, dialogOpened()])) : work));
+    const dialog = openDialog as Dialog | null;
+    if (!observed || dialog) {
+      if (!dialog) throw new Error('observation ended without a capture');
+      // The page is frozen until the dialog is answered; only the dialog is new.
+      const message = secrets.redact(dialog.message()).slice(0, 500);
+      const snapshot = `Browser ${dialog.type()} dialog is open: ${JSON.stringify(message)}. Answer it with the dialog tool.`;
+      // A dialog before the first capture leaves nothing to show but the dialog.
+      current = {
+        ...(current ?? { capture: null, screenshotId: null, url: page.url() }),
+        id: pad('o', observations++),
+        snapshot: { text: snapshot, refs: new Set() },
+      };
+      options.onEvent?.('observation.created', { observationId: current.id, screenshotId: current.screenshotId });
+      return;
+    }
+    const { capture, state, snapshot } = observed;
     const screenshotId = pad('shot-', shots++);
     await writeFile(join(options.screenshotsDir, `${screenshotId}.png`), capture.png, { mode: 0o600 });
-    current = { id: pad('o', observations++), capture, screenshotId, url: page.url(), ...state };
+    current = { id: pad('o', observations++), capture, screenshotId, url: page.url(), snapshot, ...state };
     options.onEvent?.('observation.created', { observationId: current.id, screenshotId });
   };
 
@@ -343,7 +414,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     call: ToolCall,
     started: number,
     result: StepRecord['result'],
-    extra: Partial<Pick<StepRecord, 'target' | 'recipient' | 'afterScreenshotId' | 'output'>> & {
+    extra: Partial<Pick<StepRecord, 'target' | 'recipient' | 'afterScreenshotId' | 'output' | 'dialog'>> & {
       before?: typeof current;
     } = {},
   ): StepRecord => {
@@ -368,6 +439,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       pageUrl: safeUrl(page.url(), secrets),
       ...(extra.target ? { target: extra.target } : {}),
       ...(extra.recipient === undefined ? {} : { recipient: extra.recipient }),
+      ...(extra.dialog ? { dialog: extra.dialog } : {}),
       ...(extra.output === undefined ? {} : { output: secrets.redact(extra.output) }),
       ...(extra.afterScreenshotId && current
         ? {
@@ -387,7 +459,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     const progressed =
       step.result.status === 'ok' &&
       after !== null &&
-      (!before || before.url !== after.url || !before.capture.png.equals(after.capture.png));
+      (!before ||
+        before.url !== after.url ||
+        !(before.capture && after.capture && before.capture.png.equals(after.capture.png)));
     if (progressed || call.name === 'navigate' || (REPORT_TOOLS.has(call.name) && step.result.status === 'ok')) {
       ineffective = { key: '', count: 0 };
       recentKeys = [];
@@ -414,7 +488,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   if (startDenied) return agentError('browser_error', `start URL rejected: ${startDenied}`);
   try {
     await installMaskGuard(page.context());
-    await bounded(page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) }));
+    await act(page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) }));
     await observe();
   } catch (error) {
     if (error instanceof InterruptError) return interrupted();
@@ -497,8 +571,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         meter.enforcement === 'step_time_only'
           ? 'cost unknown'
           : `$${(limits.dollars - meter.spentUsd).toFixed(2)} left`;
-      const text = [
-        `Observation ${observation.id}: screenshot ${observation.capture.width}x${observation.capture.height} px of ${safeUrl(page.url(), secrets)}.`,
+      const observed = [
+        textMode
+          ? `Observation ${observation.id}: text snapshot of ${safeUrl(page.url(), secrets)}.`
+          : `Observation ${observation.id}: screenshot ${observation.capture!.width}x${observation.capture!.height} px of ${safeUrl(page.url(), secrets)}.`,
         `Latest step: ${lastStep.id}. Budget: ${limits.steps - attempts} steps, ${Math.floor(remainingMs / 1000)} s, ${dollars}.`,
         secrets.names.length > 0
           ? `Secret placeholders available for ${keyboard ? 'type' : 'fill'}: ${secrets.names.map((name) => `{{${name}}}`).join(', ')}.`
@@ -506,6 +582,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         keyboard && observation.focus !== undefined
           ? `Focus: ${observation.focus ? focusLabel(observation.focus) : 'none'}`
           : '',
+        ...notices.splice(0),
+        observation.snapshot === undefined ? '' : `Snapshot:\n${observation.snapshot.text}`,
       ]
         .filter(Boolean)
         .join('\n');
@@ -514,22 +592,26 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         effort: options.effort,
         instructions,
         history: [...history],
-        observation: {
-          kind: 'vision' as const,
-          id: observation.id,
-          text,
-          pngBase64: observation.capture.png.toString('base64'),
-        },
+        observation: textMode
+          ? { kind: 'text' as const, id: observation.id, text: observed }
+          : {
+              kind: 'vision' as const,
+              id: observation.id,
+              text: observed,
+              pngBase64: observation.capture!.png.toString('base64'),
+            },
         tools,
         maxOutputTokens,
       };
-      const outboundText = [instructions, ...history, text, ...(customText ? [customText] : [])].join('\n');
+      const outboundText = [instructions, ...history, observed, ...(customText ? [customText] : [])].join('\n');
       if (secrets.leaks(outboundText))
         return agentError('browser_error', 'a registered secret appeared in outbound text; provider call suppressed');
 
       // shortcut: unmeasured conservative token bound; replace with Phase 0 measured per-call components.
       const inputBound =
-        bytes(outboundText) + 4000 + Math.ceil((observation.capture.width * observation.capture.height) / 500);
+        bytes(outboundText) +
+        4000 +
+        (textMode ? 0 : Math.ceil((observation.capture!.width * observation.capture!.height) / 500));
       let decision: Decision | null = null;
       for (let attempt = 0; attempt < 2 && !decision; attempt += 1) {
         const reserved = meter.reserve(inputBound, maxOutputTokens);
@@ -637,20 +719,67 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         reject('stale_observation', `observation ${String(args.observationId)} is not current (${observation.id})`);
         continue;
       }
-      const point = (args as { target?: { kind: string; x: number; y: number } | null }).target;
-      if (point && point.kind !== 'point') {
-        reject('reference_in_vision_mode', 'vision mode accepts point targets only');
+      if (openDialog && call.name !== 'dialog') {
+        reject('dialog_open', 'a browser dialog is open; answer it with the dialog tool first');
+        continue;
+      }
+      if (call.name === 'dialog') {
+        const dialog = openDialog as Dialog | null;
+        if (!dialog) {
+          reject('no_dialog', 'no browser dialog is open');
+          continue;
+        }
+        let answer: string | undefined;
+        try {
+          answer = args.text === undefined ? undefined : secrets.substitute(String(args.text));
+        } catch (error) {
+          if (!(error instanceof SecretError)) throw error;
+          reject('unknown_placeholder', error.message);
+          continue;
+        }
+        openDialog = null;
+        await bounded(args.action === 'accept' ? dialog.accept(answer) : dialog.dismiss());
+        const failure = await observeAfter(
+          call,
+          started,
+          { status: 'ok' },
+          {
+            dialog: {
+              type: dialog.type(),
+              message: secrets.redact(dialog.message()).slice(0, 500),
+              openedBy: dialogOpenedBy,
+            },
+          },
+        );
+        if (failure) return failure;
+        continue;
+      }
+      const point = (args as { target?: { kind: string; x: number; y: number; ref: string } | null }).target;
+      if (point && point.kind !== (textMode ? 'ref' : 'point')) {
+        if (textMode) reject('point_in_text_mode', 'text mode accepts ref targets only');
+        else reject('reference_in_vision_mode', 'vision mode accepts point targets only');
         continue;
       }
       if (point) {
-        const css = screenshotToCss(point, observation.capture, observation.capture.viewport);
-        if (!css) {
+        const unsafe = (candidate: string): boolean => secrets.contains(candidate);
+        const css = textMode ? null : screenshotToCss(point, observation.capture!, observation.capture!.viewport);
+        if (!textMode && !css) {
           reject('point_outside_screenshot', 'point lies outside the screenshot');
           continue;
         }
         const resolved = await bounded(
-          resolvePoint(page, css, { unsafe: (candidate) => secrets.contains(candidate), sinceCapture: true }),
+          textMode
+            ? resolveRef(page, point.ref, { unsafe, timeout: actionTimeout(0.2) })
+            : resolvePoint(page, css!, { unsafe, sinceCapture: true }),
         );
+        if (textMode && !observation.snapshot?.refs.has(point.ref)) {
+          reject('unknown_ref', `ref ${point.ref} is not in the current snapshot`);
+          continue;
+        }
+        if (!resolved.ok && resolved.reason === 'unknown_ref') {
+          reject('unknown_ref', `ref ${point.ref} is not in the current snapshot`);
+          continue;
+        }
         if (!resolved.ok && resolved.reason === 'changed_since_capture') {
           const failure = await observeAfter(call, started, {
             status: 'rejected',
@@ -661,6 +790,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           continue;
         }
         if (
+          !textMode &&
           (await bounded(selectListOpen(page))) &&
           !(resolved.ok && (await bounded(resolved.locator.evaluate((element) => element.matches('select:open')))))
         ) {
@@ -677,7 +807,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         target = {
           locator: resolved.descriptor,
           stability: resolved.stability,
-          screenshotPoint: { x: point.x, y: point.y },
+          ...(textMode ? {} : { screenshotPoint: { x: point.x, y: point.y } }),
           position: resolved.position,
           tag: resolved.tag,
         };
@@ -691,14 +821,23 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         try {
           if (call.name === 'click') {
             const clickOptions = { position: resolved.position, timeout: actionTimeout() };
-            await bounded(options.hasTouch ? resolved.locator.tap(clickOptions) : resolved.locator.click(clickOptions));
+            await act(options.hasTouch ? resolved.locator.tap(clickOptions) : resolved.locator.click(clickOptions));
           } else if (call.name === 'fill') {
             const value = secrets.substitute(String(args.value));
             if (resolved.tag === 'select')
-              await bounded(resolved.locator.selectOption({ label: value }, { timeout: actionTimeout() }));
-            else await bounded(resolved.locator.fill(value, { timeout: actionTimeout() }));
-            if (secrets.hasPlaceholder(String(args.value)))
-              await resolved.locator.evaluate((element) => element.setAttribute('data-cohort-masked', ''));
+              await act(resolved.locator.selectOption({ label: value }, { timeout: actionTimeout() }));
+            else await act(resolved.locator.fill(value, { timeout: actionTimeout() }));
+            if (secrets.hasPlaceholder(String(args.value))) {
+              const field = resolved.locator;
+              const mark = async (): Promise<void> => {
+                if ((await field.count()) > 0)
+                  await field.evaluate((element) => element.setAttribute('data-cohort-masked', ''), undefined, {
+                    timeout: actionTimeout(),
+                  });
+              };
+              if (openDialog) pendingMarks.push(mark);
+              else await bounded(mark());
+            }
           } else {
             await bounded(resolved.locator.hover({ position: resolved.position, timeout: actionTimeout() }));
             await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
@@ -719,7 +858,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           continue;
         }
       } else if (call.name === 'scroll') {
-        const viewport = observation.capture.viewport;
+        const viewport = observation.capture?.viewport ?? page.viewportSize() ?? { width: 0, height: 0 };
         await page.mouse.move(viewport.width / 2, viewport.height / 2);
         await page.mouse.wheel(Number(args.deltaX), Number(args.deltaY));
       } else if (call.name === 'press') {
@@ -740,7 +879,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           reject('action_refused', refused);
           continue;
         }
-        await page.keyboard.press(String(args.key));
+        await act(page.keyboard.press(String(args.key)));
       } else if (call.name === 'type') {
         const typed = String(args.text);
         let value: string;
@@ -762,12 +901,31 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           );
         if (secrets.contains(value)) {
           // Auto-advancing fields split a secret across inputs, so mark each recipient before its character.
+          let sent = 0;
           for (const char of value) {
+            if (openDialog) break;
             await markFocused();
-            await bounded(page.keyboard.type(char));
+            await act(page.keyboard.type(char));
+            sent += 1;
           }
-          await markFocused();
-        } else await bounded(page.keyboard.type(value));
+          if (openDialog) {
+            pendingMarks.push(markFocused);
+            if (sent < [...value].length) {
+              const failure = await observeAfter(
+                call,
+                started,
+                {
+                  status: 'error',
+                  code: 'dialog_open',
+                  message: 'a browser dialog opened while typing; the rest was not typed',
+                },
+                { recipient },
+              );
+              if (failure) return failure;
+              continue;
+            }
+          } else await markFocused();
+        } else await act(page.keyboard.type(value));
       } else if (call.name === 'wait') {
         await bounded(page.waitForTimeout(Math.min(Number(args.ms), Math.max(0, deadline - Date.now()))));
       } else if (call.name === 'goto') {
@@ -817,7 +975,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     call: ToolCall,
     started: number,
     result: StepRecord['result'],
-    fields: Pick<StepRecord, 'target' | 'recipient'> = {},
+    fields: Pick<StepRecord, 'target' | 'recipient' | 'dialog'> = {},
   ): Promise<AgentResult | null> {
     await bounded(page.waitForLoadState('domcontentloaded', { timeout: actionTimeout() })).catch((error: unknown) => {
       if (error instanceof InterruptError) throw error;

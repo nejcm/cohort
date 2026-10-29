@@ -45,7 +45,7 @@ const reference: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'ref'],
-  properties: { kind: { const: 'ref' }, ref: { type: 'string', pattern: '^e[0-9]+$' } },
+  properties: { kind: { const: 'ref' }, ref: { type: 'string', pattern: '^(f[0-9]+)?e[0-9]+$' } },
 };
 const target: JsonSchema = { oneOf: [point, reference] };
 
@@ -126,9 +126,28 @@ export const BUILTIN_TOOLS: readonly ToolDefinition[] = [
 
 const POINTER_TOOLS = new Set(['click', 'fill', 'scroll']);
 
-/** The built-in tools offered for a persona's input; `keyboard` drops the pointer tools. */
-export function toolsFor(input?: 'keyboard'): readonly ToolDefinition[] {
-  return input === 'keyboard' ? BUILTIN_TOOLS.filter((tool) => !POINTER_TOOLS.has(tool.name)) : BUILTIN_TOOLS;
+const DIALOG_TOOL: ToolDefinition = {
+  name: 'dialog',
+  description: 'Accept or dismiss the open browser dialog; text answers a prompt dialog.',
+  parameters: args(['observationId', 'action'], {
+    observationId,
+    action: { enum: ['accept', 'dismiss'] },
+    text: { type: 'string', maxLength: 4096 },
+  }),
+};
+
+/** The built-in tools offered for a persona's input and mode; `keyboard` drops the pointer tools, `text` adds `dialog`. */
+export function toolsFor(input?: 'keyboard', mode: 'vision' | 'text' = 'vision'): readonly ToolDefinition[] {
+  const tools = input === 'keyboard' ? BUILTIN_TOOLS.filter((tool) => !POINTER_TOOLS.has(tool.name)) : BUILTIN_TOOLS;
+  if (mode === 'vision') return tools;
+  return [
+    ...tools.map((tool) =>
+      tool.name === 'click'
+        ? { ...tool, description: 'Click (or tap on touch devices) an element of the current snapshot by its ref.' }
+        : tool,
+    ),
+    DIALOG_TOOL,
+  ];
 }
 
 export function validateToolCall(call: ToolCall, tools: readonly ToolDefinition[] = BUILTIN_TOOLS): string | null {

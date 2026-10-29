@@ -20,6 +20,8 @@ export interface StepRecord {
   /** The element focused when a `type` began; null when only the page had focus, absent when unresolvable. */
   recipient?: LocatorDescriptor | null;
   result: { status: 'ok' } | { status: 'rejected' | 'error'; code: string; message: string };
+  /** The dialog a `dialog` step answered: its type, redacted message, and the step that was running when it opened. */
+  dialog?: { type: string; message: string; openedBy: string | null };
   /** Redacted text a custom tool returned to the model. */
   output?: string;
   beforeScreenshotId: string | null;

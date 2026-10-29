@@ -9,7 +9,7 @@ import { MASK_RGB } from '../../src/browser/observations.ts';
 import { run } from '../../src/cli.ts';
 import { PERSONA_GUIDANCE } from '../../src/personas/generate.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
-import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
+import { imageOf, fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 import { decodePng } from '../helpers/png.ts';
 
 let fixture: FixtureServer;
@@ -134,7 +134,7 @@ test('generation previews a validated persona and stays on its landing page', as
   assert.doesNotMatch(JSON.stringify(request), /query-secret-99|dom-secret-77/u);
   assert.match(text, /\[masked\][\s\S]*\{\{url_value_\d+\}\}/u);
   // The 1280px viewport is sent at 1024px, so CSS pixels scale by 0.8.
-  const png = decodePng(Buffer.from(request!.observation.pngBase64, 'base64'));
+  const png = decodePng(imageOf(request!));
   assert.ok(masked(png, 864, 24), 'masked element hidden in the screenshot');
   assert.ok(masked(png, 864, 104), 'echoed query token hidden in the screenshot');
   assert.ok(!hits.includes('/elsewhere'), 'no navigation beyond the landing page');
@@ -156,7 +156,7 @@ test('structured query and fragment parameters stay out of the model text and sc
     const [request] = provider.requests.slice(sent);
     assert.ok(!JSON.stringify(request).includes(canary), suffix);
     assert.match(request!.observation.text, /\[masked\][\s\S]*\{\{url_value_\d+\}\}/u, suffix);
-    const png = decodePng(Buffer.from(request!.observation.pngBase64, 'base64'));
+    const png = decodePng(imageOf(request!));
     assert.ok(masked(png, 864, 104), `echoed token hidden in the screenshot: ${suffix}`);
   }
 });

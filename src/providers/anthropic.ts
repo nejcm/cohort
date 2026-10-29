@@ -38,10 +38,14 @@ export function createAnthropicAdapter(options: AdapterOptions = {}): ProviderAd
           {
             role: 'user',
             content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: 'image/png', data: request.observation.pngBase64 },
-              },
+              ...(request.observation.kind === 'vision'
+                ? [
+                    {
+                      type: 'image',
+                      source: { type: 'base64', media_type: 'image/png', data: request.observation.pngBase64 },
+                    },
+                  ]
+                : []),
               { type: 'text', text: userText(request) },
             ],
           },

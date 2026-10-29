@@ -304,10 +304,8 @@ test('submissions reject client-supplied provider or catalog metadata and incomp
   assert.equal(adhoc!.setup, null);
   assert.deepEqual(adhoc!.request.limits, { steps: 40, timeMs: 600_000, dollars: 1 });
   assert.match(adhoc!.task, /first time.*\n\nGoal: Find the contact page\.$/su);
-  await assert.rejects(
-    resolve({ selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/', mode: 'text' }),
-    /text mode/u,
-  );
+  const [text] = await resolve({ selector: { kind: 'persona', id: 'zed' }, url: 'http://a.test/', mode: 'text' });
+  assert.equal(text!.request.mode, 'text');
   await assert.rejects(resolve({ selector: { kind: 'persona', id: 'zed' } }), /no start URL/u);
 });
 

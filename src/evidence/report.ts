@@ -48,7 +48,7 @@ const SENSITIVITY_WARNING =
 const MODE_WARNINGS: Record<RunReport['mode'], string> = {
   vision:
     "Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport, except that keyboard-input personas are also told the focused element's role and name, even when it is off screen.",
-  text: 'Text mode: the agent saw an accessibility-style text representation, not the rendered page; visual-only problems are invisible to it.',
+  text: 'Text mode: the agent saw an accessibility-style text representation, not the rendered page; visual-only problems are invisible to it. Text perception can overstate usability: accessible names and structure may reveal controls a visual user would struggle to find.',
 };
 const VERIFICATION_NOTE =
   'A completed outcome is an agent declaration unless marked harness_verified; it is not an automatic end-to-end assertion.';

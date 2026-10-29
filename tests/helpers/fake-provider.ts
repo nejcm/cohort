@@ -40,6 +40,11 @@ export function fakeProvider(turns: Turn | Turn[], usage: Partial<Usage> = {}): 
   };
 }
 
+export function imageOf(request: DecideRequest): Buffer {
+  if (request.observation.kind !== 'vision') throw new Error('text observations carry no image');
+  return Buffer.from(request.observation.pngBase64, 'base64');
+}
+
 /** Screenshot-space center of a locator for the current observation. */
 export async function pointOf(
   page: Page,
@@ -49,7 +54,7 @@ export async function pointOf(
   const box = await locator.boundingBox();
   const viewport = page.viewportSize();
   if (!box || !viewport) throw new Error('target not visible');
-  const image = pngSize(Buffer.from(request.observation.pngBase64, 'base64'));
+  const image = pngSize(imageOf(request));
   return {
     kind: 'point',
     x: Math.round(((box.x + box.width / 2) * image.width) / viewport.width),
