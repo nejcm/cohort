@@ -30,7 +30,7 @@
     <ul class="item-list">
       {#each suites as suite (suite.id)}
         <li>
-          <a href="#/suites/{encodeURIComponent(suite.id)}" aria-current={suite.id === id ? 'page' : undefined}>
+          <a href="/suites/{encodeURIComponent(suite.id)}" aria-current={suite.id === id ? 'page' : undefined}>
             <span class="id">{suite.name ?? suite.id}</span>
             <span class="sub">{suite.entries} entries{#if suite.error} · <span class="badge failed">invalid</span>{/if}</span>
           </a>

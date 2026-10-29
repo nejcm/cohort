@@ -107,7 +107,7 @@
   <ul class="tabs" aria-label="Filter runs">
     {#each TABS as [key, label] (key)}
       <li>
-        <a href={key ? `#/runs?f=${key}` : '#/runs'} aria-current={filter === key || (!FILTERS[filter] && !key) ? 'true' : undefined}>
+        <a href={key ? `/runs?f=${key}` : '/runs'} aria-current={filter === key || (!FILTERS[filter] && !key) ? 'true' : undefined}>
           {label} <span class="n">{key ? count(FILTERS[key]!) : runs.length}</span>
         </a>
       </li>
@@ -127,7 +127,7 @@
       <tbody>
         {#each shown as run (run.id)}
           <tr>
-            <td><a class="rid" href="#/runs/{encodeURIComponent(run.id)}">{run.id}</a></td>
+            <td><a class="rid" href="/runs/{encodeURIComponent(run.id)}">{run.id}</a></td>
             <td>
               <span class="st">
                 <span class="badge {badge(run.status, run.outcome, run.interruptedBy)}">{statusLabel(run)}</span>

@@ -5,14 +5,15 @@
   import RunDetail from './RunDetail.svelte';
   import RunDialog from './RunDialog.svelte';
   import Runs from './Runs.svelte';
+  import { navigate } from './nav.ts';
   import Suites from './Suites.svelte';
 
   const token = bootstrapToken();
-  let hash = $state(location.hash);
+  let path = $state(location.pathname.slice(1));
+  let query = $state(location.search);
   let navOpen = $state(false);
   let dialog: RunDialog | undefined = $state();
 
-  const [path, query] = $derived(hash.replace(/^#\/?/u, '').split('?') as [string, string | undefined]);
   const route = $derived(
     path.split('/').map((part) => {
       try {
@@ -25,17 +26,39 @@
   const section = $derived(['runs', 'personas', 'suites'].includes(route[0]!) ? route[0]! : 'runs');
   const title = $derived(section[0]!.toUpperCase() + section.slice(1));
   const filter = $derived(new URLSearchParams(query).get('f') ?? '');
+
+  function follow(event: MouseEvent): void {
+    const link = (event.target as Element).closest('a');
+    if (
+      !link ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      link.target ||
+      link.hasAttribute('download') ||
+      link.origin !== location.origin ||
+      link.pathname.startsWith('/api/')
+    )
+      return;
+    event.preventDefault();
+    navigate(link.pathname + link.search);
+  }
 </script>
 
 <svelte:window
-  onhashchange={() => {
-    hash = location.hash;
+  onclick={follow}
+  onpopstate={() => {
+    path = location.pathname.slice(1);
+    query = location.search;
     navOpen = false;
   }}
 />
 
 {#snippet brand()}
-  <a class="brand" href="#/runs"><Logo /><span>cohort<span class="stop">.</span></span></a>
+  <a class="brand" href="/runs"><Logo /><span>cohort<span class="stop">.</span></span></a>
 {/snippet}
 
 {#if !token}
@@ -56,17 +79,17 @@
       <nav aria-label="Main">
         <ul>
           <li>
-            <a href="#/runs" aria-current={section === 'runs' ? 'page' : undefined}>
+            <a href="/runs" aria-current={section === 'runs' ? 'page' : undefined}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 3.5l7 4.5-7 4.5z" stroke-linejoin="round" /></svg>Runs
             </a>
           </li>
           <li>
-            <a href="#/personas" aria-current={section === 'personas' ? 'page' : undefined}>
+            <a href="/personas" aria-current={section === 'personas' ? 'page' : undefined}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.5 2.7-3.5 5-3.5s4.2 1 5 3.5" stroke-linecap="round" /></svg>Personas
             </a>
           </li>
           <li>
-            <a href="#/suites" aria-current={section === 'suites' ? 'page' : undefined}>
+            <a href="/suites" aria-current={section === 'suites' ? 'page' : undefined}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3" rx="1" /><rect x="2.5" y="9" width="11" height="3" rx="1" /></svg>Suites
             </a>
           </li>
@@ -81,7 +104,7 @@
       <span class="crumb">
         <span class="host mono">{location.host}</span><span class="sep" aria-hidden="true">/</span>
         {#if route[1]}
-          <a class="up" href="#/{section}">{title}</a><span class="sep up" aria-hidden="true">/</span><b class="mono">{route[1]}</b>
+          <a class="up" href="/{section}">{title}</a><span class="sep up" aria-hidden="true">/</span><b class="mono">{route[1]}</b>
         {:else}
           <b>{title}</b>
         {/if}

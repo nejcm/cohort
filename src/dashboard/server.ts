@@ -600,9 +600,8 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
   }
 
   async function serveStatic(pathname: string, response: ServerResponse): Promise<void> {
-    const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
-    if (!/^[\w-]+(\/[\w-]+)*\.[a-z0-9]+$/u.test(relative) || !STATIC_TYPES[extname(relative)])
-      throw new HttpError(404, 'not found');
+    const file = pathname.slice(1);
+    const relative = /^[\w-]+(\/[\w-]+)*\.[a-z0-9]+$/u.test(file) && STATIC_TYPES[extname(file)] ? file : 'index.html';
     const handle = await open(
       join(assetsDir, relative),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,

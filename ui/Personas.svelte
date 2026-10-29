@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, usd, type Models } from './api.ts';
+  import { navigate } from './nav.ts';
   import Editor from './Editor.svelte';
   import ModelPicker from './ModelPicker.svelte';
 
@@ -70,7 +71,7 @@ Describe who this person is and how they behave.
       draft = TEMPLATE;
       generated = null;
       await list();
-      location.hash = `#/personas/${encodeURIComponent(saved.id)}`;
+      navigate(`/personas/${encodeURIComponent(saved.id)}`);
     } catch (caught) {
       draftError = (caught as Error).message;
     }
@@ -100,13 +101,13 @@ Describe who this person is and how they behave.
 
 {#if id === 'new'}
   <div class="head-stack">
-    <a class="back" href="#/personas">← Personas</a>
+    <a class="back" href="/personas">← Personas</a>
     <div class="page-head"><div class="title"><h1>New persona</h1></div></div>
   </div>
 {:else}
   <div class="page-head">
     <div class="title"><h1>Personas</h1></div>
-    <div class="actions"><a class="button" href="#/personas/new">New persona</a></div>
+    <div class="actions"><a class="button" href="/personas/new">New persona</a></div>
     <p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <span class="mono">.cohort/personas/</span>, each a Markdown file with YAML frontmatter.</p>
   </div>
 {/if}
@@ -164,7 +165,7 @@ Describe who this person is and how they behave.
       <ul class="item-list">
         {#each personas as persona (persona.id)}
           <li>
-            <a href="#/personas/{encodeURIComponent(persona.id)}" aria-current={persona.id === id ? 'page' : undefined}>
+            <a href="/personas/{encodeURIComponent(persona.id)}" aria-current={persona.id === id ? 'page' : undefined}>
               <span class="id">{persona.name ?? persona.id}</span>
               <span class="sub">
                 {persona.tags.join(' · ')}

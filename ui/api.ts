@@ -15,7 +15,7 @@ export function bootstrapToken(): string | null {
   const match = /^#token=([\w-]+)$/u.exec(location.hash);
   if (match) {
     sessionStorage.setItem(TOKEN_KEY, match[1]!);
-    history.replaceState(null, '', `${location.pathname}#/runs`);
+    history.replaceState(null, '', '/runs');
   }
   return sessionStorage.getItem(TOKEN_KEY);
 }

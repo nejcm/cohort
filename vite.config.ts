@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 // Builds the dashboard into dist/ui, which `cohort ui` serves under a CSP without inline scripts or styles.
 export default defineConfig({
   root: 'ui',
-  base: './',
+  base: '/',
   plugins: [svelte()],
   build: {
     outDir: '../dist/ui',

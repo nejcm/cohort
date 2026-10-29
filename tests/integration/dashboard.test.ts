@@ -193,7 +193,14 @@ test('every API route requires the bearer token; static assets carry the CSP', a
     (await call('GET', '/app.js', { auth: false })).headers['content-type'],
     'text/javascript; charset=utf-8',
   );
-  assert.equal((await call('GET', '/../config.yml', { auth: false })).status, 404);
+  assert.match(
+    (await call('GET', '/../config.yml', { auth: false })).headers['content-type'] as string,
+    /^text\/html/u,
+  );
+  assert.equal((await call('GET', '/missing.js', { auth: false })).status, 404);
+  const route = await call('GET', '/runs/abc', { auth: false });
+  assert.equal(route.status, 200);
+  assert.match(route.headers['content-type'] as string, /^text\/html/u);
   assert.match(dashboard.url, /^http:\/\/127\.0\.0\.1:\d+\/#token=[\w-]{43}$/u);
 });
 

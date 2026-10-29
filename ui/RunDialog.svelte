@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, usd, type Models, type ProjectDefaults } from './api.ts';
+  import { navigate } from './nav.ts';
   import ModelPicker from './ModelPicker.svelte';
 
   interface Plan {
@@ -133,7 +134,7 @@
     try {
       const result = await api<{ runIds: string[] }>('POST', '/api/runs', { submission, allowUntested });
       dialog.close();
-      location.hash = `#/runs/${encodeURIComponent(result.runIds[0]!)}`;
+      navigate(`/runs/${encodeURIComponent(result.runIds[0]!)}`);
     } catch (error) {
       previewError = (error as Error).message;
     } finally {

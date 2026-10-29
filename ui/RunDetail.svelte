@@ -215,7 +215,7 @@
 </script>
 
 <div class="head-stack">
-  <a class="back" href="#/runs">← Runs</a>
+  <a class="back" href="/runs">← Runs</a>
   {#if run}
     <div class="page-head">
       <div class="title">

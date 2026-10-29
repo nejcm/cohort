@@ -135,7 +135,7 @@ test('the built assets load under the CSP with no inline code and the token leav
     if (name.endsWith('.js'))
       assert.doesNotMatch(await readFile(join(assets, 'assets', name), 'utf8'), /\beval\(|new Function\(/u);
   await page.getByRole('heading', { name: 'Runs' }).waitFor();
-  assert.equal(new URL(page.url()).hash, '#/runs');
+  assert.equal(new URL(page.url()).pathname, '/runs');
   assert.ok(!page.url().includes(dashboard.token));
   assert.equal(await page.evaluate(() => sessionStorage.getItem('cohort-token')), dashboard.token);
 
@@ -252,7 +252,7 @@ test('a dispatched run streams live steps, cancels nothing finished, and offers 
   await dialog.getByText(/estimate \$/u).waitFor();
   await page.locator('#run-url').focus();
   await page.keyboard.press('Enter');
-  await page.waitForURL(/#\/runs\/run_/u);
+  await page.waitForURL(/\/runs\/run_/u, { waitUntil: 'commit' });
   await blocker.reached;
   await page.getByRole('button', { name: 'Cancel run' }).waitFor();
   const timeline = page.getByRole('toolbar', { name: /Screenshots/u });
@@ -274,7 +274,7 @@ test('a dispatched run streams live steps, cancels nothing finished, and offers 
   assert.equal(download.suggestedFilename(), 'trace.zip');
   assert.ok((await readFile((await download.path())!)).subarray(0, 2).equals(Buffer.from('PK')));
 
-  await page.goto(`${dashboard.origin}/#/runs`);
+  await page.goto(`${dashboard.origin}/runs`);
   const row = page.getByRole('row').filter({ hasText: 'guest' }).first();
   await row.getByText('completed').waitFor();
   await row.getByText('openai/priced · medium').waitFor();
@@ -295,7 +295,7 @@ test('queued and running runs cancel from the run view', async () => {
     });
     return (await response.json()) as { runIds: string[] };
   }, `${fixture.url}/`);
-  await page.goto(`${dashboard.origin}/#/runs/${started.runIds[0]}`);
+  await page.goto(`${dashboard.origin}/runs/${started.runIds[0]}`);
   await blocker.reached;
   await page.getByRole('button', { name: 'Cancel run' }).focus();
   await page.keyboard.press('Enter');
@@ -308,7 +308,7 @@ test('queued and running runs cancel from the run view', async () => {
 });
 
 test('persona edits keep the user text on a revision conflict and keep setup read-only', async () => {
-  await page.goto(`${dashboard.origin}/#/personas/guest`);
+  await page.goto(`${dashboard.origin}/personas/guest`);
   const source = page.locator('#editor-source');
   await source.waitFor();
   await page.waitForFunction(() =>
@@ -340,7 +340,7 @@ test('persona edits keep the user text on a revision conflict and keep setup rea
   await page.getByText('Saved .cohort/personas/guest.md.').waitFor();
   assert.match(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), /Saved now\./u);
 
-  await page.goto(`${dashboard.origin}/#/personas/scripted`);
+  await page.goto(`${dashboard.origin}/personas/scripted`);
   await page.getByText('is read-only here').waitFor();
   await page.waitForFunction(() =>
     (document.querySelector('#editor-source') as HTMLTextAreaElement).value.includes('setup:'),
@@ -352,13 +352,13 @@ test('persona edits keep the user text on a revision conflict and keep setup rea
     .getByText(/read-only/u)
     .waitFor();
 
-  await page.goto(`${dashboard.origin}/#/personas/hostile`);
+  await page.goto(`${dashboard.origin}/personas/hostile`);
   await page.getByRole('link', { name: '<img src=x onerror="window.pwned=1">' }).waitFor();
   assert.equal(await page.evaluate(() => (window as { pwned?: number }).pwned), undefined);
 });
 
 test('suite pickers write model and effort into the YAML; ad-hoc runs save to a suite', async () => {
-  await page.goto(`${dashboard.origin}/#/suites/smoke`);
+  await page.goto(`${dashboard.origin}/suites/smoke`);
   await page.locator('#entry-0-model').waitFor();
   await page.locator('#entry-0-model').focus();
   await page.keyboard.press('ArrowDown');
@@ -395,7 +395,7 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
 
 test('the persona generator form previews a draft without saving it', async () => {
   turn = () => ({ name: 'write_persona', args: { markdown: PERSONA('drafted', 'Drafted') } });
-  await page.goto(`${dashboard.origin}/#/personas/new`);
+  await page.goto(`${dashboard.origin}/personas/new`);
   await page.locator('#gen-url').fill(`${fixture.url}/`);
   await page.locator('#gen-description').fill('A first-time visitor.');
   await page.locator('#gen-model').selectOption('openai/priced');
@@ -407,7 +407,7 @@ test('the persona generator form previews a draft without saving it', async () =
 });
 
 test('typing during a save is kept as unsaved text', async () => {
-  await page.goto(`${dashboard.origin}/#/personas/trial`);
+  await page.goto(`${dashboard.origin}/personas/trial`);
   const source = page.locator('#editor-source');
   await page.waitForFunction(() =>
     (document.querySelector('#editor-source') as HTMLTextAreaElement | null)?.value.includes('You are a guest.'),
@@ -457,7 +457,7 @@ test('a run view picks up comparison claims added after its own run finished', a
     });
     return (await response.json()) as { runIds: string[] };
   }, `${fixture.url}/`);
-  await page.goto(`${dashboard.origin}/#/runs/${started.runIds[0]}`);
+  await page.goto(`${dashboard.origin}/runs/${started.runIds[0]}`);
   await blocker.reached;
   await page.getByRole('heading', { name: 'Outcome: completed' }).waitFor();
   await page.getByRole('heading', { name: 'Friction claims (0)' }).waitFor();
@@ -483,7 +483,7 @@ test('polling while a run is active keeps rows loaded through Load more', async 
       artifact_dir: `.cohort/runs/${id}`,
     });
   try {
-    await page.goto(`${dashboard.origin}/#/runs`);
+    await page.goto(`${dashboard.origin}/runs`);
     await page.getByRole('button', { name: 'Load more' }).click();
     const rows = page.locator('table.runs tbody tr');
     await page.waitForFunction(() => document.querySelectorAll('table.runs tbody tr').length > 50);
