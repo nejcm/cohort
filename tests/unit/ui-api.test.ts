@@ -9,6 +9,7 @@ import {
   fieldProblems,
   formProblem,
   moveAt,
+  multiline as isMultiline,
   readAt,
   setAt,
   withBody,
@@ -358,6 +359,10 @@ test('suite form fields carry list indexes, and form edits round-trip to a valid
       ['entries', 1, 'url'],
       ['entries', 1, 'note'],
     ],
+  );
+  assert.deepEqual(
+    fields.map((field) => isMultiline(field.schema)),
+    [false, true, false, true],
   );
   const original = 'schemaVersion: 1\nid: s # keep\nname: S\nentries:\n  - persona: guest\n';
   assert.equal(formProblem(original, suiteSchema, false), null);

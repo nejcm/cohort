@@ -116,7 +116,7 @@ export function fieldGroups(
   ];
 }
 
-export const multiline = (schema: JsonSchema): boolean => (schema.maxLength ?? 0) > 200;
+export const multiline = (schema: JsonSchema): boolean => (schema.maxLength ?? 0) > 200 && !schema.pattern;
 
 function mismatch(schema: JsonSchema, value: unknown, at: string): string | null {
   if (value === undefined) return null;

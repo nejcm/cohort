@@ -448,6 +448,12 @@ test('a new suite is built from form controls', async () => {
   await page.locator('#suite-entries-1-note').fill('Second.');
   await page.getByRole('button', { name: 'Move entry 2 up' }).click();
   assert.equal(await page.locator('#suite-entries-0-note').inputValue(), 'Second.');
+  const toggle = page.getByRole('button', { name: /^Entry 1:/u });
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+  assert.ok(await page.locator('#suite-entries-0-note').isHidden());
+  await toggle.click();
+  assert.ok(await page.locator('#suite-entries-0-note').isVisible());
   await page.getByRole('button', { name: 'Validate and create' }).click();
   await page.locator('#editor-entries-0-persona').waitFor();
   const created = await readFile(join(root, '.cohort/suites/formed-suite.yml'), 'utf8');

@@ -33,6 +33,7 @@
   const problem = $derived(formProblem(source, schema, false));
   let raw = $state(false);
   let editError = $state('');
+  let collapsed = $state<boolean[]>([]);
   const read = (path: Path): unknown => readAt(source, path, false);
   const entries = $derived.by(() => {
     const found = read(['entries']);
@@ -78,6 +79,7 @@
   function move(index: number, by: number): void {
     try {
       source = moveAt(source, ['entries'], index, index + by);
+      collapsed.splice(index + by, 0, ...collapsed.splice(index, 1));
       editError = '';
     } catch (caught) {
       editError = (caught as Error).message;
@@ -132,13 +134,28 @@
     {#each entries as entry, index (index)}
       {@const model = picker(['entries', index, 'model'])}
       {@const effort = picker(['entries', index, 'effort'])}
-      <fieldset>
-        <legend>Entry {index + 1}: {(entry as { persona?: string } | null)?.persona || '?'}</legend>
-        <div class="list-row">
-          <button type="button" class="sm" disabled={index === 0} onclick={() => move(index, -1)} aria-label="Move entry {index + 1} up">Up</button>
+      {@const shown = entry as { persona?: string; goal?: string } | null}
+      <fieldset class="entry">
+        <legend>
+          <button
+            type="button"
+            class="link"
+            aria-expanded={!collapsed[index]}
+            aria-controls="{idPrefix}-entry-{index}-body"
+            onclick={() => (collapsed[index] = !collapsed[index])}
+          >
+            <span class="title">Entry {index + 1}: {shown?.persona || '?'}{#if collapsed[index] && shown?.goal}{' '}<span class="opt">· {shown.goal}</span>{/if}</span>
+          </button>
+          <span class="actions">
+            <button type="button" class="sm" disabled={index === 0} onclick={() => move(index, -1)} aria-label="Move entry {index + 1} up">Up</button>
           <button type="button" class="sm" disabled={index === entries.length - 1} onclick={() => move(index, 1)} aria-label="Move entry {index + 1} down">Down</button>
-          <button type="button" class="sm" onclick={() => write(['entries', index], undefined)} aria-label="Remove entry {index + 1}">Remove</button>
-        </div>
+          <button type="button" class="sm" onclick={() => {
+                write(['entries', index], undefined);
+                collapsed.splice(index, 1);
+              }} aria-label="Remove entry {index + 1}">Remove</button>
+          </span>
+        </legend>
+        <div id="{idPrefix}-entry-{index}-body" class="entry-body" hidden={collapsed[index]}>
         <div class="form-grid">
           {#each entryFields(index) as field (field.path.join('.'))}
             <FormField {field} {idPrefix} {read} {write} {messageFor} options={field.path.at(-1) === 'persona' ? personas : undefined} />
@@ -156,6 +173,7 @@
             />
           </div>
         {/if}
+        </div>
       </fieldset>
     {/each}
     <div><button type="button" class="sm" onclick={() => write(['entries', entries.length], { persona: personas[0] ?? '' })}><Icon name="plus" />Add entry</button></div>
