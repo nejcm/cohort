@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { isIP, type AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ConfigError, listIds, loadProjectConfig, type SuiteEntry } from '../config/files.ts';
+import { ConfigError, listIds, loadProjectConfig, personaSchema, type SuiteEntry } from '../config/files.ts';
 import { personaTemplates } from '../config/init.ts';
 import { DEFAULT_MASKS, resolveSubmission, validateSubmission } from '../config/resolve.ts';
 import { preflight } from '../core/estimate.ts';
@@ -301,6 +301,13 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
             };
           }),
         });
+      },
+    ],
+    [
+      'GET',
+      /^\/api\/persona-schema$/u,
+      async (_m, _q, response) => {
+        json(response, 200, { schema: personaSchema });
       },
     ],
     [

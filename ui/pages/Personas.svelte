@@ -4,6 +4,8 @@
   import { navigate } from '../lib/nav.ts';
   import Editor from '../components/Editor.svelte';
   import ModelPicker from '../components/ModelPicker.svelte';
+  import PersonaForm from '../components/PersonaForm.svelte';
+  import type { JsonSchema } from '../../src/core/schema.ts';
   import { readAt } from '../lib/source.ts';
 
   interface Summary {
@@ -36,8 +38,10 @@ Describe who this person is and how they behave.
   let draftError = $state('');
   let templates = $state<{ id: string; source: string }[] | null>(null);
   let templateId = $state('');
+  let draftKey = $state(0);
 
   let models = $state<Models | null>(null);
+  let schema = $state<JsonSchema | null>(null);
   let genUrl = $state('');
   let genDescription = $state('');
   let genDollars = $state(0.5);
@@ -65,6 +69,11 @@ Describe who this person is and how they behave.
         (found) => (models = found),
         (caught: Error) => (error = caught.message),
       );
+    if (id === 'new' && !schema)
+      api<{ schema: JsonSchema }>('GET', '/api/persona-schema').then(
+        (found) => (schema = found.schema),
+        (caught: Error) => (error = caught.message),
+      );
     if (id === 'new' && !templates)
       api<{ templates: { id: string; source: string }[] }>('GET', '/api/persona-templates').then(
         (found) => (templates = found.templates),
@@ -74,6 +83,7 @@ Describe who this person is and how they behave.
 
   function pickTemplate(): void {
     draft = templates?.find((template) => template.id === templateId)?.source ?? TEMPLATE;
+    draftKey += 1;
     generated = null;
   }
 
@@ -106,6 +116,7 @@ Describe who this person is and how they behave.
         allowUntested: genAllowUntested,
       });
       draft = generated!.markdown;
+      draftKey += 1;
       templateId = '';
     } catch (caught) {
       draftError = (caught as Error).message;
@@ -154,8 +165,9 @@ Describe who this person is and how they behave.
           </div>
         </div>
       {/if}
-      <label class="sr-only" for="draft-source">Markdown</label>
-      <textarea id="draft-source" class="source short" spellcheck="false" bind:value={draft}></textarea>
+      {#if schema}
+        {#key draftKey}<PersonaForm bind:source={draft} {schema} {models} error={draftError} idPrefix="draft" />{/key}
+      {/if}
       <div class="editor-foot">
         <span>New personas cannot reference setup code; add one by editing the file locally.</span>
         <button type="submit" class="primary sm"><Icon name="check" />Validate and create</button>

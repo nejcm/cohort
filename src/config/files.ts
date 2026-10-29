@@ -188,7 +188,7 @@ const projectSchema: JsonSchema = {
   },
 };
 
-const personaSchema: JsonSchema = {
+export const personaSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['schemaVersion', 'id', 'name', 'tags', 'device', 'locale', 'timezone'],

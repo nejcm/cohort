@@ -1049,7 +1049,7 @@ progress.prog::-moz-progress-bar {
   color: var(--fg);
 }
 .app label .opt,
-.app label .field-error {
+.app :is(label, .list-label) .field-error {
   color: var(--muted);
   font-weight: var(--w-regular);
   letter-spacing: 0;
@@ -2546,6 +2546,22 @@ body {
 }
 .estimate td.num {
   white-space: normal;
+}
+.list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.app .list-label {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.list-row {
+  display: flex;
+  gap: var(--s-2);
 }
 .form-grid.loose {
   gap: var(--s-5);

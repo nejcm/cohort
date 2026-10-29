@@ -152,6 +152,7 @@ At each clean capture every element's box is recorded and the mutation log is re
   - providers without a key are hidden, and non-vision models are disabled in vision mode;
   - estimate and unknown-cost displays;
   - an edit conflict keeps the user's text;
+  - persona frontmatter edits through form fields and shows validation errors beside them;
   - persona names are rendered as text, not HTML;
   - ad-hoc save to a suite.
   Other browsers were not tested.

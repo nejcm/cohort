@@ -2,6 +2,8 @@
   import Icon from './Icon.svelte';
   import { api, ApiError, type Editable, type Models, type ProjectDefaults } from '../lib/api.ts';
   import ModelPicker from './ModelPicker.svelte';
+  import PersonaForm from './PersonaForm.svelte';
+  import type { JsonSchema } from '../../src/core/schema.ts';
   import { readAt, setAt } from '../lib/source.ts';
 
   let { kind, id, onsaved }: { kind: 'personas' | 'suites'; id: string; onsaved: () => void } = $props();
@@ -10,6 +12,7 @@
   let source = $state('');
   let models = $state<Models | null>(null);
   let config = $state<ProjectDefaults | null>(null);
+  let schema = $state<JsonSchema | null>(null);
   let error = $state('');
   let message = $state('');
   let conflict = $state(false);
@@ -38,6 +41,14 @@
   }
 
   $effect(() => {
+    if (kind === 'personas')
+      api<{ schema: JsonSchema }>('GET', '/api/persona-schema').then(
+        (found) => (schema = found.schema),
+        (caught: Error) => (error = caught.message),
+      );
+  });
+
+  $effect(() => {
     void id;
     message = '';
     void load();
@@ -55,14 +66,14 @@
     set: (value: string): void => {
       if (value === String(readAt(source, path, markdown) ?? '')) return;
       try {
-        source = setAt(source, path, value, markdown);
+        source = setAt(source, path, value || undefined, markdown);
       } catch (caught) {
         error = `Fix the YAML before using the picker: ${(caught as Error).message}`;
       }
     },
   });
-  const topModel = $derived(field(kind === 'personas' ? ['model'] : ['defaults', 'model']));
-  const topEffort = $derived(field(kind === 'personas' ? ['effort'] : ['defaults', 'effort']));
+  const topModel = field(['defaults', 'model']);
+  const topEffort = field(['defaults', 'effort']);
 
   async function save(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -113,43 +124,58 @@
       <div class="body"><span>Setup reference <code>{String(setup)}</code> is read-only here; change it by editing the file locally.</span></div>
     </div>
   {/if}
-  {#if models}
-    <div class="metered-body">
-      <fieldset>
-        <legend>{kind === 'personas' ? 'Model defaults' : 'Suite defaults'}</legend>
-        <div class="form-grid cols-4">
-          <ModelPicker
-            {models}
-            {mode}
-            bind:model={topModel.get, topModel.set}
-            bind:effort={topEffort.get, topEffort.set}
-            inherited={kind === 'personas' ? 'project default' : 'persona or project'}
-            inheritedModels={kind === 'personas' && config ? [config.defaults.model] : []}
-            idPrefix="{kind}-default"
-          />
-        </div>
-      </fieldset>
-      {#each entries as entry, index (index)}
-        {@const entryModel = field(['entries', index, 'model'])}
-        {@const entryEffort = field(['entries', index, 'effort'])}
+  {#if kind === 'personas'}
+    {#if schema && loaded}
+      {#key id}
+        <PersonaForm
+          bind:source
+          {schema}
+          {models}
+          {mode}
+          inheritedModels={config ? [config.defaults.model] : []}
+          {error}
+          idPrefix="editor"
+        />
+      {/key}
+    {/if}
+  {:else}
+    {#if models}
+      <div class="metered-body">
         <fieldset>
-          <legend>Entry {index + 1}: {entry.persona ?? '?'}</legend>
+          <legend>Suite defaults</legend>
           <div class="form-grid cols-4">
             <ModelPicker
               {models}
               {mode}
-              bind:model={entryModel.get, entryModel.set}
-              bind:effort={entryEffort.get, entryEffort.set}
-              inherited="suite default"
-              idPrefix="entry-{index}"
+              bind:model={topModel.get, topModel.set}
+              bind:effort={topEffort.get, topEffort.set}
+              inherited="persona or project"
+              idPrefix="suites-default"
             />
           </div>
         </fieldset>
-      {/each}
-    </div>
+        {#each entries as entry, index (index)}
+          {@const entryModel = field(['entries', index, 'model'])}
+          {@const entryEffort = field(['entries', index, 'effort'])}
+          <fieldset>
+            <legend>Entry {index + 1}: {entry.persona ?? '?'}</legend>
+            <div class="form-grid cols-4">
+              <ModelPicker
+                {models}
+                {mode}
+                bind:model={entryModel.get, entryModel.set}
+                bind:effort={entryEffort.get, entryEffort.set}
+                inherited="suite default"
+                idPrefix="entry-{index}"
+              />
+            </div>
+          </fieldset>
+        {/each}
+      </div>
+    {/if}
+    <label class="sr-only" for="editor-source">Source</label>
+    <textarea id="editor-source" class="source" spellcheck="false" bind:value={source}></textarea>
   {/if}
-  <label class="sr-only" for="editor-source">Source</label>
-  <textarea id="editor-source" class="source" spellcheck="false" bind:value={source}></textarea>
   <div class="editor-foot">
     {#if message}<p class="notice good" role="status">{message}</p>{:else}<span>{markdown ? 'Markdown + YAML frontmatter' : 'YAML'} · {file}</span>{/if}
     <span class="mono">{source.split('\n').length} lines</span>

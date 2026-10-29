@@ -309,48 +309,58 @@ test('queued and running runs cancel from the run view', async () => {
 
 test('persona edits keep the user text on a revision conflict and keep setup read-only', async () => {
   await page.goto(`${dashboard.origin}/personas/guest`);
-  const source = page.locator('#editor-source');
-  await source.waitFor();
+  const body = page.locator('#editor-body');
   await page.waitForFunction(() =>
-    (document.querySelector('#editor-source') as HTMLTextAreaElement).value.includes('You are a guest.'),
+    (document.querySelector('#editor-body') as HTMLTextAreaElement | null)?.value.includes('You are a guest.'),
   );
-  await source.focus();
+  assert.equal(await page.locator('#editor-source').count(), 0, 'frontmatter is a form, not free text');
+  await body.focus();
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.type('Edited in the dashboard.');
-  await page.locator('#personas-default-effort').focus();
-  await page.keyboard.press('ArrowDown');
-  assert.match(await source.inputValue(), /^effort: low$/mu);
   const disk = PERSONA('guest', 'Guest').replace('Look around.', 'Changed outside.');
   await writeFile(join(root, '.cohort/personas/guest.md'), disk);
   await tabTo('Validate and save');
   await page.keyboard.press('Enter');
   await page.getByText('changed on disk since you opened it').waitFor();
-  assert.match(await source.inputValue(), /Edited in the dashboard\./u);
+  assert.match(await body.inputValue(), /Edited in the dashboard\./u);
   assert.equal(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), disk);
   await page.getByRole('button', { name: 'Reload from disk (discard my edits)' }).click();
-  await page.waitForFunction(() =>
-    (document.querySelector('#editor-source') as HTMLTextAreaElement).value.includes('Changed outside.'),
+  await page.waitForFunction(
+    () => (document.querySelector('#editor-goal') as HTMLTextAreaElement | null)?.value === 'Changed outside.',
   );
 
-  await source.focus();
+  await body.focus();
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.type('Saved now.');
-  await tabTo('Validate and save');
-  await page.keyboard.press('Enter');
+  await page.locator('#editor-name').fill('Guest: renamed');
+  await page.locator('#editor-device-viewport-width').fill('390');
+  await page.locator('#editor-device-touch').check();
+  await page.locator('#editor-input').selectOption('keyboard');
+  await page.getByRole('group', { name: 'Tags' }).getByRole('button', { name: 'Add' }).click();
+  await page.locator('#editor-tags-1').fill('Bad Tag');
+  await page.locator('#editor-default-effort').focus();
+  await page.keyboard.press('ArrowDown');
+  await page.getByRole('button', { name: 'Validate and save' }).click();
+  await page.getByRole('group', { name: /Tags/u }).getByText('does not match pattern').waitFor();
+  assert.equal(await page.locator('#editor-tags-1').getAttribute('aria-invalid'), 'true');
+  await page.getByRole('button', { name: 'Remove Tags 2' }).click();
+  await page.getByRole('button', { name: 'Validate and save' }).click();
   await page.getByText('Saved .cohort/personas/guest.md.').waitFor();
-  assert.match(await readFile(join(root, '.cohort/personas/guest.md'), 'utf8'), /Saved now\./u);
+  const saved = await readFile(join(root, '.cohort/personas/guest.md'), 'utf8');
+  assert.match(saved, /Saved now\.$/u);
+  assert.match(saved, /^name: 'Guest: renamed'$/mu);
+  assert.match(saved, /^device: \{ viewport: \{ width: 390, height: 600 \}, touch: true \}$/mu);
+  assert.match(saved, /^input: keyboard$/mu);
+  assert.match(saved, /^effort: low$/mu);
+  assert.match(saved, /^tags: \[ guest \]$/mu);
+  await writeFile(join(root, '.cohort/personas/guest.md'), PERSONA('guest', 'Guest'));
 
+  await page.route('**/api/config', (route) => route.fulfill({ status: 500, json: { error: 'bad config' } }));
   await page.goto(`${dashboard.origin}/personas/scripted`);
   await page.getByText('is read-only here').waitFor();
-  await page.waitForFunction(() =>
-    (document.querySelector('#editor-source') as HTMLTextAreaElement).value.includes('setup:'),
-  );
-  await source.fill((await source.inputValue()).replace('setup: ../setup/fixture.ts\n', ''));
-  await page.getByRole('button', { name: 'Validate and save' }).click();
-  await page
-    .getByRole('alert')
-    .getByText(/read-only/u)
-    .waitFor();
+  await page.locator('#editor-name').waitFor();
+  await page.unroute('**/api/config');
+  assert.equal(await page.locator('#editor-setup').count(), 0);
 
   await page.goto(`${dashboard.origin}/personas/hostile`);
   await page.getByRole('link', { name: '<img src=x onerror="window.pwned=1">' }).waitFor();
@@ -396,9 +406,19 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
 test('picking a template fills the new-persona draft', async () => {
   await page.goto(`${dashboard.origin}/personas/new`);
   await page.locator('#draft-template').selectOption({ label: 'Template: Mobile shopper on a budget' });
-  assert.match(await page.locator('#draft-source').inputValue(), /^id: mobile-shopper$/mu);
+  assert.equal(await page.locator('#draft-id').inputValue(), 'mobile-shopper');
   await page.locator('#draft-template').selectOption('');
-  assert.match(await page.locator('#draft-source').inputValue(), /^id: new-persona$/mu);
+  assert.equal(await page.locator('#draft-id').inputValue(), 'new-persona');
+  await page.locator('#draft-id').fill('formed');
+  await page.locator('#draft-name').fill('');
+  await page.getByRole('button', { name: 'Validate and create' }).click();
+  await page.locator('label[for="draft-name"]').getByText('too short').waitFor();
+  await page.locator('#draft-name').fill('Formed');
+  await page.getByRole('button', { name: 'Validate and create' }).click();
+  await page.locator('#editor-body').waitFor();
+  const created = await readFile(join(root, '.cohort/personas/formed.md'), 'utf8');
+  assert.match(created, /^id: formed\nname: "?Formed"?$/mu);
+  assert.match(created, /\nDescribe who this person is and how they behave\.\n$/u);
 });
 
 test('the persona generator form previews a draft without saving it', async () => {
@@ -409,16 +429,16 @@ test('the persona generator form previews a draft without saving it', async () =
   await page.locator('#gen-model').selectOption('openai/priced');
   await page.getByRole('button', { name: 'Generate preview' }).click();
   await page.getByText(/^Draft from openai\/priced; cost \$/u).waitFor();
-  assert.match(await page.locator('#draft-source').inputValue(), /^id: drafted$/mu);
+  assert.equal(await page.locator('#draft-id').inputValue(), 'drafted');
   await assert.rejects(readFile(join(root, '.cohort/personas/drafted.md')));
   turn = done;
 });
 
 test('typing during a save is kept as unsaved text', async () => {
   await page.goto(`${dashboard.origin}/personas/trial`);
-  const source = page.locator('#editor-source');
+  const source = page.locator('#editor-body');
   await page.waitForFunction(() =>
-    (document.querySelector('#editor-source') as HTMLTextAreaElement | null)?.value.includes('You are a guest.'),
+    (document.querySelector('#editor-body') as HTMLTextAreaElement | null)?.value.includes('You are a guest.'),
   );
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));

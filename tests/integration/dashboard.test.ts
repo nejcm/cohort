@@ -452,6 +452,15 @@ test('file edits use revisions, refuse setup changes, and never overwrite extern
   assert.ok(templates.some((item: { id: string }) => item.id === 'keyboard-only-navigator'));
   const template = templates.find((item: { id: string }) => item.id === 'developer-docs-reader');
   assert.match(template.source, /^id: developer-docs-reader$/mu);
+  assert.deepEqual((await call('GET', '/api/persona-schema')).json().schema.required, [
+    'schemaVersion',
+    'id',
+    'name',
+    'tags',
+    'device',
+    'locale',
+    'timezone',
+  ]);
   assert.equal((await call('POST', '/api/personas', { body: { source: template.source } })).status, 201);
   const list = (await call('GET', '/api/personas')).json().personas.map((item: { id: string }) => item.id);
   assert.deepEqual(list, ['developer-docs-reader', 'guest', 'newcomer', 'scripted']);

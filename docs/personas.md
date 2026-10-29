@@ -36,6 +36,8 @@ Optional frontmatter:
 
 The body must not be empty. Unknown fields, symlinks, and paths that leave their folder are rejected.
 
+The dashboard edits the frontmatter through form fields built from this schema and the body as Markdown text; saving writes the same file format. `setup` stays read-only there. A file whose frontmatter is not valid YAML or has fields the form does not know opens as source text until it fits the form again.
+
 ## Templates
 
 The package ships editable persona templates in `examples/personas/`. They are generic starting points, not personas of your users: each one marks its assumptions in the body, sets no `setup`, `storageState`, `model`, `effort`, or `limits`, and has a goal you should adapt to your app. Tags group them by product type, device, and behaviour, so `cohort run --tag <tag>` works across them.
