@@ -211,6 +211,35 @@ test('native select, keyboard, dialog, and file chooser are handled explicitly',
   assert.ok(result.steps.every((step) => step.result.status === 'ok'));
 });
 
+test('a click over an open select list is refused instead of hitting the page underneath', async () => {
+  let log = '';
+  const { result } = await run('/lab/native', (page) => [
+    async (request) =>
+      act('click', { target: await pointOf(page, page.getByLabel('Arrival time'), request) })(request, 0),
+    async (request) =>
+      act('click', { target: await pointOf(page, page.getByRole('button', { name: 'Show alert' }), request) })(
+        request,
+        1,
+      ),
+    async (request) =>
+      act('fill', { target: await pointOf(page, page.getByLabel('Arrival time'), request), value: 'Afternoon' })(
+        request,
+        2,
+      ),
+    async (request) => {
+      log = (await page.locator('#log').textContent()) ?? '';
+      return done(request, 3);
+    },
+  ]);
+  assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+  assert.deepEqual(
+    result.steps.map((step) => step.result.status === 'ok' || step.result.code),
+    [true, true, 'select_list_open', true, true],
+  );
+  assert.equal(log, 'selected: Afternoon');
+  assert.deepEqual(result.issues, []);
+});
+
 test('step cap stops the run', async () => {
   const { result, provider } = await run('/', () => wait, { limits: { steps: 3, timeMs: 30_000, dollars: 2 } });
   assert.equal(result.outcome.state, 'limit_reached');

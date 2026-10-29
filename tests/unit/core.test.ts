@@ -202,6 +202,27 @@ test('generated replay binds secrets from the environment and skips failed steps
   );
 });
 
+test('generated replay rebases same-origin gotos onto the start URL and waits for tap navigations', () => {
+  const script = generateReplay(
+    { runId: 'run_2', viewport: { width: 390, height: 844 }, hasTouch: true, locale: 'en-US', timezone: 'UTC' },
+    [
+      step('s0000', { name: 'navigate', args: { url: 'http://127.0.0.1:38077/?scope=a' } }),
+      step('s0001', { name: 'click', args: {} }, { target: target('a') }),
+      step('s0002', { name: 'goto', args: { url: 'http://127.0.0.1:38077/contact?x=1#h' } }),
+      step('s0003', { name: 'goto', args: { url: 'https://other.test/x' } }),
+      step('s0004', { name: 'goto', args: { url: '/arrival' } }),
+      step('s0005', { name: 'goto', args: { url: '//127.0.0.1:38077/p' } }),
+    ],
+  );
+  assert.match(script, /page\.goto\(new URL\("\/contact\?x=1#h", binding\('COHORT_START_URL'\)\)\.href\)/u);
+  assert.match(script, /page\.goto\(new URL\("https:\/\/other\.test\/x", page\.url\(\)\)\.href\)/u);
+  assert.match(script, /page\.goto\(new URL\("\/arrival", page\.url\(\)\)\.href\)/u);
+  assert.match(script, /page\.goto\(new URL\("\/p", binding\('COHORT_START_URL'\)\)\.href\)/u);
+  assert.ok(!script.includes('38077'));
+  assert.match(script, /await tap\(page\.getByLabel\("Email", \{ exact: true \}\), \{"x":4,"y":5\.5\}\);/u);
+  assert.match(script, /import \{ expect, test, type Locator \}/u);
+});
+
 test('a priced call whose cached rate is unknown keeps its reservation', () => {
   const meter = new CostMeter(1, { input: 1, output: 1, cachedInput: null });
   const reserved = meter.reserve(1000, 100)!;

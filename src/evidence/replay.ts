@@ -20,7 +20,21 @@ function value(raw: unknown): string {
   return /\{\{[a-z][a-z0-9_]*\}\}/u.test(text) ? `bind(${j(text)})` : j(text);
 }
 
-function statement(step: StepRecord, hasTouch: boolean, customTools: readonly string[] = []): string | null {
+// Absolute same-origin URLs are rebased onto the replay's start URL so replays and comparisons stay on their target.
+function gotoUrl(raw: unknown, start: string | undefined): string {
+  const text = String(raw);
+  const url = /^([a-z][a-z\d+.-]*:|\/\/)/iu.test(text) ? URL.parse(text, start) : null;
+  return url && url.origin === URL.parse(String(start))?.origin
+    ? `new URL(${j(url.pathname + url.search + url.hash)}, binding('COHORT_START_URL')).href`
+    : `new URL(${j(text)}, page.url()).href`;
+}
+
+function statement(
+  step: StepRecord,
+  hasTouch: boolean,
+  customTools: readonly string[] = [],
+  start?: string,
+): string | null {
   const args = step.action.args;
   if (customTools.includes(step.action.name)) return `await customTool(${j(step.action.name)}, ${j(args)});`;
   const redacted = ['deltaX', 'deltaY', 'ms'].find((key) => key in args && !Number.isFinite(Number(args[key])));
@@ -38,7 +52,7 @@ function statement(step: StepRecord, hasTouch: boolean, customTools: readonly st
       case 'scroll':
         return `await page.mouse.move(viewport.width / 2, viewport.height / 2);\n    ${wheel}`;
       case 'goto':
-        return `await page.goto(new URL(${j(args.url)}, page.url()).href);`;
+        return `await page.goto(${gotoUrl(args.url, start)});`;
       case 'wait':
         return `await page.waitForTimeout(${Number(args.ms)});`;
       default:
@@ -49,7 +63,7 @@ function statement(step: StepRecord, hasTouch: boolean, customTools: readonly st
   const position = `{ position: ${j(step.target.position)} }`;
   switch (step.action.name) {
     case 'click':
-      return `await ${locator}.${hasTouch ? 'tap' : 'click'}(${position});`;
+      return hasTouch ? `await tap(${locator}, ${j(step.target.position)});` : `await ${locator}.click(${position});`;
     case 'fill':
       return step.target.tag === 'select'
         ? `await ${locator}.selectOption({ label: ${value(args.value)} });`
@@ -71,6 +85,7 @@ export function replayGaps(steps: readonly StepRecord[]): string[] {
 /** Generates a standalone Playwright test from recorded steps; secrets stay as placeholders bound from the environment. */
 export function generateReplay(session: ReplaySession, steps: readonly StepRecord[]): string {
   const body: string[] = [];
+  const start = steps.find((step) => step.action.name === 'navigate')?.action.args.url as string | undefined;
   for (const step of steps) {
     if (step.result.status !== 'ok') continue;
     if (step.action.name === 'navigate') {
@@ -79,15 +94,16 @@ export function generateReplay(session: ReplaySession, steps: readonly StepRecor
       );
       continue;
     }
-    const code = statement(step, session.hasTouch, session.customTools);
+    const code = statement(step, session.hasTouch, session.customTools, start);
     if (code) body.push(`  await test.step(${j(`${step.id} ${step.action.name}`)}, async () => {\n    ${code}\n  });`);
   }
   const custom = steps.some((step) => step.result.status === 'ok' && session.customTools?.includes(step.action.name));
+  const tap = body.some((line) => line.includes('await tap('));
   const routes = (session.routes ?? []).map(
     (rule) =>
       `  await page.route(${j(rule.match)}, (route) => ${rule.action === 'block' ? "route.abort('blockedbyclient')" : `route.fulfill(${j({ status: rule.status ?? 200, contentType: rule.contentType ?? 'text/plain', body: rule.body ?? '' })})`});`,
   );
-  return `import { expect, test } from '@playwright/test';
+  return `import { expect, test${tap ? ', type Locator' : ''} } from '@playwright/test';
 
 const viewport = ${j(session.viewport)};
 
@@ -110,7 +126,7 @@ ${custom ? CUSTOM_TOOL_CLIENT : ''}test.use({
 });
 
 test(${j(`replay ${session.runId}`)}, async ({ page }) => {
-${[...routes, ...body].join('\n')}
+${tap ? TAP : ''}${[...routes, ...body].join('\n')}
   await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
 });
 `;
@@ -127,5 +143,29 @@ const CUSTOM_TOOL_CLIENT = `async function customTool(name: string, args: unknow
   if (!response.ok) throw new Error(\`custom tool \${name} failed: \${result.error}\`);
   for (const [secret, value] of Object.entries(result.bound ?? {})) process.env[\`COHORT_SECRET_\${secret.toUpperCase()}\`] = value;
 }
+
+`;
+
+// Unlike click, Playwright's tap does not wait for a navigation it starts; the live run waited for it.
+const TAP = `  async function tap(locator: Locator, position: { x: number; y: number }): Promise<void> {
+    let navigated: Promise<unknown> | undefined;
+    const onRequest = (request: { isNavigationRequest(): boolean; frame(): unknown }): void => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+        navigated ??= page
+          .waitForEvent('framenavigated', { predicate: (frame) => frame === page.mainFrame(), timeout: 10_000 })
+          .catch(() => {});
+    };
+    page.on('request', onRequest);
+    try {
+      await locator.tap({ position });
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0))).catch(() => {});
+    } finally {
+      page.off('request', onRequest);
+    }
+    if (navigated) {
+      await navigated;
+      await page.waitForLoadState('domcontentloaded');
+    }
+  }
 
 `;

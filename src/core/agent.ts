@@ -2,7 +2,14 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Page } from 'playwright';
 import { captureMasked, MaskError, type Capture } from '../browser/observations.ts';
-import { focusedElement, focusedLocator, focusState, resolvePoint, screenshotToCss } from '../browser/targets.ts';
+import {
+  focusedElement,
+  focusedLocator,
+  focusState,
+  resolvePoint,
+  screenshotToCss,
+  selectListOpen,
+} from '../browser/targets.ts';
 import { focusLabel, type StepRecord } from '../evidence/steps.ts';
 import { canonical, type Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
@@ -625,6 +632,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
             message: 'the target changed since the observation; observe again',
           });
           if (failure) return failure;
+          continue;
+        }
+        if (
+          (await bounded(selectListOpen(page))) &&
+          !(resolved.ok && (await bounded(resolved.locator.evaluate((element) => element.matches('select:open')))))
+        ) {
+          reject(
+            'select_list_open',
+            'an open select list covers this point and its options cannot be clicked; fill the select with the option label, or press Escape',
+          );
           continue;
         }
         if (!resolved.ok) {

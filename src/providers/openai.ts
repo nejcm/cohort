@@ -11,7 +11,7 @@ import {
 
 const KEY_ENV = 'OPENAI_API_KEY';
 
-// Wire facts (unverified live): Responses API, `reasoning.effort`, `store: false` so requests are not retained as stored responses.
+// Wire facts (checked live 2026-10-29 on gpt-6.1-terra and gpt-6-luna): Responses API, `reasoning.effort`, `store: false` so requests are not retained as stored responses.
 export function createOpenAIAdapter(options: AdapterOptions = {}): ProviderAdapter {
   const env = options.env ?? process.env;
   const baseUrl = options.baseUrl ?? 'https://api.openai.com';

@@ -13,11 +13,10 @@ For `0.1.0-rc.0`. Offline items are automated; everything under "Manual" needs a
 ## Manual
 
 - [ ] Run `bun run verify` and `bun run smoke:package` on a local Node 24 install and record any `node:sqlite` or type-stripping warning in [compatibility.md](compatibility.md).
-- [ ] Verify at least one model live per provider: model ID, vision, supported efforts, dated prices, image token accounting. Add the verified entries to `src/providers/catalog.json` with `untested: false` only after a reproducible fixture bake-off.
-- [ ] Run a live fixture journey per verified model and check that its `replay.spec.ts` replays.
+- [ ] Verify at least one model live per provider: model ID, vision, supported efforts, dated prices, image token accounting. Add the verified entries to `src/providers/catalog.json` with `untested: false` only after a reproducible fixture bake-off. OpenAI is checked (`gpt-6.1-terra`, `gpt-6-luna`; see `.plans/reports/live-openai.md`); Anthropic is not.
+- [ ] Run a live fixture journey per verified model and check that its `replay.spec.ts` replays. OpenAI: all 10 recorded runs replay on a fresh fixture port after the D2/D3 fixes; not yet re-run end to end from a new live run.
 - [ ] Measure real run cost and replace the provisional $2 default cap if the measurements say so.
 - [ ] Confirm provider retention settings for the request shapes we send.
-- [x] Decide the package and executable names: package `cohort-lab` (free on npm, checked 2026-10-29; `cohort` is taken), executable `cohort`, project directory `.cohort/`. The old `lab` bin collided with hapi's `lab` test runner.
 - [ ] Add `repository`, `homepage`, and `bugs` to `package.json` once the public repository exists, and replace `OWNER` in [github-action.md](github-action.md).
 - [ ] Review `NOTICE` against the final `dist/ui` bundle (it currently lists Svelte and clsx).
 - [ ] `npm publish --tag next` from a clean checkout after `bun run build`, then tag the same commit `v0.1.0-rc.0` so the Action installs the matching package.

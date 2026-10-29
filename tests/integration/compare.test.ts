@@ -169,19 +169,16 @@ test('compare refuses bad origins and journeys pinned to the recorded origin', a
     assert.equal(code, 2, out);
     assert.match(out, /must be an http\(s\) origin/u);
   }
-  const steps = join(runDir, 'steps.jsonl');
-  const original = await readFile(steps, 'utf8');
+  const script = join(runDir, 'replay.spec.ts');
+  const original = await readFile(script, 'utf8');
   for (const url of [`${base.url}/arrival`, `${base.url.replace(/^http:/u, '')}/arrival`]) {
-    await appendFile(
-      steps,
-      `${JSON.stringify({ id: 's0009', action: { name: 'goto', args: { url } }, result: { status: 'ok' } })}\n`,
-    );
+    await appendFile(script, `// await page.goto(${JSON.stringify(url)});\n`);
     try {
       const pinned = await cli(['compare', runId, '--base', base.url, '--head', base.url]);
       assert.equal(pinned.code, 2, url);
-      assert.match(pinned.out, /step s0009 goes to an absolute URL/u);
+      assert.match(pinned.out, /replay\.spec\.ts navigates to an absolute URL/u);
     } finally {
-      await writeFile(steps, original);
+      await writeFile(script, original);
     }
   }
 });

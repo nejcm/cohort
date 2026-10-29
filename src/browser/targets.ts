@@ -281,6 +281,12 @@ export async function focusedLocator(
   return still ? { frames: steps.slice(0, -1), target: steps.at(-1)! } : undefined;
 }
 
+/** Whether a native `<select>` list is open; it is drawn over the page but is not in the DOM, so hit tests miss it. */
+export async function selectListOpen(page: Page): Promise<boolean> {
+  const element = (await focusPath(page))?.at(-1);
+  return element ? element.evaluate((node) => node.matches('select:open')) : false;
+}
+
 export async function focusState(page: Page): Promise<FocusState | null> {
   const element = await focusedElement(page);
   if (!element) return null;

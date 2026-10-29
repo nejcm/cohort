@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
 import { ConfigError } from '../config/files.ts';
-import { BundleError, bundleDir, readBundleJson, readSteps } from '../evidence/bundle.ts';
+import { BundleError, bundleDir, readBundleFile, readBundleJson } from '../evidence/bundle.ts';
 import { md } from '../evidence/report.ts';
 import { executeReplay, ReplaySetupError } from './replay.ts';
 
@@ -92,17 +92,10 @@ export async function compareRun(
     'resolved-config.json',
   );
   const recorded = new URL(config.startUrl).origin;
-  const pinned = (await readSteps(dir)).find(
-    (step) =>
-      step.result.status === 'ok' &&
-      step.action.name === 'goto' &&
-      /^([a-z][a-z\d+.-]*:|\/\/)/iu.test(String(step.action.args.url)) &&
-      URL.canParse(String(step.action.args.url), config.startUrl) &&
-      new URL(String(step.action.args.url), config.startUrl).origin === recorded,
-  );
-  if (pinned)
+  const script = (await readBundleFile(dir, 'replay.spec.ts')) ?? '';
+  if ([`"${recorded}`, `"//${new URL(config.startUrl).host}`].some((literal) => script.includes(literal)))
     throw new BundleError(
-      `step ${pinned.id} goes to an absolute URL on the recorded origin; compare cannot retarget it without changing the journey`,
+      `replay.spec.ts navigates to an absolute URL on the recorded origin; compare cannot retarget it without changing the journey`,
     );
   const executions: CompareExecution[] = [];
   let decision: ReturnType<typeof classify>;
