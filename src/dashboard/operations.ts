@@ -8,7 +8,7 @@ import type { RunManifest } from '../evidence/manifest.ts';
 import { catalogHash, loadCatalog, type ModelCatalog } from '../providers/catalog.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { RUN_FILTERS, RUN_SORTS, type BatchRow, type LabDb, type RunQuery, type RunRow } from './db.ts';
-import { readEditable } from './files.ts';
+import { readEditable } from '../config/editable.ts';
 
 type Providers = Readonly<Record<string, ProviderAdapter>>;
 

@@ -12,6 +12,12 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 - Keep runtime dependencies small; follow the existing package manager, formatter, linter, and test runner.
 - Never commit secrets, local environment files, `.cohort/auth`, `.cohort/runs`, or real user data.
 
+## Source layout
+
+- `src/cli.ts` only parses arguments, maps errors to exit codes, and dispatches; each command group lives in `src/commands/` and shares `commands/context.ts` (`Context`, `Dependencies`, `CliError`, `emit`).
+- `src/dashboard/` (server, queue, index) sits on top of `src/core/`; nothing under `core/` imports from `dashboard/`. Project-file editing (personas, suites, `config.yml`, `models.yml`) is `src/config/editable.ts`, shared by the CLI, the dashboard, and `core/explore`.
+- oxlint's `import/no-cycle` guards the module graph; keep it that way instead of adding re-export shims.
+
 ## Commands
 
 | Purpose | Command |

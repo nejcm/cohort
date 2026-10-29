@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
 import { LabDb, type RunRow } from '../../src/dashboard/db.ts';
-import { saveEditable, type EditError } from '../../src/dashboard/files.ts';
+import { saveEditable, type EditError } from '../../src/config/editable.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
 import { CSP, startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';

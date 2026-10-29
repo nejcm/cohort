@@ -42,7 +42,7 @@ The subject's raw log corrected two premature outcome descriptions: the first pe
 
 ## Detached-owner investigation
 
-In [`src/cli.ts`](../src/cli.ts), `spawnWorker` starts a new process with `detached: true` and `stdio: ['pipe', 'pipe', 'ignore']`. It ends stdin after sending the batch, destroys stdout after receiving the ID handshake, and calls `child.unref()`. The worker writes that handshake once, then awaits the batch; it does not depend on the parent's continued presence or send ongoing progress over the closed pipe. No parent-exit handler kills the worker. `SIGINT` and `SIGTERM` abort the CLI's own controller.
+In [`src/commands/run.ts`](../src/commands/run.ts), `spawnWorker` starts a new process with `detached: true` and `stdio: ['pipe', 'pipe', 'ignore']`. It ends stdin after sending the batch, destroys stdout after receiving the ID handshake, and calls `child.unref()`. The worker writes that handshake once, then awaits the batch; it does not depend on the parent's continued presence or send ongoing progress over the closed pipe. No parent-exit handler kills the worker. `SIGINT` and `SIGTERM` abort the CLI's own controller.
 
 In [`src/dashboard/runner.ts`](../src/dashboard/runner.ts), the worker records itself as batch owner. Recovery checks PID plus process start time on Linux and finalizes abandoned runs as interrupted; it never resumes them or calls a provider again. The recorded result is consistent with that recovery path, but cannot identify what killed the owner.
 

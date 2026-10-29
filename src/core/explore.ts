@@ -2,7 +2,7 @@ import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { ConfigError, parsePersona, parseSuite, type Persona, type RouteRule } from '../config/files.ts';
-import { createEditable, EditError, saveEditable } from '../dashboard/files.ts';
+import { createEditable, EditError, saveEditable } from '../config/editable.ts';
 import { BundleError, bundleDir, readBundleFile, readBundleJson, readSteps } from '../evidence/bundle.ts';
 import { writeAtomic, writeManifest, type RunManifest } from '../evidence/manifest.ts';
 import { generateReplay, replayGaps } from '../evidence/replay.ts';
