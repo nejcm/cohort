@@ -110,7 +110,7 @@
         {/if}
       </span>
       <div class="top-actions">
-        <button type="button" class="primary" onclick={() => dialog?.open()}>New run</button>
+        <button type="button" class="primary small" onclick={() => dialog?.open()}>New run</button>
       </div>
     </div>
     <main>

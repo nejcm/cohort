@@ -334,6 +334,9 @@ body {
   align-items: center;
   gap: var(--s-3);
 }
+.app > .top .top-actions button.small {
+  height: 28px;
+}
 
 .app > main {
   grid-column: 2;
@@ -727,6 +730,8 @@ progress.prog::-moz-progress-bar {
   height: 26px;
   padding: 0 8px;
   font-size: var(--text-sm);
+  /* Even line box in an even-height button; 13px leaves a half pixel that rounds the text low. */
+  line-height: 14px;
 }
 
 .app button:disabled,
