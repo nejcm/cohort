@@ -12,9 +12,9 @@
   --fg: #ececec; /* primary text        14.9:1 on --surface */
   --muted: #8c8c8c; /* secondary text       6.3:1 on --surface, 4.9:1 on --bg */
   --line: #232323; /* card and sheet edges */
-  --accent: #8fb8e8; /* links, focus, running   9.0:1 on --surface */
-  --warn: #e0a842; /* amber: blocked, limits, metered */
-  --bad: #ef6a5a; /* orange-red: failed, errors, private */
+  --accent: #f07a2e; /* links, focus, running   6.7:1 on --surface */
+  --warn: #d4b13a; /* mustard: blocked, limits, metered */
+  --bad: #e5566f; /* red: failed, errors, private */
   --good: #4cc27b; /* green: succeeded, ok, saved */
   --brand: #7fd4a2; /* the logo dot */
 
@@ -29,17 +29,17 @@
   --line-strong: #333333; /* control borders */
   --primary: #ececec; /* the one primary action: inverted, near-white */
   --on-primary: #0b0b0b;
-  --accent-hover: #b2cff2;
-  --accent-soft: #16202c;
-  --accent-line: #33475f;
-  --on-accent: #0f1720;
-  --warn-soft: #2a2110;
-  --warn-line: #5a4221;
-  --bad-soft: #2c1512;
-  --bad-line: #5f3122;
+  --accent-hover: #f59a5c;
+  --accent-soft: #2a1a10;
+  --accent-line: #5c3418;
+  --on-accent: #0b0b0b;
+  --warn-soft: #29260f;
+  --warn-line: #57501f;
+  --bad-soft: #2c1a20;
+  --bad-line: #5c2733;
   --good-soft: #12301e;
   --good-line: #1f5233;
-  --focus: #8fb8e8;
+  --focus: #f07a2e;
   --stage: #080808; /* backdrop behind screenshots */
   --mask: #000000; /* redaction boxes */
   --backdrop: rgb(0 0 0 / 0.72);
@@ -307,8 +307,6 @@ body {
 }
 .app > .side nav a[aria-current='page'] {
   color: var(--fg);
-  background: var(--active);
-  box-shadow: inset 2px 0 var(--fg);
 }
 .app > .side nav svg {
   flex: none;
@@ -353,6 +351,12 @@ body {
 }
 .crumb .mono {
   font-size: 12.5px;
+}
+.crumb a {
+  color: var(--muted);
+}
+.crumb a:hover {
+  color: var(--fg);
 }
 .app > .top .top-actions {
   margin-left: auto;
@@ -602,9 +606,12 @@ body {
 }
 .kpis > div {
   padding: 20px 24px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  align-content: start;
+}
+.kpis .note {
+  margin-top: auto;
 }
 .kpis > div + div {
   border-left: var(--bw) solid var(--line);
@@ -617,8 +624,8 @@ body {
 .kpis dd,
 .kpis .val {
   margin: 0;
-  font-size: 34px;
-  line-height: 40px;
+  font-size: 40px;
+  line-height: 44px;
   font-weight: var(--w-regular);
   letter-spacing: -0.02em;
   font-variant-numeric: lining-nums tabular-nums;
@@ -641,14 +648,29 @@ body {
   font-weight: var(--w-regular);
   color: var(--muted);
 }
-.kpis .tick {
-  display: inline-block;
+/* Segmented meter: lit ticks in ink, the rest one step above the surface */
+.ticks {
+  display: flex;
+  gap: 3px;
+  height: 18px;
+}
+.ticks i {
+  flex: none;
+  width: 4px;
+  background: var(--surface-3);
+}
+.ticks i.on {
+  background: var(--fg);
+}
+.ticks.warn i.on {
+  background: var(--warn);
+}
+.ticks.sm {
+  height: 12px;
+  gap: 2px;
+}
+.ticks.sm i {
   width: 3px;
-  height: 26px;
-  border-radius: 0;
-  margin-right: 10px;
-  vertical-align: -2px;
-  background: currentColor;
 }
 
 /* Live progress against the step cap: the one place the teal fills an area */
@@ -839,8 +861,8 @@ progress.prog::-moz-progress-bar {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 20px;
-  padding: 0 7px;
+  height: 22px;
+  padding: 0 8px;
   border: var(--bw) solid transparent;
   border-radius: var(--r-sm);
   background: var(--surface-3);
@@ -869,9 +891,8 @@ progress.prog::-moz-progress-bar {
 }
 
 .badge.running {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
+  color: var(--on-accent);
+  background: var(--accent);
 }
 .badge.running::before {
   animation: ping var(--dur-3) var(--ease) infinite;
@@ -880,13 +901,11 @@ progress.prog::-moz-progress-bar {
 .badge.succeeded {
   color: var(--good);
   background: var(--good-soft);
-  border-color: var(--good-line);
 }
 
 .badge.blocked {
   color: var(--warn);
   background: var(--warn-soft);
-  border-color: var(--warn-line);
 }
 .badge.blocked::before {
   width: 5px;
@@ -898,7 +917,6 @@ progress.prog::-moz-progress-bar {
 .badge.limit {
   color: var(--warn);
   background: var(--warn-soft);
-  border-color: var(--warn-line);
 }
 .badge.limit::before {
   width: 6px;
@@ -920,7 +938,6 @@ progress.prog::-moz-progress-bar {
 .badge.failed {
   color: var(--bad);
   background: var(--bad-soft);
-  border-color: var(--bad-line);
 }
 .badge.failed::before {
   width: 7px;
@@ -945,7 +962,6 @@ progress.prog::-moz-progress-bar {
 .badge.meter {
   color: var(--warn);
   background: var(--warn-soft);
-  border-color: var(--warn-line);
   border-radius: var(--r-sm);
 }
 .badge.meter::before {
@@ -954,7 +970,6 @@ progress.prog::-moz-progress-bar {
 .badge.private {
   color: var(--bad);
   background: var(--bad-soft);
-  border-color: var(--bad-line);
   border-radius: var(--r-sm);
 }
 .badge.private::before {
@@ -2914,13 +2929,37 @@ body {
 }
 
 /* Journeys: the runs page's lead block */
+/* Bracketed readout: corner ticks drawn by the two pseudo-elements */
 .page-head .spend {
-  color: var(--muted);
+  position: relative;
+  margin-left: auto;
+  padding: 6px 12px;
+  background: var(--good-soft);
+  color: var(--good);
   font-size: var(--text-sm);
-  align-self: center;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: var(--track);
 }
-.page-head .spend .fig {
-  color: var(--fg);
+.page-head .spend::before,
+.page-head .spend::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: var(--bw) solid var(--good);
+}
+.page-head .spend::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.page-head .spend::after {
+  right: -1px;
+  bottom: -1px;
+  border-left: 0;
+  border-top: 0;
 }
 .journeys table {
   width: 100%;
@@ -3051,4 +3090,11 @@ body {
   .journeys td .ph {
     display: inline;
   }
+}
+.journeys td.num .ticks {
+  justify-content: flex-end;
+  margin: 4px 0;
+}
+.kpis dd .ticks {
+  margin-top: 4px;
 }
