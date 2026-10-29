@@ -1,3 +1,4 @@
+import { isTokenLike } from '../setup/secrets.ts';
 import { renderLocator } from '../browser/targets.ts';
 import type { RouteRule } from '../config/files.ts';
 import type { StepRecord } from './steps.ts';
@@ -25,8 +26,8 @@ function gotoUrl(raw: unknown, start: string | undefined): string {
   const text = String(raw);
   const url = /^([a-z][a-z\d+.-]*:|\/\/)/iu.test(text) ? URL.parse(text, start) : null;
   return url && url.origin === URL.parse(String(start))?.origin
-    ? `new URL(${j(url.pathname + url.search + url.hash)}, binding('COHORT_START_URL')).href`
-    : `new URL(${j(text)}, page.url()).href`;
+    ? `inheritQuery(new URL(${j(url.pathname + url.search + url.hash)}, binding('COHORT_START_URL')))`
+    : `inheritQuery(new URL(${j(text)}, page.url()))`;
 }
 
 function statement(
@@ -111,6 +112,16 @@ function binding(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(\`missing replay binding \${name}\`);
   return value;
+}
+
+const isTokenLike = ${isTokenLike.toString()};
+
+function inheritQuery(url: URL): string {
+  const start = new URL(binding('COHORT_START_URL'));
+  if (url.origin !== start.origin || url.search) return url.href;
+  const hidden = Object.entries(process.env).filter(([name, value]) => value && /^COHORT_(SECRET_|TOOL_TOKEN)/.test(name)).map(([, value]) => value as string);
+  for (const [name, value] of start.searchParams) if (!isTokenLike(value) && !hidden.some((secret) => value.includes(secret))) url.searchParams.append(name, value);
+  return url.href;
 }
 
 function bind(template: string): string {

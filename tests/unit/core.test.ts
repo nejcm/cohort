@@ -7,7 +7,7 @@ import { BUILTIN_TOOLS, toolsFor, validateToolCall } from '../../src/core/tools.
 import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
 import type { StepRecord } from '../../src/evidence/steps.ts';
 import type { Usage } from '../../src/providers/types.ts';
-import { redactValue, safeUrl, SecretStore } from '../../src/setup/secrets.ts';
+import { isTokenLike, redactValue, safeUrl, SecretStore } from '../../src/setup/secrets.ts';
 
 const usage = (inputTokens: number, outputTokens: number, extra: Partial<Usage> = {}): Usage => ({
   inputTokens,
@@ -236,11 +236,13 @@ test('generated replay rebases same-origin gotos onto the start URL and waits fo
       step('s0005', { name: 'goto', args: { url: '//127.0.0.1:38077/p' } }),
     ],
   );
-  assert.match(script, /page\.goto\(new URL\("\/contact\?x=1#h", binding\('COHORT_START_URL'\)\)\.href\)/u);
-  assert.match(script, /page\.goto\(new URL\("https:\/\/other\.test\/x", page\.url\(\)\)\.href\)/u);
-  assert.match(script, /page\.goto\(new URL\("\/arrival", page\.url\(\)\)\.href\)/u);
-  assert.match(script, /page\.goto\(new URL\("\/p", binding\('COHORT_START_URL'\)\)\.href\)/u);
+  assert.match(script, /page\.goto\(inheritQuery\(new URL\("\/contact\?x=1#h", binding\('COHORT_START_URL'\)\)\)\)/u);
+  assert.match(script, /page\.goto\(inheritQuery\(new URL\("https:\/\/other\.test\/x", page\.url\(\)\)\)\)/u);
+  assert.match(script, /page\.goto\(inheritQuery\(new URL\("\/arrival", page\.url\(\)\)\)\)/u);
+  assert.match(script, /page\.goto\(inheritQuery\(new URL\("\/p", binding\('COHORT_START_URL'\)\)\)\)/u);
   assert.ok(!script.includes('38077'));
+  assert.ok(!script.includes('scope=a'), 'start-URL query values are never embedded');
+  assert.match(script, /function inheritQuery[\s\S]*COHORT_START_URL[\s\S]*COHORT_\(SECRET_\|TOOL_TOKEN\)/u);
   assert.match(script, /await tap\(page\.getByLabel\("Email", \{ exact: true \}\), \{"x":4,"y":5\.5\}\);/u);
   assert.match(script, /import \{ expect, test, type Locator \}/u);
 });
@@ -345,4 +347,24 @@ test('the compare comment starts with its marker and escapes failure text', () =
   assert.match(markdown, /\| 1 \| head \| failed \| 1\.2 s \| Error: \\<img src=x\\> \\\| \\`x\\` next \|/u);
   assert.match(markdown, /`bbbbbbbbbbbb`, deployment dpl_\\<x\\>/u);
   assert.match(markdown, /private workflow artifacts, visible only to people with read access/u);
+});
+
+test('the replay helper inherits start-URL query values by the same token rule as the live run', () => {
+  const script = generateReplay(
+    { runId: 'run_3', viewport: { width: 390, height: 844 }, hasTouch: false, locale: 'en-US', timezone: 'UTC' },
+    [step('s0000', { name: 'navigate', args: { url: 'http://127.0.0.1:1/' } })],
+  );
+  const source = script
+    .slice(script.indexOf('const isTokenLike'), script.indexOf('function bind('))
+    .replace(/\(url: URL\): string/u, '(url)')
+    .replace(/ as string/u, '')
+    .replace(/function binding[\s\S]*$/u, '');
+  const run = new Function('binding', 'process', `${source}; return [isTokenLike, inheritQuery];`) as (
+    b: (n: string) => string,
+    p: unknown,
+  ) => [(v: string) => boolean, (u: URL) => string];
+  const [replayRule, inheritQuery] = run(() => 'http://x.test/?scope=abc&tok=Zk3j9QwErT7yUi&word=main', { env: {} });
+  for (const value of ['abc', 'main', 'Zk3j9QwErT7yUi', 'a'.repeat(20), '12345678', 'abc12345'])
+    assert.equal(replayRule(value), isTokenLike(value), value);
+  assert.equal(inheritQuery(new URL('http://x.test/next')), 'http://x.test/next?scope=abc&word=main');
 });

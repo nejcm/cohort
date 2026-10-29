@@ -27,7 +27,7 @@ Each row passes `tests/integration/targets.test.ts`: the hit point resolves to a
 | Nested open shadow roots | Supported |
 | Same-origin iframe with border and padding | Supported |
 | Open shadow root inside a frame | Supported |
-| Cross-origin iframe (`127.0.0.1` page, `localhost` frame) | Supported. Out-of-process isolation is assumed from Chromium site isolation, not asserted. |
+| Cross-origin iframe (`127.0.0.1` page, `localhost` frame) | Supported. With Playwright's default Chromium launch the CDP target list has no iframe target (checked), so the frame shares the page process. The tests launch with `--site-per-process`, assert through the CDP target list that the frame is out of process, then resolve and replay through it. Without that flag only the in-process case is exercised. |
 | Closed shadow root | Unsupported: `agent_error(unsupported_target)`, reason `closed_shadow_root` (heuristic: an empty custom element) |
 | `<canvas>` | Unsupported: reason `canvas` |
 | Frame inside a CSS-transformed ancestor | Unsupported: reason `transformed_frame` |

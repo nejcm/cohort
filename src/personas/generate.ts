@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { captureMasked } from '../browser/observations.ts';
+import { captureMasked, installMaskGuard } from '../browser/observations.ts';
 import { ConfigError, parsePersona } from '../config/files.ts';
 import { CostMeter, estimateCostUsd, type CapEnforcement } from '../core/cost.ts';
 import type { ToolDefinition } from '../core/tools.ts';
@@ -117,6 +117,7 @@ async function captureLanding(
         ? route.fallback()
         : route.abort('blockedbyclient'),
     );
+    await installMaskGuard(context);
     const page = await context.newPage();
     context.on('page', (popup) => void popup.close());
     // Routes never see redirect hops; CDP Fetch pauses every hop, as in the run engine.

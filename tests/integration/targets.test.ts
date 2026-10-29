@@ -12,7 +12,7 @@ let page: Page;
 before(async () => {
   fixture = await startFixture();
   other = await startFixture({ host: 'localhost' });
-  browser = await chromium.launch();
+  browser = await chromium.launch({ args: ['--site-per-process'] });
   page = await browser.newPage({ viewport: { width: 800, height: 900 } });
   await page.goto(`${fixture.url}/lab/targets?cross=${encodeURIComponent(`${other.url}/lab/frame`)}`);
   await page.frameLocator('#cross').getByRole('button', { name: 'Framed action' }).waitFor();
@@ -65,6 +65,13 @@ test('resolves and replays an open shadow root inside a frame', async () => {
     frame.locator('#log'),
     'clicked: framed shadow',
   );
+});
+
+test('with site-per-process forced, the cross-origin frame is an out-of-process target', async () => {
+  const session = await browser.newBrowserCDPSession();
+  const { targetInfos } = await session.send('Target.getTargets');
+  await session.detach();
+  assert.ok(targetInfos.some((info) => info.type === 'iframe' && info.url.startsWith(`${other.url}/lab/frame`)));
 });
 
 test('cross-origin frame on another site resolves and replays', async () => {

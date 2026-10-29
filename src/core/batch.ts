@@ -21,7 +21,7 @@ import type { StepRecord } from '../evidence/steps.ts';
 import { createProviders } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
-import { redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
+import { isTokenLike, redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
 import { customToolDefinitions } from '../setup/tools.ts';
 import type { SetupResult } from '../setup/types.ts';
 import type { AgentEvent, AgentResult } from './agent.ts';
@@ -349,9 +349,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       startUrl = setupResult?.startUrl ?? startUrl;
       if (entry.explore)
         // Token-like values only: plain words such as "main" would redact ordinary page text and break replay.
-        for (const value of urlSecrets(new URL(startUrl)).values)
-          if (value.length >= 20 || (value.length >= 8 && /\d/u.test(value) && /\p{L}/u.test(value)))
-            secrets.hide(value);
+        for (const value of urlSecrets(new URL(startUrl)).values) if (isTokenLike(value)) secrets.hide(value);
       if (setupSignal.aborted) throw new Error('setup ran past its time or was cancelled');
     } catch (error) {
       deadline.clear();

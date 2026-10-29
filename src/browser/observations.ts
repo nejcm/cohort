@@ -1,4 +1,4 @@
-import type { Frame, Page } from 'playwright';
+import type { BrowserContext, Frame, Page } from 'playwright';
 
 export const MASK_RGB = [255, 0, 255] as const;
 
@@ -21,7 +21,104 @@ export function pngSize(png: Buffer): { width: number; height: number } {
 
 type Rect = [number, number, number, number];
 
-function scanMasks({ secrets, selectors }: { secrets: string[]; selectors: string[] }): Rect[] {
+const GUARD_KEY = 'cohort.guard';
+
+interface Guard {
+  roots: WeakMap<Element, ShadowRoot>;
+  changes: number;
+  attached: number;
+}
+
+// Init script: counts DOM changes that MutationObserver misses and keeps every shadow root, closed ones included, reachable for scanning.
+function guardMasks(key: string): void {
+  const store = globalThis as unknown as Record<symbol, Guard | undefined>;
+  const id = Symbol.for(key);
+  if (store[id]) return;
+  const guard: Guard = { roots: new WeakMap(), changes: 0, attached: 0 };
+  store[id] = guard;
+  // Adopted nodes keep their creating realm's prototype, so changes are reported to the guard of the element's current document.
+  const guardOf = (node: Node): Guard =>
+    (node.ownerDocument?.defaultView as unknown as Record<symbol, Guard | undefined> | null)?.[id] ?? guard;
+  const bump = (): void => void (guard.changes += 1);
+  for (const proto of [HTMLInputElement.prototype, HTMLTextAreaElement.prototype]) {
+    const read = Object.getOwnPropertyDescriptor(proto, 'value')!.get!;
+    const counted = <T extends unknown[], R>(write: (...args: T) => R) =>
+      function (this: HTMLInputElement, ...args: T): R {
+        const before = read.call(this);
+        try {
+          return write.apply(this, args);
+        } finally {
+          if (this.isConnected && read.call(this) !== before) guardOf(this).changes += 1;
+        }
+      };
+    for (const name of ['value', 'valueAsNumber', 'valueAsDate']) {
+      const property = Object.getOwnPropertyDescriptor(proto, name);
+      if (property?.set) Object.defineProperty(proto, name, { ...property, set: counted(property.set) });
+    }
+    const methods = proto as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const name of ['setRangeText', 'stepUp', 'stepDown'])
+      if (name in proto) methods[name] = counted(methods[name]!);
+  }
+  const attachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (this: Element, init: ShadowRootInit) {
+    const root = attachShadow.call(this, init);
+    const owner = guardOf(this);
+    owner.roots.set(this, root);
+    guard.roots.set(this, root);
+    // A root on a detached host only renders once inserted, which the MutationObserver sees.
+    owner.attached += 1;
+    if (this.isConnected) owner.changes += 1;
+    return root;
+  };
+  // Synthetic input events change nothing; trusted ones cover edits that bypass the setters, such as execCommand.
+  addEventListener('input', (event) => event.isTrusted && bump(), true);
+}
+
+/** Installs the mask guard in every later document of the context; captures fail closed in frames without it. */
+export async function installMaskGuard(context: BrowserContext): Promise<void> {
+  await context.addInitScript(guardMasks, GUARD_KEY);
+}
+
+// Declarative closed roots bypass attachShadow, so the guard cannot reach them; CDP still sees them, and any it finds fail the capture.
+async function assertShadowRootsReachable(page: Page): Promise<void> {
+  const check = `function () { return globalThis[Symbol.for(${JSON.stringify(GUARD_KEY)})]?.roots.has(this) === true; }`;
+  for (const target of [page, ...page.frames().slice(1)]) {
+    // Only out-of-process frames get their own session; the rest are pierced from their parent's document.
+    const cdp = await page
+      .context()
+      .newCDPSession(target)
+      .catch(() => null);
+    if (!cdp) continue;
+    try {
+      const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+      const hosts: number[] = [];
+      const walk = (node: typeof root): void => {
+        for (const shadow of node.shadowRoots ?? []) {
+          if (shadow.shadowRootType === 'closed') hosts.push(node.backendNodeId);
+          walk(shadow);
+        }
+        for (const child of [...(node.children ?? []), ...(node.contentDocument ? [node.contentDocument] : [])])
+          walk(child);
+      };
+      walk(root);
+      for (const backendNodeId of hosts) {
+        const { object } = await cdp.send('DOM.resolveNode', { backendNodeId });
+        const { result } = await cdp.send('Runtime.callFunctionOn', {
+          objectId: object.objectId!,
+          functionDeclaration: check,
+          returnByValue: true,
+        });
+        if (result.value !== true) throw new MaskError('a closed shadow root cannot be scanned');
+      }
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
+  }
+}
+
+function scanMasks({ secrets, selectors, key }: { secrets: string[]; selectors: string[]; key: string }): Rect[] {
+  const guard = (globalThis as unknown as Record<symbol, Guard | undefined>)[Symbol.for(key)];
+  if (!guard) throw new Error('mask guard missing in frame');
   const rects: Rect[] = [];
   const masked = ['[data-cohort-masked]', ...selectors].join(',');
   const hit = (text: string | null | undefined): boolean =>
@@ -43,7 +140,8 @@ function scanMasks({ secrets, selectors }: { secrets: string[]; selectors: strin
         for (const rect of [...element.getClientRects(), ...contents.getClientRects()])
           rects.push([rect.left, rect.top, rect.width, rect.height]);
       }
-      if (element.shadowRoot) visit(element.shadowRoot);
+      const shadow = element.shadowRoot ?? guard.roots.get(element);
+      if (shadow) visit(shadow);
     }
   };
   visit(document);
@@ -58,13 +156,23 @@ interface Watch {
   scrolled: boolean;
   onScroll: () => void;
   rects: WeakMap<Element, string>;
+  changes: number;
+  attached: number;
 }
 
-// Starts recording DOM mutations and scrolls in this document and its open shadow roots, replacing any earlier watch.
-function armWatch(key: string): void {
+// Starts recording DOM mutations and scrolls in this document and its shadow roots, replacing any earlier watch; true when a declarative closed root may have appeared since the last one.
+function armWatch({ key, guardKey }: { key: string; guardKey: string }): boolean {
   const store = globalThis as unknown as Record<symbol, Watch | undefined>;
+  const guard = (globalThis as unknown as Record<symbol, Guard | undefined>)[Symbol.for(guardKey)];
   const id = Symbol.for(key);
   const previous = store[id];
+  const stale =
+    !previous ||
+    !guard ||
+    previous.attached !== guard.attached ||
+    [...previous.records, ...previous.observer.takeRecords()].some((record) =>
+      [...record.addedNodes].some((node) => node instanceof Element && !node.closest('[data-cohort-overlay]')),
+    );
   previous?.observer.disconnect();
   if (previous) removeEventListener('scroll', previous.onScroll, true);
   const watch: Watch = {
@@ -73,20 +181,27 @@ function armWatch(key: string): void {
     scrolled: false,
     onScroll: () => (watch.scrolled = true),
     rects: new WeakMap(),
+    changes: guard?.changes ?? -1,
+    attached: guard?.attached ?? -1,
   };
   const observe = (root: Document | ShadowRoot): void => {
     watch.observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
-    for (const element of root.querySelectorAll('*')) if (element.shadowRoot) observe(element.shadowRoot);
+    for (const element of root.querySelectorAll('*')) {
+      const shadow = element.shadowRoot ?? guard?.roots.get(element);
+      if (shadow) observe(shadow);
+    }
   };
   observe(document);
   addEventListener('scroll', watch.onScroll, true);
   store[id] = watch;
+  return stale;
 }
 
 // True when anything but the mask overlay changed since armWatch, or this is a different document; otherwise snapshots element boxes for target checks.
-function settleWatch(key: string): boolean {
+function settleWatch({ key, guardKey }: { key: string; guardKey: string }): boolean {
   const watch = (globalThis as unknown as Record<symbol, Watch | undefined>)[Symbol.for(key)];
-  if (!watch) return true;
+  const guard = (globalThis as unknown as Record<symbol, Guard | undefined>)[Symbol.for(guardKey)];
+  if (!watch || !guard || guard.changes !== watch.changes) return true;
   const overlaySelector = '[data-cohort-overlay]';
   const overlay = (node: Node): boolean =>
     Boolean((node instanceof Element ? node : node.parentElement)?.closest(overlaySelector));
@@ -104,7 +219,8 @@ function settleWatch(key: string): boolean {
     for (const element of root.querySelectorAll('*')) {
       const box = element.getBoundingClientRect();
       watch.rects.set(element, `${box.left},${box.top},${box.width},${box.height}`);
-      if (element.shadowRoot) visit(element.shadowRoot);
+      const shadow = element.shadowRoot ?? guard.roots.get(element);
+      if (shadow) visit(shadow);
     }
   };
   visit(document);
@@ -149,7 +265,9 @@ function removeMasks(): void {
 async function scanFrames(page: Page, options: { secrets: string[]; maskSelectors: string[] }) {
   const frames = page.frames();
   const rects = await Promise.all(
-    frames.map((frame) => frame.evaluate(scanMasks, { secrets: options.secrets, selectors: options.maskSelectors })),
+    frames.map((frame) =>
+      frame.evaluate(scanMasks, { secrets: options.secrets, selectors: options.maskSelectors, key: GUARD_KEY }),
+    ),
   );
   return { frames, rects, signature: JSON.stringify([frames.map((frame) => frame.url()), rects]) };
 }
@@ -172,14 +290,18 @@ export async function captureMasked(
     let capture: Capture;
     let before: Awaited<ReturnType<typeof scanFrames>>;
     try {
-      await Promise.all(page.frames().map((frame) => frame.evaluate(armWatch, WATCH_KEY)));
+      const stale = await Promise.all(
+        page.frames().map((frame) => frame.evaluate(armWatch, { key: WATCH_KEY, guardKey: GUARD_KEY })),
+      );
       before = await scanFrames(page, options);
+      if (stale.includes(true)) await assertShadowRootsReachable(page);
       await Promise.all(
         before.frames.map((frame, index) => frame.evaluate(drawMasks, { rects: before.rects[index]!, color })),
       );
     } catch (error) {
       // Frames can detach or navigate mid-scan; retry, and fail closed if it keeps happening.
       await Promise.allSettled(page.frames().map((frame) => frame.evaluate(removeMasks)));
+      if (error instanceof MaskError) throw error;
       lastError = error;
       continue;
     }
@@ -236,7 +358,9 @@ export async function captureMasked(
     // A rescan that fails (e.g. a frame detached meanwhile) counts as a change.
     const unchanged = await scanFrames(page, options)
       .then(async (after) => {
-        const changed = await Promise.all(after.frames.map((frame) => frame.evaluate(settleWatch, WATCH_KEY)));
+        const changed = await Promise.all(
+          after.frames.map((frame) => frame.evaluate(settleWatch, { key: WATCH_KEY, guardKey: GUARD_KEY })),
+        );
         return (
           after.signature === before.signature &&
           after.frames.every((frame, index) => frame === before.frames[index]) &&

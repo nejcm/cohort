@@ -16,6 +16,22 @@
       },
       "pricingVerifiedAt": "2026-10-29",
       "untested": false
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "provider": "openai",
+      "label": "GPT-6.1 Terra",
+      "visionCapable": true,
+      "supportedEffortLevels": ["low", "medium", "high"],
+      "defaultEffort": "low",
+      "pricesPerMTok": {
+        "input": 1.0,
+        "output": 5.0,
+        "cachedInput": 0.05,
+        "cacheWrite": 1.25
+      },
+      "pricingVerifiedAt": "2026-10-29",
+      "untested": true
     }
   ]
 }

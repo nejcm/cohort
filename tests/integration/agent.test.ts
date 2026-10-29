@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, test } from 'node:test';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
-import { captureMasked, MASK_RGB } from '../../src/browser/observations.ts';
+import { captureMasked, installMaskGuard, MaskError, MASK_RGB } from '../../src/browser/observations.ts';
 import { runAgent, type AgentOptions } from '../../src/core/agent.ts';
 import { deriveClaims, validateClaim } from '../../src/evidence/friction.ts';
 import { generateReplay } from '../../src/evidence/replay.ts';
@@ -470,6 +470,7 @@ test('frame content re-rendered identically during capture is never sent unmaske
 test('a navigation committing mid-capture retries on the new document instead of hanging', async () => {
   const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
   const context = page.context();
+  await installMaskGuard(context);
   const open = context.newCDPSession.bind(context);
   let navigations = 0;
   // Chromium never answers a capture that a main-frame commit overtakes; navigate right behind the first one.
@@ -537,6 +538,85 @@ test('repeated clicks with no visible effect stop as a loop agent error, not a U
   assert.equal(provider.requests.length, 3);
   assert.equal(result.steps.length, 4);
   assert.equal(result.outcome.evidence.length, 1);
+});
+
+test('an A/B alternation with no visible effect stops as a loop, even with coordinate jitter', async () => {
+  const jitter =
+    (selector: string, dx: number): Turn =>
+    async (request) => {
+      const target = await pointOf(page0, page0.locator(selector), request);
+      return {
+        name: 'click',
+        args: { observationId: request.observation.id, target: { ...target, x: target.x + dx } },
+      };
+    };
+  let page0!: Page;
+  const { result } = await run('/lab/loop', (page) => {
+    page0 = page;
+    return [...Array(10).keys()].map((i) => jitter(i % 2 ? 'h1' : '#next', i % 3));
+  });
+  assert.deepEqual([result.outcome.state, (result.outcome as { code: string }).code], ['agent_error', 'loop']);
+  assert.equal(result.steps.length, 7);
+});
+
+test('alternating actions that change the screen are not a loop', async () => {
+  const { result } = await run('/lab/loop', (page) => [
+    ...Array<Turn>(4)
+      .fill(clickOn(page, '#next'))
+      .flatMap((turn) => [turn, clickOn(page, '#count')]),
+    done,
+  ]);
+  assert.equal(result.outcome.state, 'completed', JSON.stringify(result.outcome));
+});
+
+const fillOf =
+  (label: string, value: string): Turn =>
+  async (request, index) => {
+    const page = pages.at(-1)!;
+    return act('fill', { target: await pointOf(page, page.getByLabel(label), request), value })(request, index);
+  };
+const pages: Page[] = [];
+
+test('distinct masked fills across two fields are not a loop; alternating fills in one field are', async () => {
+  const fills = ['name', 'notes'].flatMap((label) => ['{{email}}', '{{token}}', '{{totp}}'].map((v) => [label, v]));
+  const distinct = await run('/request', (page) => {
+    pages.push(page);
+    return [...fills.map(([label, v]) => fillOf(label === 'name' ? 'Your name' : 'Notes', v!)), done];
+  });
+  assert.equal(distinct.result.outcome.state, 'completed', JSON.stringify(distinct.result.outcome));
+  const alternating = await run('/request', (page) => {
+    pages.push(page);
+    return [...Array(10).keys()].map((i) => fillOf('Your name', i % 2 ? '{{email}}' : '{{totp}}'));
+  });
+  assert.deepEqual(
+    [alternating.result.outcome.state, (alternating.result.outcome as { code?: string }).code],
+    ['agent_error', 'loop'],
+  );
+});
+
+test('goto never inherits start-URL query values that hold a secret', async () => {
+  const visited: string[] = [];
+  await run(`/lab/loop?scope=abc&tok=${TOKEN}`, (page) => [
+    goto('/'),
+    (request) => (visited.push(page.url()), done(request, 0)),
+  ]);
+  assert.deepEqual(
+    visited.map((url) => new URL(url).search),
+    ['?scope=abc'],
+  );
+});
+
+test('goto to a same-origin path keeps the start URL query unless the model supplies one', async () => {
+  const visited: string[] = [];
+  await run('/lab/loop?scope=abc', (page) => [
+    goto('/'),
+    (request) => (visited.push(page.url()), goto('/arrival?scope=own')(request, 0)),
+    (request) => (visited.push(page.url()), done(request, 0)),
+  ]);
+  assert.deepEqual(
+    visited.map((url) => new URL(url).search),
+    ['?scope=abc', '?scope=own'],
+  );
 });
 
 test('repetition that changes the screen, or varies, is not a loop', async () => {
@@ -818,3 +898,127 @@ for (const text of ['{{totp}}', TOTP])
     const recorded = JSON.stringify(result.steps);
     assert.ok(!recorded.includes(TOKEN) && !recorded.includes(TOTP));
   });
+
+async function guardedCapture(setup: string, duringShot: string, afterShot = '0') {
+  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  const context = page.context();
+  await installMaskGuard(context);
+  const open = context.newCDPSession.bind(context);
+  let shots = 0;
+  // Changes the page right before the first screenshot and reverts it after, so the rescan alone cannot notice.
+  context.newCDPSession = async (target) => {
+    const session = await open(target);
+    const send = session.send.bind(session) as (method: string, params?: object) => Promise<unknown>;
+    session.send = (async (method: string, params?: object) => {
+      if (method !== 'Page.captureScreenshot' || shots++ > 0) return send(method, params);
+      await page.evaluate(duringShot);
+      const sent = await send(method, params);
+      await page.evaluate(afterShot);
+      return sent;
+    }) as typeof session.send;
+    return session;
+  };
+  await page.goto(`${fixture.url}/`);
+  await page.evaluate(setup);
+  return {
+    page,
+    capture: () => captureMasked(page, { secrets: [TOKEN], maskSelectors: [], maxWidth: 800 }),
+    shots: () => shots,
+  };
+}
+
+async function captureFullyMasked(page: Page, capture: () => ReturnType<typeof captureMasked>, selector: string) {
+  try {
+    const png = decodePng((await capture()).png);
+    const box = (await page.locator(selector).boundingBox())!;
+    for (let y = Math.ceil(box.y); y < Math.floor(box.y + box.height); y += 1)
+      for (let x = Math.ceil(box.x); x < Math.floor(box.x + box.width); x += 1)
+        if (!png.pixel(x, y).every((channel, index) => channel === MASK_RGB[index])) return false;
+    return true;
+  } finally {
+    await page.close();
+  }
+}
+
+const HOST = `document.body.insertAdjacentHTML('afterbegin', '<input id="probe" value="plain"><textarea id="area">plain</textarea><input id="num" type="number" value="1"><span id="host" style="display:inline-block;font:20px monospace">plain</span>')`;
+const SECRETS = { secrets: [TOKEN, TOTP], maskSelectors: [], maxWidth: 800 };
+
+// The returned image must be the clean retry: identical to a later capture of the reverted page.
+async function assertSafeRetry(setup: string, duringShot: string, afterShot: string) {
+  const { page, shots } = await guardedCapture(`${HOST}; ${setup}`, duringShot, afterShot);
+  try {
+    const first = await captureMasked(page, SECRETS);
+    assert.equal(shots(), 2, 'the tampered image was not discarded');
+    assert.ok(first.png.equals((await captureMasked(page, SECRETS)).png), 'the returned image is not the clean retry');
+  } finally {
+    await page.close();
+  }
+}
+
+const races: [string, string, string, string][] = [
+  ['input value', '', `probe.value = '${TOKEN}'`, `probe.value = 'plain'`],
+  ['textarea value', '', `area.value = '${TOKEN}'`, `area.value = 'plain'`],
+  ['setRangeText', '', `probe.setRangeText('${TOKEN}')`, `probe.value = 'plain'`],
+  ['valueAsNumber', '', `num.valueAsNumber = ${TOTP}`, `num.value = '1'`],
+  ['stepUp', '', `num.stepUp(${Number(TOTP) - 1})`, `num.value = '1'`],
+  [
+    'an input adopted from a removed iframe',
+    `const frame = document.createElement('iframe'); document.body.append(frame); window.adopted = frame.contentDocument.createElement('input'); document.body.prepend(adopted); frame.remove()`,
+    `adopted.value = '${TOKEN}'`,
+    `adopted.value = ''`,
+  ],
+  [
+    'a late open shadow root',
+    '',
+    `(window.lateRoot = host.attachShadow({ mode: 'open' })).innerHTML = '<b>${TOKEN}</b>'`,
+    `lateRoot.innerHTML = '<slot></slot>'`,
+  ],
+  [
+    'a declarative closed root created after the check',
+    '',
+    `document.body.insertAdjacentHTML('afterbegin', '<span id="late"></span>'); late.setHTMLUnsafe('<span><template shadowrootmode="closed"><b>${TOKEN}</b></template></span>')`,
+    `late.remove()`,
+  ],
+];
+for (const [name, setup, during, revert] of races)
+  test(`${name} changed during capture discards the image`, () => assertSafeRetry(setup, during, revert));
+
+test('no-op and detached writes do not exhaust capture retries', async () => {
+  const { page, shots } = await guardedCapture(
+    `${HOST}; const loose = document.createElement('input'); setInterval(() => { probe.value = 'plain'; loose.value = String(Math.random()); probe.dispatchEvent(new Event('input', { bubbles: true })); }, 1)`,
+    '0',
+  );
+  try {
+    await captureMasked(page, SECRETS);
+    assert.equal(shots(), 1);
+  } finally {
+    await page.close();
+  }
+});
+
+test('a closed shadow root holding a secret is masked', async () => {
+  const { page, capture } = await guardedCapture(
+    `${HOST}; document.querySelector('#host').attachShadow({ mode: 'closed' }).innerHTML = '<b>${TOKEN}</b>'`,
+    '0',
+  );
+  assert.ok(await captureFullyMasked(page, capture, '#host'));
+});
+
+test('a declarative closed shadow root the guard cannot reach refuses the capture', async () => {
+  const { page, capture } = await guardedCapture(
+    `document.body.setHTMLUnsafe('<span><template shadowrootmode="closed"><b>${TOKEN}</b></template></span>')`,
+    '0',
+  );
+  await assert.rejects(captureFullyMasked(page, capture, 'span'), (error) => error instanceof MaskError);
+});
+
+test('a declarative closed root added between captures refuses the next capture', async () => {
+  const { page } = await guardedCapture(HOST, '0');
+  try {
+    await captureMasked(page, SECRETS);
+    await page.evaluate(`host.setHTMLUnsafe('<span><template shadowrootmode="closed">${TOKEN}</template></span>')`);
+    await assert.rejects(captureMasked(page, SECRETS), (error) => error instanceof MaskError);
+  } finally {
+    await page.close();
+  }
+});

@@ -85,3 +85,7 @@ export function safeUrl(url: string, secrets: SecretStore): string {
     return '[invalid url]';
   }
 }
+
+/** Values long or mixed enough to be credentials; plain words are not. Also embedded verbatim in generated replays. */
+export const isTokenLike = (value: string) =>
+  value.length >= 20 || (value.length >= 8 && /\d/u.test(value) && /\p{L}/u.test(value));

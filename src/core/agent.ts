@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Page } from 'playwright';
-import { captureMasked, MaskError, type Capture } from '../browser/observations.ts';
+import { captureMasked, installMaskGuard, MaskError, type Capture } from '../browser/observations.ts';
 import {
   focusedElement,
   focusedLocator,
@@ -15,7 +15,7 @@ import {
 import { focusLabel, type StepRecord } from '../evidence/steps.ts';
 import { canonical, type Prices } from '../providers/catalog.ts';
 import { ProviderError, type Decision, type Effort, type ProviderAdapter } from '../providers/types.ts';
-import { redactValue, safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
+import { isTokenLike, redactValue, safeUrl, SecretError, type SecretStore } from '../setup/secrets.ts';
 import { customToolDefinitions, runCustomTool } from '../setup/tools.ts';
 import type { CustomTool } from '../setup/types.ts';
 import { knownBlocker, KNOWN_BLOCKERS } from './blockers.ts';
@@ -95,6 +95,7 @@ const HISTORY_BYTES = 8000;
 const HISTORY_LINE_BYTES = 1000;
 const ACTION_TIMEOUT_MS = 5000;
 const LOOP_REPEATS = 3;
+const CYCLE_CALLS = 6;
 const REPORT_TOOLS = new Set(['report_friction', 'report_blocked', 'done', 'give_up']);
 
 const SAFETY_INSTRUCTIONS = `You are a synthetic user trying to accomplish a task in a web application.
@@ -130,6 +131,17 @@ class InterruptError extends Error {
 export function fingerprint(call: ToolCall): string {
   const { observationId: _, ...rest } = call.args;
   return `${call.name} ${canonical(rest)}`;
+}
+
+// A,B repeated CYCLE_CALLS/2 times with no progress in between; any progress clears the window.
+function alternating(keys: readonly string[]): boolean {
+  return keys.length === CYCLE_CALLS && keys[0] !== keys[1] && keys.every((key, index) => key === keys[index % 2]);
+}
+
+// Coordinates are replaced by the resolved locator so jitter does not matter; values stay in (already redacted).
+function loopKey(step: StepRecord): string {
+  const { observationId: _, target, ...rest } = step.action.args;
+  return `${step.action.name} ${canonical({ ...rest, at: step.target?.locator ?? target })}`;
 }
 
 function allowedDestination(url: URL, allowed: readonly string[]): string | null {
@@ -171,6 +183,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   let pending = null as { call: ToolCall; started: number; target?: StepRecord['target'] } | null;
   let escapedTo: string | null = null;
   let ineffective = { key: '', count: 0 };
+  let recentKeys: string[] = [];
   const signal = options.signal;
   const customTools = options.customTools ?? {};
   const customDefinitions = customToolDefinitions(customTools);
@@ -375,10 +388,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       step.result.status === 'ok' &&
       after !== null &&
       (!before || before.url !== after.url || !before.capture.png.equals(after.capture.png));
-    if (progressed || call.name === 'navigate' || (REPORT_TOOLS.has(call.name) && step.result.status === 'ok'))
+    if (progressed || call.name === 'navigate' || (REPORT_TOOLS.has(call.name) && step.result.status === 'ok')) {
       ineffective = { key: '', count: 0 };
-    else {
-      const key = fingerprint(call);
+      recentKeys = [];
+    } else {
+      const key = loopKey(step);
+      recentKeys = [...recentKeys, key].slice(-CYCLE_CALLS);
       ineffective = { key, count: ineffective.key === key ? ineffective.count + 1 : 1 };
     }
     const status =
@@ -398,6 +413,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
   const startDenied = allowedDestination(new URL(options.startUrl), allowed);
   if (startDenied) return agentError('browser_error', `start URL rejected: ${startDenied}`);
   try {
+    await installMaskGuard(page.context());
     await bounded(page.goto(options.startUrl, { timeout: Math.min(30_000, limits.timeMs) }));
     await observe();
   } catch (error) {
@@ -462,6 +478,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
       if (signal?.aborted) return interrupted();
       if (ineffective.count >= LOOP_REPEATS)
         return agentError('loop', `the same action had no visible effect ${ineffective.count} times in a row`);
+      if (alternating(recentKeys))
+        return agentError('loop', `two actions alternated ${CYCLE_CALLS / 2} times with no visible effect`);
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) return timeLimit('time limit reached');
       if (meter.exhausted) return costLimit('dollar limit reached');
@@ -765,6 +783,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
           reject('invalid_url', 'URL could not be parsed');
           continue;
         }
+        const start = new URL(options.startUrl);
+        if (url.origin === start.origin && !url.search)
+          for (const [name, value] of start.searchParams)
+            if (!isTokenLike(value) && !secrets.hasPlaceholder(value) && !secrets.contains(value))
+              url.searchParams.append(name, value);
         const denied = allowedDestination(url, allowed);
         if (denied) {
           reject('navigation_denied', denied);

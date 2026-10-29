@@ -165,7 +165,7 @@ test('the run dialog is keyboard-operable, hides keyless providers, and shows es
   );
   assert.deepEqual(
     options.map((option) => option.value),
-    ['', 'openai/priced', 'openai/unpriced', 'openai/fresh', 'openai/blind'],
+    ['', 'openai/gpt-6.1-terra', 'openai/priced', 'openai/unpriced', 'openai/fresh', 'openai/blind'],
   );
   assert.ok(
     options.find((option) => option.value === 'openai/blind')!.disabled,
@@ -175,6 +175,7 @@ test('the run dialog is keyboard-operable, hides keyless providers, and shows es
   await dialog.getByText('Hidden (no API key in the environment): anthropic').waitFor();
 
   await tabTo('run-model');
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.locator('#run-model').inputValue(), 'openai/unpriced');
@@ -387,6 +388,7 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   await page.goto(`${dashboard.origin}/suites/smoke`);
   await page.locator('#entry-0-model').waitFor();
   await page.locator('#entry-0-model').focus();
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   const source = await page.locator('#editor-source').inputValue();
   assert.match(source, /- persona: guest\n {4}model: openai\/priced/u);

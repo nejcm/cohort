@@ -33,4 +33,10 @@ playwright-report/
 .plans/
 .seed/
 
+*/skills
+.opencode
+skills-lock.json
+.cursor/mcp.json
+.ulis-manifest.json
+
 TODO.md

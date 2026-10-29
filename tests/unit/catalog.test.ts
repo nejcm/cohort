@@ -29,7 +29,10 @@ test('shipped catalog is the approved set, and untested entries need explicit co
   const catalog = validateCatalog(shipped, 'catalog.json');
   assert.deepEqual(
     catalog.models.map((entry) => [entry.provider, entry.id, entry.label, entry.defaultEffort, entry.untested]),
-    [['anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5', 'medium', false]],
+    [
+      ['anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5', 'medium', false],
+      ['openai', 'gpt-6.1-terra', 'GPT-6.1 Terra', 'low', true],
+    ],
   );
   assert.deepEqual(catalog.models[0]?.pricesPerMTok, { input: 2, output: 10, cachedInput: 0.1, cacheWrite: 2.5 });
   for (const entry of catalog.models) {

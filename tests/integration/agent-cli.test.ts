@@ -162,7 +162,7 @@ test('an agent drives the whole lifecycle through the CLI with no dashboard proc
   const models = await step('models list', ['models', 'list']);
   assert.deepEqual(
     models.json.models.map((model: { id: string }) => model.id),
-    ['openai/test-model', 'openai/unpriced-model'],
+    ['openai/gpt-6.1-terra', 'openai/test-model', 'openai/unpriced-model'],
   );
   assert.equal((await step('persona schema', ['persona', 'schema'])).json.schema.type, 'object');
   assert.ok((await step('persona templates', ['persona', 'templates'])).json.templates.length > 0);

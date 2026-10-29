@@ -53,6 +53,8 @@ Every run ends in exactly one state: `completed`, `abandoned`, `blocked(kind)`, 
 2. Otherwise `COHORT_START_URL` from the environment.
 3. Otherwise the recorded start URL, only if it was not reduced to origin and path.
 
+A same-origin `goto` without its own query keeps the start URL's query parameters, live and in replay, so state like `?scope=` survives. Parameters whose values are bound secrets or look like tokens (20+ characters, or 8+ mixing letters and digits) are never carried over; pass those through setup bindings.
+
 Secrets are passed as `COHORT_SECRET_<NAME>` and a storage state as `COHORT_STORAGE_STATE` (a file path). Replay never saves screenshots, because it types real values.
 
 ## Comparing base and head
