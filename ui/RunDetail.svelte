@@ -11,6 +11,7 @@
     isActive,
     screenshotPath,
     usd,
+    words,
     type LiveEvent,
     type RunSummary,
   } from './api.ts';
@@ -263,7 +264,7 @@
       <section class="section" aria-labelledby="timeline-title">
         <div class="section-head">
           <h2 id="timeline-title">Screenshots <span class="count">{shots.length}</span></h2>
-          <span class="hint">← → to step through</span>
+          <span class="hint keys">← → to step through</span>
         </div>
         {#if shots.length === 0}
           <div class="shot-empty">No screenshots yet.</div>
@@ -312,10 +313,10 @@
     <div class="stack summary">
       {#if report}
         <section class="section" aria-labelledby="outcome-title">
-          <h2 id="outcome-title">Outcome: {report.outcome.state}</h2>
+          <h2 id="outcome-title">Outcome: {words(report.outcome.state)}</h2>
           <div class="card outcome {TONES[report.outcome.state] ?? ''}">
             <div class="state">
-              <span class="badge {badge(report.outcome.state)}">{report.outcome.state}</span>
+              <span class="badge {badge(report.outcome.state)}">{words(report.outcome.state)}</span>
               {#if report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}
                 <span class="muted">reason</span><strong>{report.outcome.kind ?? report.outcome.code ?? report.outcome.limit}</strong>
               {/if}
@@ -335,7 +336,7 @@
             <ul class="claims">
               {#each report.friction as claim (claim.id)}
                 <li>
-                  <span class="kind">{claim.kind}</span><span class="source">{claim.source}</span>
+                  <span class="kind">{words(claim.kind)}</span><span class="source">{claim.source}</span>
                   {#if claim.statement}<p>{claim.statement}</p>{:else if claim.opinion}<p class="opinion">{claim.opinion.reason}</p>{/if}
                 </li>
               {/each}

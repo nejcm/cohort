@@ -143,19 +143,19 @@ async function save(projectRoot: string, kind: Kind, id: string, source: string,
   return { id, source, revision: sha256(source), parsed: next.parsed, error: null };
 }
 
-/** Creates a new persona file; the ID must be unused and the file may not reference setup code. */
-export async function createPersona(projectRoot: string, source: string): Promise<Editable> {
-  const { id, setup, parsed } = parse('personas', source, 'new persona');
-  if (setup !== undefined) throw new EditError(400, 'new personas cannot reference setup code; add it locally');
-  const dir = await plainDirectory(projectRoot, 'personas');
-  const target = join(dir, `${id}.md`);
+/** Creates a new persona or suite file; the ID must be unused and the file may not reference setup code. */
+export async function createEditable(projectRoot: string, kind: Kind, source: string): Promise<Editable> {
+  const { id, setup, parsed } = parse(kind, source, `new ${kind === 'personas' ? 'persona' : 'suite'}`);
+  if (setup !== undefined) throw new EditError(400, `new ${kind} cannot reference setup code; add it locally`);
+  await checkReferences(projectRoot, kind, parsed);
+  const dir = await plainDirectory(projectRoot, kind);
+  const target = join(dir, `${id}.${extension(kind)}`);
   const temp = `${target}.tmp-${randomBytes(4).toString('hex')}`;
   await writeFile(temp, source, { mode: 0o600, flag: 'wx' });
   try {
     await link(temp, target);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST')
-      throw new EditError(409, `${sourceName('personas', id)} exists`);
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new EditError(409, `${sourceName(kind, id)} exists`);
     throw error;
   } finally {
     await rm(temp, { force: true });

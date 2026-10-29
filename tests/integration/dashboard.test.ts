@@ -467,6 +467,21 @@ test('file edits use revisions, refuse setup changes, and never overwrite extern
     (await call('PUT', '/api/suites/smoke', { body: { source: unknown, revision: suite.revision } })).json().error,
     /unknown persona ghost/u,
   );
+  const newSuite = 'schemaVersion: 1\nid: checkout\nname: Checkout\nentries:\n  - persona: guest\n';
+  assert.equal((await call('POST', '/api/suites', { body: { source: newSuite } })).status, 201);
+  assert.equal((await call('POST', '/api/suites', { body: { source: newSuite } })).status, 409);
+  assert.match(
+    (
+      await call('POST', '/api/suites', {
+        body: { source: newSuite.replace('checkout', 'ghosts').replace('guest', 'ghost') },
+      })
+    ).json().error,
+    /unknown persona ghost/u,
+  );
+  assert.equal(
+    (await call('POST', '/api/suites', { body: { source: rigged.replace('smoke', 'rigged') } })).status,
+    400,
+  );
   const entry = { persona: 'newcomer', goal: 'Book a table.', note: 'From an ad-hoc run.' };
   const appended = await call('POST', '/api/suites/smoke/entries', { body: { entry, revision: suite.revision } });
   assert.equal(appended.status, 200, appended.text);
@@ -494,6 +509,7 @@ test('file edits use revisions, refuse setup changes, and never overwrite extern
     400,
   );
   assert.deepEqual((await call('GET', '/api/suites')).json().suites, [
+    { id: 'checkout', name: 'Checkout', entries: 1, error: null },
     { id: 'smoke', name: 'Smoke', entries: 2, error: null },
   ]);
 });

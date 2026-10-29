@@ -17,7 +17,7 @@ import { createProviders } from '../providers/registry.ts';
 import { EFFORTS, ProviderError, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { SecretStore, safeUrl } from '../setup/secrets.ts';
 import { LabDb, type RunRow } from './db.ts';
-import { appendSuiteEntry, createPersona, EditError, readEditable, saveEditable } from './files.ts';
+import { appendSuiteEntry, createEditable, EditError, readEditable, saveEditable } from './files.ts';
 import { indexRuns, QueueError, recoverInterrupted, RunQueue } from './runner.ts';
 
 export interface DashboardOptions {
@@ -341,10 +341,14 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     ],
     [
       'POST',
-      /^\/api\/personas$/u,
-      async (_m, request, response) => {
+      /^\/api\/(personas|suites)$/u,
+      async (match, request, response) => {
         const body = await readJson(request);
-        json(response, 201, await createPersona(projectRoot, text(body.source, 'source')));
+        json(
+          response,
+          201,
+          await createEditable(projectRoot, match[1] as 'personas' | 'suites', text(body.source, 'source')),
+        );
       },
     ],
     [

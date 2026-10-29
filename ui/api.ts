@@ -153,9 +153,12 @@ const BADGES: Record<string, string> = {
 export const badge = (status: string, outcome?: string | null, interruptedBy?: string | null): string =>
   interruptedBy ? 'interrupted' : (BADGES[outcome ?? status] ?? BADGES[status] ?? status);
 
+/** Outcome and claim codes read as words: limit_reached → limit reached. */
+export const words = (code: string): string => code.replaceAll('_', ' ');
+
 export const statusLabel = (run: RunSummary): string =>
   run.status === 'finished'
-    ? `${run.outcome ?? 'finished'}${run.blockedKind ? ` (${run.blockedKind})` : ''}${run.interruptedBy ? ` by ${run.interruptedBy}` : ''}`
+    ? `${run.outcome ? words(run.outcome) : 'finished'}${run.blockedKind ? ` (${run.blockedKind})` : ''}${run.interruptedBy ? ` by ${run.interruptedBy}` : ''}`
     : run.status;
 
 export interface LiveEvent {

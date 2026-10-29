@@ -303,7 +303,7 @@ test('queued and running runs cancel from the run view', async () => {
   await page.getByText('Cancellation requested.').waitFor();
   blocker.release();
   turn = done;
-  await page.getByRole('heading', { name: 'Outcome: agent_error' }).waitFor();
+  await page.getByRole('heading', { name: 'Outcome: agent error' }).waitFor();
   await page.getByText('(interrupted by user)').waitFor();
 });
 

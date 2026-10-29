@@ -5,6 +5,7 @@
    rules, a dotted sheet, uppercase tracked labels, colour only for status. */
 :root {
   color-scheme: dark;
+  scrollbar-color: var(--line-strong) transparent;
 
   /* Semantic core (kept from the existing set) */
   --bg: #0b0b0b; /* the frame: sidebar + top bar */
@@ -433,6 +434,7 @@ body {
   background: var(--surface-2);
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
 }
 .app .tabs a {
   display: inline-flex;
@@ -443,6 +445,8 @@ body {
   color: var(--muted);
   border-radius: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .app .tabs a:hover {
   color: var(--fg);
@@ -464,6 +468,7 @@ body {
   gap: var(--s-3);
   color: var(--muted);
   font-size: var(--text-sm);
+  white-space: nowrap;
 }
 
 .section {
@@ -1013,6 +1018,15 @@ progress.prog::-moz-progress-bar {
   .app button > .mono {
     font-size: inherit;
   }
+  .app .tabs a,
+  .app > .side nav a {
+    display: block;
+    align-content: center;
+    text-box: trim-both cap alphabetic;
+  }
+  .app > .side nav a .icon {
+    margin: calc(0.5cap - 8px) 10px calc(0.5cap - 8px) 0;
+  }
 }
 
 /* ---------- 6. Form controls ---------- */
@@ -1051,7 +1065,8 @@ progress.prog::-moz-progress-bar {
   width: 100%;
   min-width: 0;
   height: var(--ctl-h);
-  padding: 0 var(--ctl-px);
+  /* The mono face sits ~1px above centre in its line box; 2px on top re-centres the cap height. */
+  padding: 2px var(--ctl-px) 0;
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--ctl-r);
   background: var(--surface-2);
@@ -1083,7 +1098,7 @@ progress.prog::-moz-progress-bar {
 }
 .app select {
   appearance: none;
-  padding-right: calc(var(--ctl-px) + 14px);
+  padding-right: calc(var(--ctl-px) + 20px);
   /* Chevron from two gradient triangles: the CSP forbids url() images. */
   background-image:
     linear-gradient(45deg, transparent 50%, var(--muted) 50%),
@@ -1859,6 +1874,9 @@ progress.prog::-moz-progress-bar {
   display: flex;
   align-items: center;
   gap: var(--s-2);
+  font-weight: var(--w-regular);
+  letter-spacing: var(--track);
+  text-transform: uppercase;
 }
 .private-zone .body p {
   font-size: var(--text-sm);
@@ -2046,6 +2064,12 @@ progress.prog::-moz-progress-bar {
 }
 .metered .metered-head h2 {
   font-size: var(--text-md);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.metered .form-grid.cols-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: dense;
 }
 .metered .metered-body {
   padding: var(--s-4);
@@ -2099,6 +2123,17 @@ progress.prog::-moz-progress-bar {
 }
 
 /* ---------- 16. Responsive (container queries on .app) ---------- */
+@container app (max-width: 1100px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpis > div:nth-child(3) {
+    border-left: 0;
+  }
+  .kpis > div:nth-child(n + 3) {
+    border-top: var(--bw) solid var(--line);
+  }
+}
 @container app (max-width: 1000px) {
   .detail-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2512,7 +2547,7 @@ body {
   min-width: 1156px;
 }
 .table-wrap.runs col:nth-child(2) {
-  width: 116px;
+  width: 136px;
 }
 .table-wrap.runs col:nth-child(3) {
   width: 200px;
@@ -2534,6 +2569,14 @@ body {
 }
 .table-wrap.runs col:nth-child(9) {
   width: 88px;
+}
+.table-wrap.runs a.rid {
+  font-size: var(--text-xs);
+}
+.table-wrap.runs td .badge {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .table-wrap.runs td .who .av {
   width: 22px;
@@ -2559,4 +2602,10 @@ body {
 }
 .editor .form-grid .span-2c {
   grid-column: auto;
+}
+
+@media (pointer: coarse) {
+  .hint.keys {
+    display: none;
+  }
 }
