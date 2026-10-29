@@ -96,6 +96,49 @@ export interface RunEvent {
 
 const now = (): string => new Date().toISOString();
 
+/** Sort keys never NULL, so `(key, id)` row-value comparisons page correctly. */
+export const RUN_SORTS = {
+  created: 'created_at',
+  id: 'id',
+  status: "status || ':' || COALESCE(outcome_state, '')",
+  persona: 'persona_id',
+  started: "COALESCE(started_at, '')",
+  mode: 'mode',
+  model: "provider || '/' || model",
+  repeat: 'repeat_index',
+  duration: 'COALESCE(duration_ms, -1)',
+  cost: 'COALESCE(estimated_cost_usd, -1)',
+} as const;
+
+const ACTIVE = "status IN ('queued', 'running')";
+const LOOK = "(status = 'finished' AND outcome_state IN ('blocked', 'limit_reached', 'agent_error'))";
+export const RUN_FILTERS = { active: ACTIVE, look: LOOK, finished: `NOT ${ACTIVE}` } as const;
+
+export interface RunQuery {
+  sort?: keyof typeof RUN_SORTS;
+  asc?: boolean;
+  filter?: keyof typeof RUN_FILTERS;
+  text?: string;
+  after?: [string | number, string];
+}
+
+export type RunCounts = Record<
+  'all' | 'active' | 'look' | 'finished' | 'running' | 'queued' | 'finishedToday' | 'spentToday',
+  number
+>;
+
+function runFilter({ filter, text }: RunQuery): { where: string[]; params: SQLInputValue[] } {
+  const where: string[] = filter ? [RUN_FILTERS[filter]] : [];
+  const params: SQLInputValue[] = [];
+  if (text) {
+    where.push(
+      "instr(lower(id || ' ' || goal || ' ' || persona_id || ' ' || mode || ' ' || provider || '/' || model), lower(?)) > 0",
+    );
+    params.push(text);
+  }
+  return { where, params };
+}
+
 /** Columns a finished report fills; unknown costs stay NULL. */
 export function reportColumns(report: RunReport): Partial<RunRow> {
   const { outcome, usage } = report;
@@ -199,17 +242,33 @@ export class LabDb {
       .all(batchId) as unknown as RunRow[];
   }
 
-  /** Newest first; the cursor is the last row's `created_at` and `id`. */
-  listRuns(limit: number, cursor?: { createdAt: string; id: string }): RunRow[] {
-    return (cursor
-      ? this.db
-          .prepare(
-            'SELECT * FROM runs WHERE created_at < ? OR (created_at = ? AND id < ?) ORDER BY created_at DESC, id DESC LIMIT ?',
-          )
-          .all(cursor.createdAt, cursor.createdAt, cursor.id, limit)
-      : this.db
-          .prepare('SELECT * FROM runs ORDER BY created_at DESC, id DESC LIMIT ?')
-          .all(limit)) as unknown as RunRow[];
+  /** Keyset-paged runs; `after` is the previous page's last `[sort_key, id]`. */
+  listRuns(limit: number, query: RunQuery = {}): (RunRow & { sort_key: string | number })[] {
+    const key = RUN_SORTS[query.sort ?? 'created'];
+    const order = query.asc ? 'ASC' : 'DESC';
+    const { where, params } = runFilter(query);
+    if (query.after) {
+      where.push(`(${key}, id) ${query.asc ? '>' : '<'} (?, ?)`);
+      params.push(...query.after);
+    }
+    return this.db
+      .prepare(
+        `SELECT *, ${key} AS sort_key FROM runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY sort_key ${order}, id ${order} LIMIT ?`,
+      )
+      .all(...params, limit) as unknown as (RunRow & { sort_key: string | number })[];
+  }
+
+  /** Tab and headline counts over the runs matching `text`; "today" starts at `since`. */
+  runCounts(text: string, since: string): RunCounts {
+    const { where, params } = runFilter({ text });
+    return this.db
+      .prepare(
+        `SELECT COUNT(*) AS "all", TOTAL(${ACTIVE}) AS active, TOTAL(${LOOK}) AS look, TOTAL(NOT ${ACTIVE}) AS finished,
+          TOTAL(status = 'running') AS running, TOTAL(status = 'queued') AS queued,
+          TOTAL(created_at >= ? AND NOT ${ACTIVE}) AS finishedToday, TOTAL(IIF(created_at >= ?, estimated_cost_usd, 0)) AS spentToday
+        FROM runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`,
+      )
+      .get(since, since, ...params) as unknown as RunCounts;
   }
 
   runsWithStatus(...statuses: RunStatus[]): RunRow[] {

@@ -657,6 +657,63 @@ const orphan = (id: string, status: 'queued' | 'running', entry: number) => ({
   config_hash: 'sha256:y',
 });
 
+test('runs sort, filter, and page by keyset across every row, not just the loaded page', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lab-sort-'));
+  const db = new LabDb(join(dir, 'lab.db'));
+  db.insertBatch('batch_20260101_000000_aaaaaa', {});
+  const costs = [0.3, null, 0.1, 0.3, 0.2];
+  for (const [index, cost] of costs.entries())
+    db.insertRun({
+      ...orphan(`run_20260101_000000_sort0${index}`, 'queued', index),
+      status: index < 3 ? 'finished' : index === 3 ? 'queued' : 'running',
+      outcome_state: index === 0 ? 'blocked' : index < 3 ? 'completed' : null,
+      persona_id: index === 2 ? 'Admin-Ann' : 'guest',
+      estimated_cost_usd: cost,
+      created_at: `2026-01-0${index + 1}T00:00:00.000Z`,
+      started_at: index === 3 ? null : `2026-02-0${5 - index}T00:00:00.000Z`,
+    });
+  const pages = (query: Parameters<LabDb['listRuns']>[1]) => {
+    const ids: string[] = [];
+    let cursor: [string | number, string] | undefined;
+    for (;;) {
+      const rows = db.listRuns(2, { ...query, after: cursor });
+      ids.push(...rows.map((row) => row.id.slice(-1)));
+      if (rows.length < 2) return ids.join('');
+      cursor = [rows.at(-1)!.sort_key, rows.at(-1)!.id];
+    }
+  };
+  assert.equal(pages({}), '43210');
+  assert.equal(pages({ sort: 'cost', asc: true }), '12403');
+  assert.equal(pages({ sort: 'cost' }), '30421');
+  assert.equal(pages({ sort: 'started' }), '01243');
+  assert.equal(pages({ filter: 'look' }), '0');
+  assert.equal(pages({ filter: 'active', sort: 'id', asc: true }), '34');
+  assert.equal(pages({ text: 'admin' }), '2');
+  const counts = db.runCounts('', '2026-01-03');
+  assert.equal(Math.round(counts.spentToday * 100), 60);
+  assert.deepEqual(
+    { ...counts, spentToday: 0 },
+    {
+      all: 5,
+      active: 2,
+      look: 1,
+      finished: 3,
+      running: 1,
+      queued: 1,
+      finishedToday: 1,
+      spentToday: 0,
+    },
+  );
+  db.close();
+  await rm(dir, { recursive: true, force: true });
+  for (const bad of ['sort=goal', 'f=everything', 'cursor=bm90LWpzb24'])
+    assert.equal((await call('GET', `/api/runs?${bad}`)).status, 400, bad);
+  const first = (await call('GET', '/api/runs?sort=id&dir=asc&limit=1')).json();
+  assert.equal(typeof first.counts.all, 'number');
+  const next = (await call('GET', `/api/runs?sort=id&dir=asc&limit=1&cursor=${first.nextCursor}`)).json();
+  assert.ok(next.runs[0].id > first.runs[0].id);
+});
+
 test('a restart marks orphaned runs interrupted with a bounded report and never resumes them', async () => {
   const restartRoot = await mkdtemp(join(tmpdir(), 'lab-restart-'));
   await mkdir(join(restartRoot, '.cohort'), { recursive: true });

@@ -16,7 +16,7 @@ import { catalogHash, CatalogError, loadCatalog, resolveModel } from '../provide
 import { createProviders } from '../providers/registry.ts';
 import { EFFORTS, ProviderError, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { SecretStore, safeUrl } from '../setup/secrets.ts';
-import { LabDb, type RunRow } from './db.ts';
+import { LabDb, RUN_FILTERS, RUN_SORTS, type RunQuery, type RunRow } from './db.ts';
 import { appendSuiteEntry, createEditable, EditError, readEditable, saveEditable } from './files.ts';
 import { indexRuns, QueueError, recoverInterrupted, RunQueue } from './runner.ts';
 
@@ -457,19 +457,40 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       async (_m, request, response) => {
         const params = new URL(request.url!, 'http://local').searchParams;
         const limit = Math.min(MAX_PAGE, Math.max(1, Number(params.get('limit') ?? 50) || 50));
+        const sort = params.get('sort') ?? 'created';
+        const filter = params.get('f') || undefined;
+        if (!Object.hasOwn(RUN_SORTS, sort)) throw new HttpError(400, 'invalid sort');
+        if (filter && !Object.hasOwn(RUN_FILTERS, filter)) throw new HttpError(400, 'invalid filter');
+        const query: RunQuery = {
+          sort: sort as RunQuery['sort'],
+          asc: params.get('dir') === 'asc',
+          filter: filter as RunQuery['filter'],
+          text: params.get('q')?.trim(),
+        };
         const cursor = params.get('cursor');
-        let after: { createdAt: string; id: string } | undefined;
         if (cursor) {
-          const [createdAt, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
-          if (!createdAt || !id) throw new HttpError(400, 'invalid cursor');
-          after = { createdAt, id };
+          let after: unknown;
+          try {
+            after = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+          } catch {}
+          if (
+            !Array.isArray(after) ||
+            after.length !== 2 ||
+            !['string', 'number'].includes(typeof after[0]) ||
+            typeof after[1] !== 'string'
+          )
+            throw new HttpError(400, 'invalid cursor');
+          query.after = after as [string | number, string];
         }
-        const rows = db.listRuns(limit, after);
+        const rows = db.listRuns(limit, query);
         const last = rows.at(-1);
         json(response, 200, {
           runs: rows.map(publicRun),
           nextCursor:
-            rows.length === limit && last ? Buffer.from(`${last.created_at}|${last.id}`).toString('base64url') : null,
+            rows.length === limit && last
+              ? Buffer.from(JSON.stringify([last.sort_key, last.id])).toString('base64url')
+              : null,
+          counts: db.runCounts(query.text ?? '', params.get('since') ?? new Date().toISOString().slice(0, 10)),
         });
       },
     ],

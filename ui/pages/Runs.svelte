@@ -1,59 +1,107 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
-  import { api, badge, initials, isActive, statusLabel, tint, usd, type RunSummary } from '../lib/api.ts';
+  import { api, badge, initials, statusLabel, tint, usd, type RunSummary } from '../lib/api.ts';
 
   let { filter }: { filter: string } = $props();
   let runs = $state<RunSummary[]>([]);
+  let counts = $state<Record<'all' | 'active' | 'look' | 'finished' | 'running' | 'queued' | 'finishedToday' | 'spentToday', number> | null>(null);
   let cursor = $state<string | null>(null);
   let error = $state('');
   let loaded = $state(false);
-  let paged = false;
+  let sort = $state('created');
+  let asc = $state(false);
+  let text = $state('');
+  let search = $state('');
+  let latest = 0;
+  let busy = $state(false);
 
-  async function load(more = false): Promise<void> {
-    try {
-      const page = await api<{ runs: RunSummary[]; nextCursor: string | null }>(
-        'GET',
-        `/api/runs?limit=50${more && cursor ? `&cursor=${cursor}` : ''}`,
-      );
-      const fresh = new Set(page.runs.map((run) => run.id));
-      // A refresh replaces the first page but keeps rows already loaded through "Load more".
-      runs = more ? [...runs, ...page.runs] : [...page.runs, ...(paged ? runs.filter((run) => !fresh.has(run.id)) : [])];
-      if (more || !paged) cursor = page.nextCursor;
-      paged ||= more;
-      error = '';
-    } catch (caught) {
-      error = (caught as Error).message;
-    } finally {
-      loaded = true;
-    }
-  }
-
-  $effect(() => {
-    void load();
-    // shortcut: polls only the first page every 3 s while runs are active, so active rows further down stay stale; subscribe to a list event stream if that matters.
-    const timer = setInterval(() => {
-      if (runs.some((run) => isActive(run.status))) void load();
-    }, 3000);
-    return () => clearInterval(timer);
-  });
-
-  const needsLook = (run: RunSummary): boolean =>
-    run.status === 'finished' && ['blocked', 'limit_reached', 'agent_error'].includes(run.outcome ?? '');
-  const today = (run: RunSummary): boolean => new Date(run.createdAt).toDateString() === new Date().toDateString();
-  const FILTERS: Record<string, (run: RunSummary) => boolean> = {
-    active: (run) => isActive(run.status),
-    look: needsLook,
-    finished: (run) => !isActive(run.status),
-  };
-  const shown = $derived(FILTERS[filter] ? runs.filter(FILTERS[filter]) : runs);
-  const count = (test: (run: RunSummary) => boolean): number => runs.filter(test).length;
-  const sum = (list: RunSummary[]): number => list.reduce((total, run) => total + (run.costUsd ?? 0), 0);
   const TABS: [string, string][] = [
     ['', 'All'],
     ['active', 'Active'],
     ['look', 'Needs a look'],
     ['finished', 'Finished'],
   ];
+  const tab = $derived(TABS.some(([key]) => key === filter) ? filter : '');
+  const query = $derived(
+    `/api/runs?limit=50${sort === 'created' ? '' : `&sort=${sort}`}${asc ? '&dir=asc' : ''}${tab ? `&f=${tab}` : ''}${search ? `&q=${encodeURIComponent(search)}` : ''}`,
+  );
+
+  async function load(more = false, keep = more ? 0 : runs.length): Promise<void> {
+    const ticket = ++latest;
+    busy = true;
+    const asked = query;
+    const midnight = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+    try {
+      let list = more ? runs : [];
+      let next = more ? cursor : null;
+      let page;
+      // A refresh refetches every loaded page so rows that left the sort order or filter drop out.
+      do {
+        page = await api<{ runs: RunSummary[]; nextCursor: string | null; counts: NonNullable<typeof counts> }>(
+          'GET',
+          `${asked}&since=${midnight}${next ? `&cursor=${next}` : ''}`,
+        );
+        if (ticket !== latest) return;
+        const seen = new Set(list.map((run) => run.id));
+        list = [...list, ...page.runs.filter((run) => !seen.has(run.id))];
+        next = page.nextCursor;
+      } while (next && list.length < keep);
+      runs = list;
+      counts = page.counts;
+      cursor = next;
+      error = '';
+    } catch (caught) {
+      if (ticket === latest) error = (caught as Error).message;
+    } finally {
+      loaded = true;
+      if (ticket === latest) busy = false;
+    }
+  }
+
+  $effect(() => {
+    const value = text.trim();
+    const timer = setTimeout(() => (search = value), 250);
+    return () => clearTimeout(timer);
+  });
+
+  $effect(() => {
+    void load(false, 0);
+    // shortcut: refetches every loaded page every 3 s while runs are active; subscribe to a list event stream if that gets heavy.
+    const timer = setInterval(() => {
+      if (counts?.active && !busy) void load();
+    }, 3000);
+    return () => clearInterval(timer);
+  });
+
+  const COLUMNS: [string, string, string?][] = [
+    ['id', 'Run and goal'],
+    ['status', 'Status'],
+    ['persona', 'Persona'],
+    ['started', 'Started'],
+    ['mode', 'Mode'],
+    ['model', 'Model'],
+    ['repeat', 'Repeat', 'num'],
+    ['duration', 'Duration', 'num'],
+    ['cost', 'Cost', 'num'],
+  ];
+  function order(key: string, kind?: string): void {
+    asc = sort === key ? !asc : !kind && key !== 'started';
+    sort = key;
+  }
+  const SORTS: [string, string][] = [
+    ['created:desc', 'Newest first'],
+    ['created:asc', 'Oldest first'],
+    ...COLUMNS.flatMap(([key, label]): [string, string][] => [
+      [`${key}:asc`, `${label}, ascending`],
+      [`${key}:desc`, `${label}, descending`],
+    ]),
+  ];
+  function pick(event: Event): void {
+    const [key, dir] = (event.currentTarget as HTMLSelectElement).value.split(':');
+    sort = key!;
+    asc = dir === 'asc';
+  }
+  const sum = (list: RunSummary[]): number => list.reduce((total, run) => total + (run.costUsd ?? 0), 0);
 
   const seconds = (ms: number | null): string => (ms === null ? '—' : `${(ms / 1000).toFixed(1)} s`);
   const started = (at: string | null): string => {
@@ -68,59 +116,69 @@
 
 <div class="page-head">
   <div class="title"><h1>Runs</h1></div>
-  <p class="sub">{count((run) => run.status === 'running')} running, {count((run) => run.status === 'queued')} queued.</p>
+  <p class="sub">{counts?.running ?? 0} running, {counts?.queued ?? 0} queued.</p>
 </div>
 {#if error}
   <div class="banner error" role="alert">
     <div class="body"><strong>Couldn't load runs.</strong><span>{error}</span></div>
   </div>
 {/if}
-{#if loaded && runs.length === 0 && !error}
+{#if loaded && counts?.all === 0 && !tab && !search && !error}
   <div class="empty">
     <Icon name="play" size={24} />
     <strong>No runs yet.</strong>
     <p>Start one with <strong>New run</strong>.</p>
   </div>
-{:else if runs.length > 0}
-  <dl class="kpis" aria-label="Loaded runs at a glance">
+{:else if counts}
+  <dl class="kpis" aria-label="Runs at a glance">
     <div>
-      <dt>Running</dt><dd>{count((run) => run.status === 'running')}</dd>
-      <dd class="note">{count((run) => run.status === 'queued')} queued behind them</dd>
+      <dt>Running</dt><dd>{counts.running}</dd>
+      <dd class="note">{counts.queued} queued behind them</dd>
     </div>
     <div>
-      <dt>Needs a look</dt><dd class="warn"><span class="tick" aria-hidden="true"></span>{count(needsLook)}</dd>
+      <dt>Needs a look</dt><dd class="warn"><span class="tick" aria-hidden="true"></span>{counts.look}</dd>
       <dd class="note">blocked, limit reached, failed</dd>
     </div>
     <div>
-      <dt>Finished today</dt><dd>{count((run) => today(run) && !isActive(run.status))}</dd>
-      <dd class="note">of {runs.length} loaded</dd>
+      <dt>Finished today</dt><dd>{counts.finishedToday}</dd>
+      <dd class="note">of {counts.all} runs</dd>
     </div>
     <div>
-      <dt>Spent today</dt><dd>{usd(sum(runs.filter(today)))}</dd><dd class="note">provider-reported</dd>
+      <dt>Spent today</dt><dd>{usd(counts.spentToday)}</dd><dd class="note">provider-reported</dd>
     </div>
   </dl>
   <ul class="tabs" aria-label="Filter runs">
     {#each TABS as [key, label] (key)}
       <li>
-        <a href={key ? `/runs?f=${key}` : '/runs'} aria-current={filter === key || (!FILTERS[filter] && !key) ? 'true' : undefined}>
-          {label} <span class="n">{key ? count(FILTERS[key]!) : runs.length}</span>
+        <a href={key ? `/runs?f=${key}` : '/runs'} aria-current={tab === key ? 'true' : undefined}>
+          {label} <span class="n">{counts[(key || 'all') as keyof typeof counts]}</span>
         </a>
       </li>
     {/each}
   </ul>
-  <div class="toolbar"><span>Newest first</span><span class="tab">{runs.length} loaded · {usd(sum(runs))}</span></div>
+  <div class="toolbar">
+    <input class="search sm" type="search" placeholder="Filter by run, goal, persona, model" aria-label="Search runs" bind:value={text} />
+    <select class="sort-pick sm" aria-label="Sort runs" value="{sort}:{asc ? 'asc' : 'desc'}" onchange={pick}>
+      {#each SORTS as [value, label] (value)}<option {value}>{label}</option>{/each}
+    </select>
+    <span class="tab">{runs.length} loaded · {usd(sum(runs))}</span></div>
   <div class="table-wrap runs boxed">
     <table class="runs fixed">
       <colgroup>{#each { length: 9 } as _, index (index)}<col />{/each}</colgroup>
       <thead>
         <tr>
-          <th scope="col">Run and goal</th><th scope="col">Status</th><th scope="col">Persona</th>
-          <th scope="col">Started</th><th scope="col">Mode</th><th scope="col">Model</th>
-          <th scope="col" class="num">Repeat</th><th scope="col" class="num">Duration</th><th scope="col" class="num">Cost</th>
+          {#each COLUMNS as [key, label, kind] (key)}
+            <th scope="col" class={kind} aria-sort={sort === key ? (asc ? 'ascending' : 'descending') : undefined}>
+              <span class="head">{label}</span>
+              <button type="button" class="sort" onclick={() => order(key, kind)}>
+                {label}<span class="dir" aria-hidden="true">{sort === key ? (asc ? '↑' : '↓') : ''}</span>
+              </button>
+            </th>
+          {/each}
         </tr>
       </thead>
       <tbody>
-        {#each shown as run (run.id)}
+        {#each runs as run (run.id)}
           <tr>
             <td class="clip">
               <a class="rid" href="/runs/{encodeURIComponent(run.id)}">{run.id}</a>
@@ -145,12 +203,14 @@
             <td class="num">{seconds(run.durationMs)}</td>
             <td class="num">{usd(run.costUsd)}</td>
           </tr>
+        {:else}
+          <tr><td colspan="9" class="muted">No runs match.</td></tr>
         {/each}
       </tbody>
     </table>
   </div>
   <div class="toolbar">
-    <span>Showing {shown.length} runs</span>
-    {#if cursor}<button type="button" onclick={() => load(true)}><Icon name="chevronDown" />Load more</button>{/if}
+    <span>Showing {runs.length} of {counts[(tab || 'all') as keyof typeof counts]} runs</span>
+    {#if cursor}<button type="button" disabled={busy} onclick={() => load(true)}><Icon name="chevronDown" />Load more</button>{/if}
   </div>
 {/if}

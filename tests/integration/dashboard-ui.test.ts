@@ -476,7 +476,7 @@ test('a run view picks up comparison claims added after its own run finished', a
 
 test('polling while a run is active keeps rows loaded through Load more', async () => {
   const side = new LabDb(join(root, '.cohort/index.sqlite'));
-  const [template] = side.listRuns(1);
+  const template = side.run(side.listRuns(1)[0]!.id);
   side.insertBatch('batch_20260101_000000_pagepg', {});
   const ids = Array.from({ length: 60 }, (_, index) => `run_20260101_000000_p${String(index).padStart(5, '0')}`);
   for (const [index, id] of ids.entries())
@@ -496,11 +496,133 @@ test('polling while a run is active keeps rows loaded through Load more', async 
     const rows = page.locator('table.runs tbody tr');
     await page.waitForFunction(() => document.querySelectorAll('table.runs tbody tr').length > 50);
     const loaded = await rows.count();
-    await page.waitForResponse((response) => response.url().endsWith('/api/runs?limit=50'));
+    await page.waitForResponse((response) => response.url().includes('/api/runs?limit=50&since='));
     await page.waitForTimeout(100);
     assert.equal(await rows.count(), loaded);
   } finally {
     side.updateRun(ids[0]!, { status: 'finished' });
     side.close();
+  }
+});
+
+test('run headers sort on the server and the filter box narrows rows', async () => {
+  await page.goto(`${dashboard.origin}/runs`);
+  const cost = page.getByRole('columnheader', { name: 'Cost' });
+  assert.equal(await page.getByRole('combobox', { name: 'Sort runs' }).inputValue(), 'created:desc');
+  assert.equal(await page.locator('th[aria-sort]').count(), 0);
+  const sorted = page.waitForResponse((response) => response.url().includes('sort=cost'));
+  await cost.getByRole('button').click();
+  await sorted;
+  assert.equal(await cost.getAttribute('aria-sort'), 'descending');
+  await cost.getByRole('button').click();
+  assert.equal(await cost.getAttribute('aria-sort'), 'ascending');
+  await page.getByRole('combobox', { name: 'Sort runs' }).selectOption('Mode, descending');
+  await page.locator('th[aria-sort="descending"]', { hasText: 'Mode' }).waitFor();
+  await page.getByRole('searchbox', { name: 'Search runs' }).fill('no-such-run');
+  await page.getByText('No runs match.').waitFor();
+});
+
+test('a slow failed response from an abandoned filter does not overwrite the current one', async () => {
+  await page.goto(`${dashboard.origin}/runs`);
+  await page.locator('table.runs tbody tr').first().waitFor();
+  await page.route('**/api/runs?*f=active*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"stale"}' });
+  });
+  try {
+    const settled = page.waitForResponse((response) => response.url().includes('f=active'));
+    await page.getByRole('link', { name: /^Active/u }).click();
+    await page.getByRole('link', { name: /^All/u }).click();
+    await settled;
+    await page.waitForTimeout(100);
+    assert.equal(await page.getByRole('alert').count(), 0);
+    assert.ok((await page.locator('table.runs tbody tr a.rid').count()) > 0);
+  } finally {
+    await page.unrouteAll();
+  }
+});
+
+test('polling after Load more drops rows that left the active filter', async () => {
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
+  const template = side.run(side.listRuns(1)[0]!.id);
+  side.insertBatch('batch_20260101_000000_activf', {});
+  const ids = Array.from({ length: 55 }, (_, index) => `run_20260101_000000_a${String(index).padStart(5, '0')}`);
+  for (const [index, id] of ids.entries())
+    side.insertRun({
+      ...template!,
+      id,
+      batch_id: 'batch_20260101_000000_activf',
+      entry_index: 0,
+      repeat_index: index,
+      status: 'running',
+      created_at: `2026-01-02T00:00:${String(index).padStart(2, '0')}.000Z`,
+      artifact_dir: `.cohort/runs/${id}`,
+    });
+  try {
+    await page.goto(`${dashboard.origin}/runs?f=active`);
+    await page.getByRole('button', { name: 'Load more' }).click();
+    const rows = page.locator('table.runs tbody tr');
+    await page.waitForFunction(() => document.querySelectorAll('table.runs tbody tr').length === 55);
+    side.updateRun(ids[0]!, { status: 'finished' });
+    await page.waitForFunction(() => document.querySelectorAll('table.runs tbody tr').length === 54);
+    assert.equal(await rows.filter({ hasText: ids[0]! }).count(), 0);
+  } finally {
+    for (const id of ids) side.updateRun(id, { status: 'finished' });
+    side.close();
+  }
+});
+
+test('slow polls never overlap and pagination waits for the pending refresh', async () => {
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
+  const template = side.run(side.listRuns(1)[0]!.id);
+  const id = 'run_20260101_000000_slowp0';
+  side.insertBatch('batch_20260101_000000_slowpl', {});
+  side.insertRun({
+    ...template!,
+    id,
+    batch_id: 'batch_20260101_000000_slowpl',
+    status: 'running',
+    created_at: '2099-01-01T00:00:00.000Z',
+    artifact_dir: `.cohort/runs/${id}`,
+  });
+  let inFlight = 0;
+  let peak = 0;
+  let started!: () => void;
+  const pending = new Promise<void>((resolve) => (started = resolve));
+  try {
+    await page.goto(`${dashboard.origin}/runs`);
+    await page.getByRole('button', { name: 'Load more' }).waitFor();
+    await page.route('**/api/runs?*', async (route) => {
+      peak = Math.max(peak, ++inFlight);
+      started();
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      inFlight -= 1;
+      await route.continue();
+    });
+    await pending;
+    assert.ok(await page.getByRole('button', { name: 'Load more' }).isDisabled());
+    side.updateRun(id, { status: 'finished' });
+    await page
+      .locator('table.runs tbody tr', { hasText: id })
+      .getByText('running', { exact: true })
+      .waitFor({ state: 'detached', timeout: 15_000 });
+    assert.equal(peak, 1);
+  } finally {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    side.updateRun(id, { status: 'finished' });
+    side.close();
+  }
+});
+
+test('narrow layouts keep column headers for screen readers without hidden sort buttons', async () => {
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 375, height: 800 });
+  try {
+    await page.goto(`${dashboard.origin}/runs`);
+    await page.getByRole('combobox', { name: 'Sort runs' }).waitFor();
+    assert.equal(await page.getByRole('columnheader', { name: 'Cost' }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /^Cost/u }).count(), 0);
+  } finally {
+    if (size) await page.setViewportSize(size);
   }
 });

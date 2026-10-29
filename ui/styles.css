@@ -1335,6 +1335,37 @@ progress.prog::-moz-progress-bar {
   font-family: var(--font-sans);
   font-size: var(--text-xs);
 }
+.app th button.sort {
+  gap: 4px;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.app th button.sort:hover,
+.app th[aria-sort] button.sort {
+  background: none;
+  color: var(--fg);
+}
+.app th.num button.sort {
+  width: 100%;
+  justify-content: flex-end;
+}
+.app th .head {
+  display: none;
+}
+.app th .dir {
+  display: inline-block;
+  width: 1ch;
+}
+.app .toolbar .search {
+  max-width: 320px;
+}
+.app .toolbar .sort-pick {
+  width: auto;
+}
 .app td .model {
   display: inline-flex;
   align-items: center;
@@ -2220,6 +2251,12 @@ progress.prog::-moz-progress-bar {
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
+  }
+  .table-wrap.runs th button.sort {
+    display: none;
+  }
+  .table-wrap.runs th .head {
+    display: inline;
   }
   .table-wrap.runs tr {
     display: flex;
