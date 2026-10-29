@@ -282,6 +282,31 @@ test('a dispatched run streams live steps, cancels nothing finished, and offers 
   await row.getByText(/^\$0\.\d+$/u).waitFor();
 });
 
+test('the replay player plays a finished run frame by frame and lands on the last step', async () => {
+  turn = (request, index) => (index < 2 ? { name: 'wait', args: { ms: 100 } } : done(request, index));
+  const started = await page.evaluate(async (url) => {
+    const response = await fetch('/api/runs', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${sessionStorage.getItem('cohort-token')}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ submission: { selector: { kind: 'persona', id: 'guest' }, url } }),
+    });
+    return (await response.json()) as { runIds: string[] };
+  }, `${fixture.url}/`);
+  await page.goto(`${dashboard.origin}/runs/${started.runIds[0]}`);
+  await page.getByRole('heading', { name: 'Outcome: completed' }).waitFor();
+  turn = done;
+  const player = page.getByRole('toolbar', { name: 'Replay player' });
+  await page.getByRole('button', { name: 'Previous step' }).click();
+  await player.getByText(/s0000 navigate/u).waitFor();
+  const play = player.getByRole('button', { name: 'Play' });
+  await play.click();
+  await player.getByText(/s000\d wait/u).waitFor();
+  await player.getByRole('button', { name: 'Play' }).waitFor();
+});
+
 test('queued and running runs cancel from the run view', async () => {
   const blocker = gate();
   turn = blocker.turn;

@@ -72,6 +72,10 @@ Evidence per execution is text only: side, pass or fail, duration, and the first
 
 Output is plain text by default; `--json` prints the structured result. `--markdown <file>` writes the advisory pull-request comment body that `cohort publish` posts; it starts with `<!-- cohort-compare:<run-id> -->`. Failure text in it is Markdown-escaped. Exit codes: `0` for `no_regression` or `inconclusive`; `1` only for a confirmed `regression`; `2` for invalid invocation, configuration, or a bundle that fails its hash checks. [compare.md](compare.md#trusted-workflow) has a workflow.
 
+## Replay player
+
+The run view plays a finished run as a slideshow of its masked screenshots (play or pause, previous or next, a scrubber, and 1x, 2x, or 4x speed). Each frame shows the step's action, arguments, result, and page URL, and a click step first shows the screenshot it was aimed at with a ring on the target. Playback pauses before a rejected or errored step. It uses no video and no new artifacts, is disabled while the run is active, and does not autoplay under `prefers-reduced-motion`.
+
 ## Artifacts
 
 Each run writes `.cohort/runs/<run-id>/`; each batch writes `.cohort/runs/<batch-id>/`. Directories are created owner-only (0700) and files 0600, including `trace.zip`. `cohort init` creates `.cohort` as 0700, and `cohort ui` tightens `.cohort` to 0700 and `index.sqlite`, `-wal`, and `-shm` to 0600 on every start.

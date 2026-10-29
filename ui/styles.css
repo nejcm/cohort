@@ -1914,6 +1914,41 @@ progress.prog::-moz-progress-bar {
   color: var(--muted);
   font-size: var(--text-xs);
 }
+.player {
+  display: grid;
+  gap: var(--s-3);
+}
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.player-controls input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+.shot.failed {
+  border-color: var(--bad-line);
+  background: var(--bad-soft);
+}
+.shot .frame {
+  position: relative;
+}
+.shot .ring {
+  display: none;
+  position: absolute;
+  left: var(--x, 0);
+  top: var(--y, 0);
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
 .shot-empty {
   display: grid;
   place-items: center;
