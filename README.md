@@ -40,17 +40,17 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 | `cohort doctor [--json]` | Check the setup; exit 2 on any error |
 | `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--max-usd` (batch ceiling, default $10), `--allow-unpriced`, `--allow-untested`, `--detach`, `--json` |
 | `cohort estimate <selector> [run options]` | Price a batch and show whether `run` would refuse it; never calls a model |
-| `cohort runs list \| show \| wait \| cancel [<run-or-batch-id>]` | List, inspect, wait for, or cancel runs, including detached ones and those started from the dashboard |
+| `cohort runs list \| show \| wait \| cancel [<run-or-batch-id>]` | List (`--filter`, `--search`, `--sort`, `--asc`, `--since`), inspect, wait for (`--timeout-ms`), or cancel runs, including detached ones and those started from the dashboard |
 | `cohort report <run-or-batch-id> [--format json\|md\|html]` | Print or re-render a report |
 | `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
 | `cohort compare <run-id> --base <origin> --head <origin> [--json] [--markdown <file>]` | Replay an approved run on two deployments with confirmation; writes one advisory PR comment body ([details](docs/operating.md#comparing-base-and-head)) |
 | `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
 | `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
-| `cohort persona validate` | Check every persona and suite, reporting all problems |
+| `cohort persona validate \| schema \| templates` | Check every persona and suite, reporting all problems; print the persona schema or the template list |
 | `cohort persona\|suite list \| show \| add \| edit \| remove` | Manage persona and suite files with validation, atomic writes, and revision checks; `suite add-entry` appends an entry |
 | `cohort config show\|edit`, `cohort models list\|show\|edit` | Effective defaults, key presence, and runnable models; `edit` validates and atomically replaces `config.yml` or `models.yml` |
 | `cohort persona generate --url <url> --description <text> [--out <file>]` | One metered call over a landing page; preview unless `--out` |
-| `cohort ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1` |
+| `cohort ui [--port <n>] [--host <address>]` | Authenticated local dashboard on `127.0.0.1`; with `--json` it prints `origin`, `pid`, and a private `urlFile` holding the sign-in URL, and stops on `SIGTERM` |
 
 Every command takes `--json` and never prompts, so a coding agent can drive the whole lab; see [docs/agents.md](docs/agents.md).
 
