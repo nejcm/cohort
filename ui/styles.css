@@ -256,6 +256,15 @@ body {
   gap: var(--s-5);
   padding: var(--s-3) var(--s-3) var(--s-5);
 }
+@container app (min-width: 641px) {
+  .app > .side {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100dvh;
+    overflow-y: auto;
+  }
+}
 .brand {
   display: inline-flex;
   align-items: center;
@@ -303,6 +312,9 @@ body {
 }
 .app > .side nav svg {
   flex: none;
+}
+.app > .side nav a svg:last-child:not(:first-child) {
+  margin-left: auto;
 }
 .app > .side .side-foot {
   margin-top: auto;

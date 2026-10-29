@@ -10,6 +10,7 @@
   import { navigate } from './lib/nav.ts';
   import Suites from './pages/Suites.svelte';
 
+  const DOCS_URL = 'https://github.com/nejcm/cohort#readme';
   const token = bootstrapToken();
   let path = $state(location.pathname.slice(1));
   let query = $state(location.search);
@@ -92,6 +93,11 @@
           <li>
             <a href="/suites" aria-current={section === 'suites' ? 'page' : undefined}>
               <Icon name="suites" />Suites
+            </a>
+          </li>
+          <li>
+            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">
+              <Icon name="book" />CLI docs<Icon name="external" size={14} />
             </a>
           </li>
         </ul>

@@ -23,6 +23,7 @@
     "dist",
     "examples/personas",
     "examples/suites/*-pack.yml",
+    "skills/cohort",
     "NOTICE"
   ],
   "type": "module",

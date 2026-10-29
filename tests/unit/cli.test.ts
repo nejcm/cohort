@@ -27,6 +27,16 @@ test('prints usage with no arguments', async () => {
   assert.match(out, /^Usage: cohort/);
 });
 
+test('help covers every command in the usage and rejects unknown topics', async () => {
+  const usage = (await capture([])).out;
+  const names = new Set([...usage.matchAll(/^ *cohort ([a-z]+)/gm)].map((match) => match[1]!));
+  const all = (await capture(['help'])).out;
+  for (const name of names) assert.match(all, new RegExp(`^  cohort ${name}\\b`, 'm'));
+  const one = await capture(['help', 'run', '--json']);
+  assert.equal(JSON.parse(one.out).commands[0].name, 'run');
+  assert.equal((await capture(['help', 'nope'])).code, 2);
+});
+
 test('rejects an unknown command', async () => {
   const { code, out } = await capture(['nope']);
   assert.equal(code, 2);

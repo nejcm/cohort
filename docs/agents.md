@@ -10,6 +10,8 @@ Rules every command follows:
 - Output has no color or progress animation, TTY or not.
 - No output contains provider keys: every value is redacted before it is printed, and `run`, `explore`, `ui`, and `persona generate`, which hand keys to a provider, refuse a set provider key shorter than 8 characters as `invalid`; other commands never read key values, so they run. Those other commands do not redact a key shorter than 8 characters, so they can echo one back if it is passed as an argument or flag; real provider keys are longer. Nor does it contain setup secrets, the dashboard token, or URL query strings; start URLs are reduced to origin and path everywhere they are stored or printed. `suite show` and `persona show` return the file exactly as written, so do not put secrets in persona or suite files.
 
+`cohort help` prints every command with its flags and `cohort help <command>` prints one; with `--json` it returns the same table as `commands[]`. The repository ships an agent skill for this CLI at `skills/cohort/SKILL.md` (copy it into your agent's skills directory).
+
 ## Command map
 
 | Dashboard route or manual edit | Command |
