@@ -105,7 +105,7 @@
     <figure class="shot" class:failed={ready && frame?.failed}>
       {#if image && frame}
         <div class="frame" bind:clientWidth={width}>
-          <img bind:this={img} src={image} alt="Masked screenshot {frame.shot}" onload={() => { loadedSrc = image ?? ''; loaded += 1; }} />
+          <img class:hidden={!ready} bind:this={img} src={image} alt="Masked screenshot {frame.shot}" onload={() => { loadedSrc = image ?? ''; loaded += 1; }} />
           <span class="ring" class:hidden={!ready} bind:this={ring} aria-hidden="true"></span>
         </div>
       {/if}

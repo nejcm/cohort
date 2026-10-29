@@ -198,7 +198,7 @@
     const cached = urls.get(shot);
     if (cached) return Promise.resolve(cached);
     const owner = generation;
-    const inflight =
+    const inflight: Promise<string> =
       pending.get(shot) ??
       blobUrl(screenshotPath(id, shot)).then((url) => {
         if (owner !== generation) {
@@ -206,26 +206,30 @@
           throw new Error('run changed');
         }
         urls.set(shot, url);
-        pending.delete(shot);
+        if (pending.get(shot) === inflight) pending.delete(shot);
         return url;
       });
     pending.set(shot, inflight);
-    inflight.catch(() => pending.delete(shot));
+    inflight.catch(() => {
+      if (pending.get(shot) === inflight) pending.delete(shot);
+    });
     return inflight;
   }
 
   $effect(() => {
     if (!current) return void (image = imageShot = null);
     const shot = current;
+    const owner = generation;
     const cached = urls.get(shot);
     if (cached) return void ((image = cached), (imageShot = shot));
     fetchShot(shot).then(
       (url) => {
-        if (current !== shot) return;
+        if (current !== shot || owner !== generation) return;
         image = url;
         imageShot = shot;
       },
       (caught: Error) => {
+        if (owner !== generation) return;
         if (current === shot) image = imageShot = null;
         error = `Couldn't load screenshot ${shot}: ${caught.message}`;
       },

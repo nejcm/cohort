@@ -1939,6 +1939,7 @@ progress.prog::-moz-progress-bar {
 .shot .frame {
   position: relative;
 }
+.shot img.hidden,
 .shot .ring.hidden {
   visibility: hidden;
 }
