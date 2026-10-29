@@ -8,7 +8,7 @@ For `0.1.0-rc.0`. Offline items are automated; everything under "Manual" needs a
 - [ ] `bun run verify`: typecheck, lint, format check, unit and Chromium integration tests (including the secret-canary suite and Action tests), unused-code check
 - [ ] `bun run build`
 - [ ] `bun run smoke:package`: npm install of the packed tarball with no Bun, CLI, library fixture run, dashboard, Action script
-- [ ] CI green on Node 24 for both the `verify` and `package` jobs (the `package` job also runs the Action from the tarball)
+- [ ] CI green on Node 24 for the `static`, `test`, and `package` jobs (the `package` job also runs the Action from the tarball)
 
 ## Manual
 
