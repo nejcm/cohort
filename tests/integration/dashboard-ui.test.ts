@@ -385,14 +385,17 @@ test('persona edits keep the user text on a revision conflict and keep setup rea
 
 test('suite pickers write model and effort into the YAML; ad-hoc runs save to a suite', async () => {
   await page.goto(`${dashboard.origin}/suites/smoke`);
-  await page.locator('#entry-0-model').waitFor();
-  await page.locator('#entry-0-model').focus();
+  await page.locator('#editor-entry-0-model').waitFor();
+  assert.equal(await page.locator('#editor-source').count(), 0, 'the suite is a form, not free text');
+  await page.locator('#editor-entry-0-model').focus();
   await page.keyboard.press('ArrowDown');
-  const source = await page.locator('#editor-source').inputValue();
-  assert.match(source, /- persona: guest\n {4}model: openai\/priced/u);
   await tabTo('Validate and save');
   await page.keyboard.press('Enter');
   await page.getByText('Saved .cohort/suites/smoke.yml.').waitFor();
+  assert.match(
+    await readFile(join(root, '.cohort/suites/smoke.yml'), 'utf8'),
+    /- persona: guest\n {4}model: openai\/priced/u,
+  );
 
   await page.getByRole('button', { name: 'New run' }).click();
   const dialog = page.getByRole('dialog', { name: 'New run' });
@@ -417,6 +420,27 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   assert.deepEqual(violations, []);
   assert.ok(!bodies.some((body) => body.includes(KEY)), 'no key in any API response the UI received');
   assert.ok(!(await page.content()).includes(KEY));
+});
+
+test('a new suite is built from form controls', async () => {
+  await page.goto(`${dashboard.origin}/suites/new`);
+  await page.locator('#suite-id').fill('formed-suite');
+  await page.locator('#suite-entries-0-url').fill('nope');
+  await page.locator('label[for="suite-entries-0-url"]').getByText('does not match pattern').waitFor();
+  assert.ok(await page.getByRole('button', { name: 'Validate and create' }).isDisabled());
+  await page.locator('#suite-entries-0-url').fill('');
+  await page.locator('#suite-entries-0-goal').fill('Find the menu.');
+  await page.getByRole('button', { name: 'Add entry' }).click();
+  await page.locator('#suite-entries-1-note').fill('Second.');
+  await page.getByRole('button', { name: 'Move entry 2 up' }).click();
+  assert.equal(await page.locator('#suite-entries-0-note').inputValue(), 'Second.');
+  await page.getByRole('button', { name: 'Validate and create' }).click();
+  await page.locator('#editor-entries-0-persona').waitFor();
+  const created = await readFile(join(root, '.cohort/suites/formed-suite.yml'), 'utf8');
+  assert.match(
+    created,
+    /entries:\n {2}- persona: \S+\n {4}note: Second\.\n {2}- persona: \S+\n {4}goal: Find the menu\./u,
+  );
 });
 
 test('picking a template fills the new-persona draft', async () => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { follow, splitEvents, type LiveEvent } from '../../ui/lib/api.ts';
-import { parsePersona, personaSchema } from '../../src/config/files.ts';
+import { parsePersona, parseSuite, personaSchema, suiteSchema } from '../../src/config/files.ts';
 import {
   bodyOf,
   fieldError,
@@ -344,4 +344,37 @@ test('hostile form values round-trip through the Markdown file unchanged or are 
   assert.equal(parsePersona(multiline, 'x.md').name, 'Two\n---\nlines');
   assert.deepEqual(fieldProblems(setAt(FORM, ['name'], '   ', true), FIELDS), []);
   assert.throws(() => parsePersona(withBody(FORM, '\n  \n'), 'x.md'), /persona body is empty/u);
+});
+
+test('suite form fields carry list indexes, and form edits round-trip to a valid suite', () => {
+  const entrySchema = suiteSchema.properties!.entries!.items!;
+  const fields = fieldGroups(entrySchema, ['model', 'effort'], ['entries', 1])[0]!.fields;
+  assert.deepEqual(
+    fields.map((field) => field.path),
+    [
+      ['entries', 1, 'persona'],
+      ['entries', 1, 'goal'],
+      ['entries', 1, 'url'],
+      ['entries', 1, 'note'],
+    ],
+  );
+  const original = 'schemaVersion: 1\nid: s # keep\nname: S\nentries:\n  - persona: guest\n';
+  assert.equal(formProblem(original, suiteSchema, false), null);
+  assert.equal(formProblem('schemaVersion: 1\nentries: x\n', suiteSchema, false), 'entries is not a list');
+  let source = setAt(original, ['entries', 1], { persona: 'admin' }, false);
+  source = setAt(source, ['entries', 1, 'url'], 'ftp://x', false);
+  source = setAt(source, ['defaults', 'repeats'], 3, false);
+  const problems = fieldProblems(source, fields, false);
+  assert.equal(
+    problems.map((error) => fieldError(error, ['entries', 1, 'url'])).find(Boolean),
+    'does not match pattern',
+  );
+  assert.equal(fieldError('new suite.entries[0].goal: too short', ['entries', 0, 'goal']), 'too short');
+  assert.equal(fieldError('new suite.entries[0].goal: too short', ['entries', 1, 'goal']), null);
+  source = setAt(source, ['entries', 1, 'url'], 'https://example.test/', false);
+  assert.deepEqual(fieldProblems(source, fields, false), []);
+  assert.match(source, /^id: s # keep$/mu);
+  const suite = parseSuite(source, 'x.yml');
+  assert.deepEqual(suite.entries[1], { persona: 'admin', url: 'https://example.test/' });
+  assert.equal(suite.defaults.repeats, 3);
 });

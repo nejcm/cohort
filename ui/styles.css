@@ -2617,9 +2617,6 @@ body {
 .form-actions.end {
   align-self: end;
 }
-.app textarea.source.short {
-  min-height: 200px;
-}
 .app .brand .stop {
   color: var(--brand);
 }
