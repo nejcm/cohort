@@ -84,7 +84,7 @@ try {
   );
   await writeFile(
     join(app, '.cohort/models.yml'),
-    'version: smoke\nmodels:\n  - id: smoke-model\n    provider: openai\n    label: smoke\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
+    'version: smoke\nmodels:\n  - id: smoke-model\n    provider: openai\n    label: smoke\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
   );
   await writeFile(
     join(app, 'smoke-run.mjs'),
@@ -94,7 +94,7 @@ const provider = {
   async decide(request) {
     const step = /Latest step: (s\\d{4,})/u.exec(request.observation.text)[1];
     return { calls: [{ name: 'done', args: { step, summary: 'Landing page reached.' } }],
-      usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 0, imageInputTokens: null, reportedCostUsd: null, source: 'provider' },
+      usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 0, cacheWriteInputTokens: 0, imageInputTokens: null, reportedCostUsd: null, source: 'provider' },
       returnedModel: 'smoke-model' };
   },
 };

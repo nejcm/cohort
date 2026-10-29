@@ -11,6 +11,7 @@ coverage/
 .lab/
 test-results/
 playwright-report/
+.claude/launch.json
 *.tsbuildinfo
 *.tgz
 *.log
@@ -31,3 +32,5 @@ playwright-report/
 # local planning notes
 .plans/
 .seed/
+
+TODO.md

@@ -47,7 +47,7 @@ All edits (personas, suites, config, catalog) validate before writing, replace t
 
 ## Output
 
-Every JSON document has `schemaVersion: 1`. The version changes only when a field is removed or changes meaning; new fields can appear at any time. The shape of each command's output is pinned in [`tests/integration/agent-cli.test.ts.snapshot`](../tests/integration/agent-cli.test.ts.snapshot).
+Every JSON document has `schemaVersion: 1`. The version changes only when a field is removed or changes meaning; new fields can appear at any time. Model prices (`pricesPerMTok`) carry `input`, `output`, `cachedInput`, and `cacheWrite`; run usage carries `cacheWriteInputTokens` beside `cachedInputTokens` (see [operating.md](operating.md#models)). The shape of each command's output is pinned in [`tests/integration/agent-cli.test.ts.snapshot`](../tests/integration/agent-cli.test.ts.snapshot).
 
 | Command | Top-level fields |
 | --- | --- |

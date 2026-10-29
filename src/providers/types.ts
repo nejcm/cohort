@@ -16,6 +16,7 @@ export interface Usage {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
   imageInputTokens: number | null;
   reportedCostUsd: number | null;
   source: 'provider' | 'estimated';

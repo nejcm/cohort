@@ -63,7 +63,13 @@ const anthropicReply = {
     { type: 'text', text: 'thinking aloud' },
     { type: 'tool_use', id: 'tu_1', name: 'wait', input: { ms: 100 } },
   ],
-  usage: { input_tokens: 100, cache_read_input_tokens: 900, cache_creation_input_tokens: 50, output_tokens: 20 },
+  usage: {
+    input_tokens: 100,
+    cache_read_input_tokens: 900,
+    cache_creation_input_tokens: 50,
+    cache_creation: { ephemeral_5m_input_tokens: 50, ephemeral_1h_input_tokens: 0 },
+    output_tokens: 20,
+  },
 };
 
 const openaiReply = {
@@ -72,7 +78,11 @@ const openaiReply = {
     { type: 'reasoning', summary: [] },
     { type: 'function_call', call_id: 'c1', name: 'wait', arguments: '{"ms":100}' },
   ],
-  usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 800 }, output_tokens: 20 },
+  usage: {
+    input_tokens: 1000,
+    input_tokens_details: { cached_tokens: 800, cache_write_tokens: 150 },
+    output_tokens: 20,
+  },
 };
 
 for (const effort of EFFORTS) {
@@ -95,6 +105,7 @@ for (const effort of EFFORTS) {
         inputTokens: 1050,
         outputTokens: 20,
         cachedInputTokens: 900,
+        cacheWriteInputTokens: 50,
         imageInputTokens: null,
         reportedCostUsd: null,
         source: 'provider',
@@ -123,6 +134,7 @@ for (const effort of EFFORTS) {
       assert.deepEqual(decision.calls, [{ name: 'wait', args: { ms: 100 } }]);
       assert.equal(decision.usage?.inputTokens, 1000);
       assert.equal(decision.usage?.cachedInputTokens, 800);
+      assert.equal(decision.usage?.cacheWriteInputTokens, 150);
       assert.equal(decision.usage?.outputTokens, 20);
       assert.equal(decision.requestId, 'req_o1');
     } finally {
@@ -130,6 +142,38 @@ for (const effort of EFFORTS) {
     }
   });
 }
+
+test('anthropic refuses a cache write at a TTL the catalog cannot price', async () => {
+  const usage = {
+    ...anthropicReply.usage,
+    cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 50 },
+  };
+  const server = await fakeServer(() => ({ body: { ...anthropicReply, usage } }));
+  try {
+    const adapter = createAnthropicAdapter({ baseUrl: server.url, env: { ANTHROPIC_API_KEY: KEY } });
+    await assert.rejects(
+      adapter.decide(request('low'), signal()),
+      (error: unknown) =>
+        error instanceof ProviderError &&
+        /unpriced TTL/u.test(error.message) &&
+        error.possiblyBilled &&
+        !error.retryable,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('openai treats a malformed cache-write count as unknown usage', async () => {
+  const usage = { ...openaiReply.usage, input_tokens_details: { cached_tokens: 0, cache_write_tokens: -1 } };
+  const server = await fakeServer(() => ({ body: { ...openaiReply, usage } }));
+  try {
+    const adapter = createOpenAIAdapter({ baseUrl: server.url, env: { OPENAI_API_KEY: KEY } });
+    assert.equal((await adapter.decide(request('low'), signal())).usage, null);
+  } finally {
+    await server.close();
+  }
+});
 
 const adapters: [string, (url: string) => ProviderAdapter][] = [
   ['anthropic', (url) => createAnthropicAdapter({ baseUrl: url, env: { ANTHROPIC_API_KEY: KEY } })],

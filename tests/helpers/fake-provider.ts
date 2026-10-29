@@ -13,6 +13,7 @@ const USAGE: Usage = {
   inputTokens: 1000,
   outputTokens: 50,
   cachedInputTokens: 0,
+  cacheWriteInputTokens: 0,
   imageInputTokens: null,
   reportedCostUsd: null,
   source: 'provider',

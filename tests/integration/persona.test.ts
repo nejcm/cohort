@@ -56,7 +56,7 @@ before(async () => {
   await put('.cohort/config.yml', 'schemaVersion: 1\nmodel: openai/test-model\nrepeats: 1\nlimits: { steps: 5 }\n');
   await put(
     '.cohort/models.yml',
-    'version: test\nmodels:\n  - id: test-model\n    provider: openai\n    label: test\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n  - id: unpriced-model\n    provider: openai\n    label: unpriced\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: null, output: null, cachedInput: null }\n    pricingVerifiedAt: null\n    untested: false\n',
+    'version: test\nmodels:\n  - id: test-model\n    provider: openai\n    label: test\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n  - id: unpriced-model\n    provider: openai\n    label: unpriced\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: null, output: null, cachedInput: null, cacheWrite: null }\n    pricingVerifiedAt: null\n    untested: false\n',
   );
   other = createServer((request, response) => {
     otherHits.push(request.url ?? '');

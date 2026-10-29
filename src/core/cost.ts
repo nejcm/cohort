@@ -6,12 +6,15 @@ export type CapEnforcement = 'priced_reservations' | 'provider_reported_cost' | 
 // Rates are USD per million tokens; unknown rates never count as zero.
 export function estimateCostUsd(usage: Usage, prices: Prices): number | null {
   const cached = usage.cachedInputTokens ?? 0;
+  const written = usage.cacheWriteInputTokens ?? 0;
   if (prices.input === null || prices.output === null) return null;
-  if (cached > usage.inputTokens) return null;
+  if (cached + written > usage.inputTokens) return null;
   if (cached > 0 && prices.cachedInput === null) return null;
+  if (written > 0 && prices.cacheWrite === null) return null;
   return (
-    ((usage.inputTokens - cached) * prices.input +
+    ((usage.inputTokens - cached - written) * prices.input +
       cached * (prices.cachedInput ?? 0) +
+      written * (prices.cacheWrite ?? 0) +
       usage.outputTokens * prices.output) /
     1_000_000
   );
@@ -31,7 +34,8 @@ export class CostMeter {
   }
 
   get enforcement(): CapEnforcement {
-    if (this.prices.input !== null && this.prices.output !== null) return 'priced_reservations';
+    const { input, output, cacheWrite } = this.prices;
+    if (input !== null && output !== null && cacheWrite !== null) return 'priced_reservations';
     return this.reportedSeen ? 'provider_reported_cost' : 'step_time_only';
   }
 
@@ -42,8 +46,10 @@ export class CostMeter {
   /** Returns the reserved amount, or null when the call would not fit the remaining budget. */
   reserve(maxInputTokens: number, maxOutputTokens: number): number | null {
     if (this.enforcement === 'priced_reservations') {
-      const amount =
-        (maxInputTokens * (this.prices.input ?? 0) + maxOutputTokens * (this.prices.output ?? 0)) / 1_000_000;
+      const { input, output, cachedInput, cacheWrite } = this.prices;
+      // Any input token may be a cache write or read, so reserve at the dearest input rate.
+      const inputRate = Math.max(input ?? 0, cachedInput ?? 0, cacheWrite ?? 0);
+      const amount = (maxInputTokens * inputRate + maxOutputTokens * (output ?? 0)) / 1_000_000;
       return this.spentUsd + amount > this.maxUsd ? null : amount;
     }
     return this.enforcement === 'provider_reported_cost' && this.reportedUsd >= this.maxUsd ? null : 0;

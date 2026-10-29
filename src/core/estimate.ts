@@ -14,6 +14,7 @@ function costLine(entry: ResolvedEntry): {
       inputTokens: 6000,
       outputTokens: 300,
       cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
       imageInputTokens: null,
       reportedCostUsd: null,
       source: 'estimated',

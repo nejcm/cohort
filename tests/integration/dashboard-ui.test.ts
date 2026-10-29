@@ -29,7 +29,7 @@ const bodies: string[] = [];
 const PERSONA = (id: string, name: string, extra = ''): string =>
   `---\nschemaVersion: 1\nid: ${id}\nname: '${name}'\ntags: [guest]\ndevice: { viewport: { width: 800, height: 600 }, touch: false }\nlocale: en-US\ntimezone: UTC\n${extra}goal: Look around.\n---\n\nYou are a guest.\n`;
 const model = (id: string, vision: boolean, input: number | null, untested: boolean, owner = 'openai'): string =>
-  `  - id: ${id}\n    provider: ${owner}\n    label: ${id}\n    visionCapable: ${vision}\n    supportedEffortLevels: [low, medium]\n    defaultEffort: medium\n    pricesPerMTok: { input: ${input}, output: ${input === null ? null : 4}, cachedInput: ${input === null ? null : 0.1} }\n    pricingVerifiedAt: ${input === null ? null : '2026-10-01'}\n    untested: ${untested}\n`;
+  `  - id: ${id}\n    provider: ${owner}\n    label: ${id}\n    visionCapable: ${vision}\n    supportedEffortLevels: [low, medium]\n    defaultEffort: medium\n    pricesPerMTok: { input: ${input}, output: ${input === null ? null : 4}, cachedInput: ${input === null ? null : 0.1}, cacheWrite: ${input} }\n    pricingVerifiedAt: ${input === null ? null : '2026-10-01'}\n    untested: ${untested}\n`;
 
 async function put(path: string, content: string): Promise<void> {
   await mkdir(dirname(join(root, path)), { recursive: true });

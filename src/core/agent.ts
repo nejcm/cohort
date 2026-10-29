@@ -70,6 +70,7 @@ interface RunUsage {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
   estimatedCostUsd: number | null;
   providerReportedCostUsd: number | null;
   reservedUnsettledCostUsd: number;
@@ -151,6 +152,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: null,
+    cacheWriteInputTokens: null,
     estimatedCostUsd: null,
     providerReportedCostUsd: null,
     reservedUnsettledCostUsd: 0,
@@ -534,6 +536,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         usage.outputTokens += decision.usage.outputTokens;
         if (decision.usage.cachedInputTokens !== null)
           usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + decision.usage.cachedInputTokens;
+        if (decision.usage.cacheWriteInputTokens !== null)
+          usage.cacheWriteInputTokens = (usage.cacheWriteInputTokens ?? 0) + decision.usage.cacheWriteInputTokens;
       }
       usage.returnedModel = decision.returnedModel ?? usage.returnedModel;
       options.onEvent?.('usage.updated', {

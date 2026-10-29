@@ -20,7 +20,7 @@ const put = async (path: string, content: string): Promise<void> => {
 await put('.cohort/config.yml', 'schemaVersion: 1\nmodel: openai/example-model\nlimits: { steps: 4, timeMs: 30000 }\n');
 await put(
   '.cohort/models.yml',
-  'version: example\nmodels:\n  - id: example-model\n    provider: openai\n    label: Example model\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
+  'version: example\nmodels:\n  - id: example-model\n    provider: openai\n    label: Example model\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
 );
 await put(
   '.cohort/personas/guest.md',

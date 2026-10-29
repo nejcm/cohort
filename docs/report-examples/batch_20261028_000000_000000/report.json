@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "batchId": "batch_20261028_000000_000000",
-  "createdAt": "2026-10-29T06:36:46.773Z",
+  "createdAt": "2026-10-29T14:47:24.080Z",
   "groups": [
     {
       "personaId": "guest",
@@ -10,50 +10,50 @@
       "provider": "openai",
       "model": "example-model",
       "effort": "low",
-      "catalogHash": "sha256:757955d685a1d7aaba4b5fbf8000ac0a3bc67fcfa0aaa83c47c9b94f4f5770dc",
+      "catalogHash": "sha256:63af94944a90e243cd441c8393abc7c768e021c23d2d89ec2891300d5e8b19f7",
       "untested": false,
       "runs": [
         {
-          "runId": "run_20261029_063642_7e9f85",
+          "runId": "run_20261029_144719_393178",
           "outcome": "completed (agent_reported)",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261029_063642_7e9f85/report.json"
+          "reportPath": "run_20261029_144719_393178/report.json"
         },
         {
-          "runId": "run_20261029_063643_83c20a",
+          "runId": "run_20261029_144720_c7d2e7",
           "outcome": "abandoned by the agent",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261029_063643_83c20a/report.json"
+          "reportPath": "run_20261029_144720_c7d2e7/report.json"
         },
         {
-          "runId": "run_20261029_063643_6bdedc",
+          "runId": "run_20261029_144720_1b4cfa",
           "outcome": "blocked: oauth (agent-declared, unverified)",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261029_063643_6bdedc/report.json"
+          "reportPath": "run_20261029_144720_1b4cfa/report.json"
         },
         {
-          "runId": "run_20261029_063644_08cf76",
+          "runId": "run_20261029_144721_30b83c",
           "outcome": "limit reached: steps (4 of 4; not a UX failure)",
           "cost": "$0.0048",
           "costUsd": 0.0048,
-          "reportPath": "run_20261029_063644_08cf76/report.json"
+          "reportPath": "run_20261029_144721_30b83c/report.json"
         },
         {
-          "runId": "run_20261029_063646_85b4de",
+          "runId": "run_20261029_144723_2e20cc",
           "outcome": "cancelled by user (not an agent or UX failure)",
           "cost": "$0.0000 (+$0.0103 unsettled)",
           "costUsd": 0,
-          "reportPath": "run_20261029_063646_85b4de/report.json"
+          "reportPath": "run_20261029_144723_2e20cc/report.json"
         },
         {
-          "runId": "run_20261029_063646_ab14a7",
+          "runId": "run_20261029_144723_f51ffc",
           "outcome": "agent error: browser_error (not a UX failure)",
           "cost": "$0.0000",
           "costUsd": 0,
-          "reportPath": "run_20261029_063646_ab14a7/report.json"
+          "reportPath": "run_20261029_144723_f51ffc/report.json"
         }
       ],
       "completion": {

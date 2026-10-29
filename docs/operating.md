@@ -11,7 +11,7 @@ Keys, models, costs, limits, blockers, replay bindings, base/head comparison, ar
 
 ## Models
 
-The shipped catalog (`src/providers/catalog.json`) has one candidate entry and it is disabled: no model has been verified against a live API yet. To run, add an entry to `.cohort/models.yml` (by hand, or validated with `cohort models edit --file -`):
+The shipped catalog (`src/providers/catalog.json`) has one entry, `anthropic/claude-sonnet-5-5` (Claude Sonnet 5.5), live-checked and priced on 2026-10-29. To use another model, add an entry to `.cohort/models.yml` (by hand, or validated with `cohort models edit --file -`):
 
 ```yaml
 version: local-2026-10
@@ -22,10 +22,12 @@ models:
     visionCapable: true       # required for vision mode
     supportedEffortLevels: [low, medium]
     defaultEffort: low
-    pricesPerMTok: { input: 1.25, output: 10, cachedInput: 0.125 }   # USD per million tokens, or null
+    pricesPerMTok: { input: 1.25, output: 10, cachedInput: 0.125, cacheWrite: 1.5625 }   # USD per million tokens, or null
     pricingVerifiedAt: 2026-10-01
     untested: true            # runs then need --allow-untested
 ```
+
+`pricesPerMTok` needs all four keys. `cachedInput` is the cache-read price; `cacheWrite` is the price of tokens written to the prompt cache, at the TTL cohort requests: the 5-minute TTL on Anthropic, and the default retention on OpenAI, which cohort does not change (when unsure, use the higher tier). An entry with `input` and `output` prices must also price `cacheWrite`; copy `input` only when the provider charges writes at the input rate. Reports and `--json` output count written tokens as `usage.cacheWriteInputTokens`, part of `inputTokens` like `cachedInputTokens`. An Anthropic response that reports writes at any other TTL fails the call (`provider_error`) instead of pricing them at the 5-minute rate.
 
 Entries override the shipped catalog by `(provider, id)`. Reports record the catalog version, hash, and entry used, so a later edit does not change old results. `cohort doctor` checks that the project's default model resolves.
 
@@ -34,7 +36,7 @@ Entries override the shipped catalog by `(provider, id)`. Reports record the cat
 Defaults per run: 40 tool attempts, 10 minutes wall time (setup and provider waits included), and $2.00. The first limit reached ends the run as `limit_reached`. Override with `--steps`, `--time-ms`, `--dollars`, or `limits` in config, persona, or suite.
 
 - Before a batch, `cohort run` and the run dialog print an estimated cost range and the maximum batch budget. The estimate uses an unmeasured, conservative token budget per call; it is not an invoice.
-- With prices, each provider call reserves an upper bound first and is refused if it cannot fit the remaining budget. A cancelled or failed call keeps its reservation, because it may be billed.
+- With prices, each provider call reserves an upper bound first, pricing every input token at the dearest of the input, cache-read, and cache-write rates, and is refused if it cannot fit the remaining budget. A cancelled or failed call keeps its reservation, because it may be billed.
 - Without prices (`null`), the dollar cap cannot be enforced. The CLI, dashboard, and reports say "cost unknown; dollar cap unenforceable"; only the step and time caps bound spend. Add dated prices to restore enforcement. `cohort run` refuses such a batch (`cap_unenforceable`) unless given `--allow-unpriced`.
 - `cohort run` also refuses a batch whose maximum cost exceeds `--max-usd` (default $10, at most $1000) with `over_budget`. `cohort estimate` shows the same check without running anything.
 - Persona generation has its own budget (`--dollars`, default $0.50).

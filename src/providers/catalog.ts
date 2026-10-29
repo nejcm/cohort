@@ -11,6 +11,8 @@ export interface Prices {
   input: number | null;
   output: number | null;
   cachedInput: number | null;
+  /** Cache-write price at the TTL the adapter requests: Anthropic 5-minute, OpenAI default retention. */
+  cacheWrite: number | null;
 }
 
 export interface ModelCatalogEntry {
@@ -96,8 +98,8 @@ function entryIssues(entry: unknown, where: string): string[] {
     issues.push(`${where}: tested entries need visionCapable, supported efforts, and a default effort`);
 
   const prices = entry.pricesPerMTok;
-  if (!isRecord(prices) || Object.keys(prices).toSorted().join() !== 'cachedInput,input,output')
-    issues.push(`${where}.pricesPerMTok: must have exactly input, output, cachedInput`);
+  if (!isRecord(prices) || Object.keys(prices).toSorted().join() !== 'cacheWrite,cachedInput,input,output')
+    issues.push(`${where}.pricesPerMTok: must have exactly input, output, cachedInput, cacheWrite`);
   else {
     for (const [name, price] of Object.entries(prices))
       if (price !== null && !(typeof price === 'number' && Number.isFinite(price) && price >= 0))
@@ -105,6 +107,8 @@ function entryIssues(entry: unknown, where: string): string[] {
     const dated = entry.pricingVerifiedAt;
     if (dated !== null && !(typeof dated === 'string' && /^\d{4}-\d{2}-\d{2}$/u.test(dated)))
       issues.push(`${where}.pricingVerifiedAt: must be YYYY-MM-DD or null`);
+    if (prices.input !== null && prices.output !== null && prices.cacheWrite === null)
+      issues.push(`${where}.pricesPerMTok.cacheWrite: required when input and output are priced`);
     if (Object.values(prices).some((price) => price !== null) && dated === null)
       issues.push(`${where}.pricingVerifiedAt: known prices need a verification date`);
   }

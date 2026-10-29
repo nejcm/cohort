@@ -29,6 +29,7 @@ export interface RunReport {
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number | null;
+    cacheWriteInputTokens: number | null;
     imageInputTokens: number | null;
     providerReportedCostUsd: number | null;
     estimatedCostUsd: number | null;

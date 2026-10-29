@@ -199,6 +199,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
           inputTokens: usage?.inputTokens ?? 0,
           outputTokens: usage?.outputTokens ?? 0,
           cachedInputTokens: usage?.cachedInputTokens ?? null,
+          cacheWriteInputTokens: usage?.cacheWriteInputTokens ?? null,
           imageInputTokens: null,
           ...costs,
           reservedUnsettledCostUsd: usage?.reservedUnsettledCostUsd ?? null,

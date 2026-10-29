@@ -56,7 +56,7 @@ async function run(
       provider,
       model: 'fake-model',
       effort: 'low',
-      prices: { input: 1, output: 4, cachedInput: 0.1 },
+      prices: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 },
       task: 'Explore the page.',
       startUrl: `${fixture.url}${path}`,
       allowedOrigins: [],
@@ -279,14 +279,28 @@ test('a deadline timer that fires before Date.now() reaches the deadline is stil
 });
 
 test('cost cap refuses a call whose reservation does not fit', async () => {
-  const { result, provider } = await run('/', () => done, { prices: { input: 1000, output: 1000, cachedInput: 0 } });
+  const { result, provider } = await run('/', () => done, {
+    prices: { input: 1000, output: 1000, cachedInput: 0, cacheWrite: 1000 },
+  });
   assert.equal((result.outcome as { limit?: string }).limit, 'cost');
   assert.equal(provider.requests.length, 0);
   assert.equal(result.usage.capEnforcement, 'priced_reservations');
 });
 
+test('cache writes settle at the write price and a dear write rate refuses the reservation', async () => {
+  const prices = { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1.25 };
+  const { result } = await run('/', () => done, { prices }, { inputTokens: 1000, cacheWriteInputTokens: 1000 });
+  assert.equal(result.usage.cacheWriteInputTokens, 1000);
+  assert.equal(result.usage.estimatedCostUsd, (1000 * 1.25 + 50 * 4) / 1_000_000);
+  const dear = await run('/', () => done, { prices: { ...prices, cacheWrite: 1000 } });
+  assert.equal((dear.result.outcome as { limit?: string }).limit, 'cost');
+  assert.equal(dear.provider.requests.length, 0);
+});
+
 test('unpriced models fall back to step/time caps without counting cost as zero', async () => {
-  const { result } = await run('/', () => done, { prices: { input: null, output: null, cachedInput: null } });
+  const { result } = await run('/', () => done, {
+    prices: { input: null, output: null, cachedInput: null, cacheWrite: null },
+  });
   assert.equal(result.outcome.state, 'completed');
   assert.equal(result.usage.capEnforcement, 'step_time_only');
   assert.equal(result.usage.estimatedCostUsd, null);
@@ -557,7 +571,10 @@ test('provider-reported spend enforces the dollar cap when prices are unknown', 
   const { result, provider } = await run(
     '/',
     () => [wait, act('scroll', { target: null, deltaX: 0, deltaY: 10 }), done],
-    { prices: { input: null, output: null, cachedInput: null }, limits: { steps: 40, timeMs: 30_000, dollars: 1 } },
+    {
+      prices: { input: null, output: null, cachedInput: null, cacheWrite: null },
+      limits: { steps: 40, timeMs: 30_000, dollars: 1 },
+    },
     { reportedCostUsd: 0.6 },
   );
   assert.equal((result.outcome as { limit?: string }).limit, 'cost');

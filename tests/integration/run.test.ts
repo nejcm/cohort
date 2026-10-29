@@ -45,7 +45,7 @@ before(async () => {
   );
   await put(
     '.cohort/models.yml',
-    `version: test\nmodels:\n${model('test-model', false, '{ input: 1, output: 4, cachedInput: 0.1 }')}${model('fresh-model', true, '{ input: null, output: null, cachedInput: null }')}${model('test-claude', false, '{ input: 1, output: 4, cachedInput: 0.1 }', 'anthropic')}`,
+    `version: test\nmodels:\n${model('test-model', false, '{ input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }')}${model('fresh-model', true, '{ input: null, output: null, cachedInput: null, cacheWrite: null }')}${model('test-claude', false, '{ input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }', 'anthropic')}`,
   );
   await put(
     '.cohort/personas/guest.md',

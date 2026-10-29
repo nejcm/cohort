@@ -88,11 +88,15 @@ test('init creates the project layout once and doctor reports it without printin
   assert.doesNotMatch(picked.out, /mobile-first-guest/u);
   assert.match((await cli(['persona', 'validate'])).out, /^4 valid persona\(s\), 0 suite\(s\), 0 problem\(s\)$/mu);
 
-  await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: anthropic/claude-sonnet-5-5\n');
+  await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/untested-model\n');
+  await writeFile(
+    join(root, '.cohort/models.yml'),
+    'version: test\nmodels:\n  - id: untested-model\n    provider: openai\n    label: u\n    visionCapable: null\n    supportedEffortLevels: []\n    defaultEffort: null\n    pricesPerMTok: { input: null, output: null, cachedInput: null, cacheWrite: null }\n    pricingVerifiedAt: null\n    untested: true\n',
+  );
   const unusable = await cli(['doctor']);
   assert.equal(unusable.code, 2);
   assert.match(unusable.out, /error default model: model is disabled until its capabilities are confirmed/u);
-  assert.match(unusable.out, /error ANTHROPIC_API_KEY is not set/u);
+  assert.match(unusable.out, /error OPENAI_API_KEY is not set/u);
   assert.match(unusable.out, /ok    \.cohort\/runs is gitignored/u);
   assert.match(unusable.out, /ok    \.cohort\/auth is gitignored/u);
   assert.match(unusable.out, /ok    \.cohort\/index\.sqlite is gitignored/u);
@@ -105,7 +109,7 @@ test('init creates the project layout once and doctor reports it without printin
   await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/vision-model\n');
   await writeFile(
     join(root, '.cohort/models.yml'),
-    'version: test\nmodels:\n  - id: vision-model\n    provider: openai\n    label: v\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
+    'version: test\nmodels:\n  - id: vision-model\n    provider: openai\n    label: v\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: null, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
   );
   await mkdir(join(root, '.cohort/runs/run_20261028_000000_abcdef'), { recursive: true });
   const ready = await cli(['doctor'], { OPENAI_API_KEY: key });

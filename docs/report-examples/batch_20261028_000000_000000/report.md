@@ -14,7 +14,7 @@ Total cost: $0.0084. Runs not started: 0.
 | --- | --- |
 | Comparison | guest: openai/example-model effort low, vision |
 | Goal | Request a stay. |
-| Catalog | sha256:757955d685a1d7aaba4b5fbf8000ac0a3bc67fcfa0aaa83c47c9b94f4f5770dc; untested: no |
+| Catalog | sha256:63af94944a90e243cd441c8393abc7c768e021c23d2d89ec2891300d5e8b19f7; untested: no |
 | Completion rate | 25% (1/4) |
 | Blocked by kind | oauth 1 |
 | Blocked by detector | agent 1 |
@@ -26,9 +26,9 @@ Total cost: $0.0084. Runs not started: 0.
 
 | Run | Outcome | Cost |
 | --- | --- | --- |
-| [run_20261029_063642_7e9f85](../run_20261029_063642_7e9f85/report.md) | completed (agent_reported) | $0.0012 |
-| [run_20261029_063643_83c20a](../run_20261029_063643_83c20a/report.md) | abandoned by the agent | $0.0012 |
-| [run_20261029_063643_6bdedc](../run_20261029_063643_6bdedc/report.md) | blocked: oauth (agent-declared, unverified) | $0.0012 |
-| [run_20261029_063644_08cf76](../run_20261029_063644_08cf76/report.md) | limit reached: steps (4 of 4; not a UX failure) | $0.0048 |
-| [run_20261029_063646_85b4de](../run_20261029_063646_85b4de/report.md) | cancelled by user (not an agent or UX failure) | $0.0000 (+$0.0103 unsettled) |
-| [run_20261029_063646_ab14a7](../run_20261029_063646_ab14a7/report.md) | agent error: browser_error (not a UX failure) | $0.0000 |
+| [run_20261029_144719_393178](../run_20261029_144719_393178/report.md) | completed (agent_reported) | $0.0012 |
+| [run_20261029_144720_c7d2e7](../run_20261029_144720_c7d2e7/report.md) | abandoned by the agent | $0.0012 |
+| [run_20261029_144720_1b4cfa](../run_20261029_144720_1b4cfa/report.md) | blocked: oauth (agent-declared, unverified) | $0.0012 |
+| [run_20261029_144721_30b83c](../run_20261029_144721_30b83c/report.md) | limit reached: steps (4 of 4; not a UX failure) | $0.0048 |
+| [run_20261029_144723_2e20cc](../run_20261029_144723_2e20cc/report.md) | cancelled by user (not an agent or UX failure) | $0.0000 (+$0.0103 unsettled) |
+| [run_20261029_144723_f51ffc](../run_20261029_144723_f51ffc/report.md) | agent error: browser_error (not a UX failure) | $0.0000 |

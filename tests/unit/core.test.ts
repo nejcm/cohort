@@ -13,6 +13,7 @@ const usage = (inputTokens: number, outputTokens: number, extra: Partial<Usage> 
   inputTokens,
   outputTokens,
   cachedInputTokens: null,
+  cacheWriteInputTokens: null,
   imageInputTokens: null,
   reportedCostUsd: null,
   source: 'provider',
@@ -58,18 +59,39 @@ test('keyboard input offers no pointer tools, so a click is an unknown tool', ()
 });
 
 test('cost estimates never treat an unknown price as zero', () => {
-  const prices = { input: 2, output: 10, cachedInput: 0.2 };
+  const prices = { input: 2, output: 10, cachedInput: 0.2, cacheWrite: 2 };
   assert.equal(estimateCostUsd(usage(1_000_000, 100_000), prices), 3);
   assert.equal(estimateCostUsd(usage(1_000_000, 0, { cachedInputTokens: 500_000 }), prices), 1.1);
-  assert.equal(estimateCostUsd(usage(10, 10), { input: null, output: 10, cachedInput: 0 }), null);
+  assert.equal(estimateCostUsd(usage(10, 10), { input: null, output: 10, cachedInput: 0, cacheWrite: null }), null);
   assert.equal(
-    estimateCostUsd(usage(10, 10, { cachedInputTokens: 5 }), { input: 1, output: 1, cachedInput: null }),
+    estimateCostUsd(usage(10, 10, { cachedInputTokens: 5 }), { input: 1, output: 1, cachedInput: null, cacheWrite: 1 }),
     null,
   );
 });
 
+test('cache writes are charged at the cache-write price, and an unknown write price is never zero', () => {
+  const sonnet = { input: 2, output: 10, cachedInput: 0.1, cacheWrite: 2.5 };
+  assert.equal(estimateCostUsd(usage(10_000, 0, { cacheWriteInputTokens: 10_000 }), sonnet), 0.025);
+  const mixed = usage(12_000, 100, { cachedInputTokens: 1000, cacheWriteInputTokens: 10_000 });
+  assert.equal(estimateCostUsd(mixed, sonnet), (1000 * 2 + 1000 * 0.1 + 10_000 * 2.5 + 100 * 10) / 1_000_000);
+  assert.equal(estimateCostUsd(usage(100, 0, { cachedInputTokens: 60, cacheWriteInputTokens: 60 }), sonnet), null);
+  const unpricedWrites = { ...sonnet, cacheWrite: null };
+  assert.equal(estimateCostUsd(usage(10_000, 0, { cacheWriteInputTokens: 1 }), unpricedWrites), null);
+  assert.equal(new CostMeter(1, unpricedWrites).enforcement, 'step_time_only');
+});
+
+test('reservations price input at the cache-write rate and refuse calls whose writes would breach the cap', () => {
+  const meter = new CostMeter(0.025, { input: 2, output: 10, cachedInput: 0.1, cacheWrite: 2.5 });
+  assert.equal(meter.reserve(10_000, 0), 0.025);
+  assert.equal(meter.reserve(10_000, 1), null);
+  const reserved = meter.reserve(4000, 0)!;
+  meter.settle(reserved, usage(4000, 0, { cacheWriteInputTokens: 4000 }));
+  assert.equal(meter.spentUsd, 0.01);
+  assert.equal(meter.reserve(8000, 0), null);
+});
+
 test('cost meter reserves before calls and keeps unsettled reservations', () => {
-  const meter = new CostMeter(0.01, { input: 1, output: 4, cachedInput: 0.1 });
+  const meter = new CostMeter(0.01, { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 });
   assert.equal(meter.enforcement, 'priced_reservations');
   const reserved = meter.reserve(4000, 500);
   assert.equal(reserved, 0.006);
@@ -79,7 +101,7 @@ test('cost meter reserves before calls and keeps unsettled reservations', () => 
   meter.settle(0, usage(4000, 0));
   assert.ok(meter.exhausted);
 
-  const unpriced = new CostMeter(1, { input: null, output: null, cachedInput: null });
+  const unpriced = new CostMeter(1, { input: null, output: null, cachedInput: null, cacheWrite: null });
   assert.equal(unpriced.enforcement, 'step_time_only');
   assert.equal(unpriced.reserve(1e9, 1e9), 0);
   unpriced.settle(0, usage(1, 1, { reportedCostUsd: 1.5 }));
@@ -224,7 +246,7 @@ test('generated replay rebases same-origin gotos onto the start URL and waits fo
 });
 
 test('a priced call whose cached rate is unknown keeps its reservation', () => {
-  const meter = new CostMeter(1, { input: 1, output: 1, cachedInput: null });
+  const meter = new CostMeter(1, { input: 1, output: 1, cachedInput: null, cacheWrite: 1 });
   const reserved = meter.reserve(1000, 100)!;
   meter.settle(reserved, usage(1000, 100, { cachedInputTokens: 500 }));
   assert.equal(meter.unsettledUsd, reserved);
@@ -264,7 +286,7 @@ test('structured redaction covers keys, and a redacted number never replays as N
 });
 
 test('cached tokens above input tokens are not priced as negative spend', () => {
-  const prices = { input: 1, output: 1, cachedInput: 0.1 };
+  const prices = { input: 1, output: 1, cachedInput: 0.1, cacheWrite: 1 };
   assert.equal(estimateCostUsd(usage(100, 0, { cachedInputTokens: 1000 }), prices), null);
   const meter = new CostMeter(1, prices);
   const reserved = meter.reserve(1000, 100)!;

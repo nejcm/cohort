@@ -4,13 +4,18 @@
     {
       "id": "claude-sonnet-5-5",
       "provider": "anthropic",
-      "label": "Claude Sonnet 5.5 (candidate, not live-verified)",
-      "visionCapable": null,
-      "supportedEffortLevels": [],
-      "defaultEffort": null,
-      "pricesPerMTok": { "input": null, "output": null, "cachedInput": null },
-      "pricingVerifiedAt": null,
-      "untested": true
+      "label": "Claude Sonnet 5.5",
+      "visionCapable": true,
+      "supportedEffortLevels": ["low", "medium", "high"],
+      "defaultEffort": "medium",
+      "pricesPerMTok": {
+        "input": 2.0,
+        "output": 10.0,
+        "cachedInput": 0.1,
+        "cacheWrite": 2.5
+      },
+      "pricingVerifiedAt": "2026-10-29",
+      "untested": false
     }
   ]
 }

@@ -68,7 +68,7 @@ before(async () => {
   );
   await put(
     '.cohort/models.yml',
-    'version: test\nmodels:\n  - id: test-model\n    provider: openai\n    label: test-model\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
+    'version: test\nmodels:\n  - id: test-model\n    provider: openai\n    label: test-model\n    visionCapable: true\n    supportedEffortLevels: [low]\n    defaultEffort: low\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false\n',
   );
   await put(
     '.cohort/personas/guest.md',

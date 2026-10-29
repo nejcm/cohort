@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
 import { newId, PLAYWRIGHT_VERSION, runBatch, TOOL_VERSION, type BatchEvent } from '../core/batch.ts';
+import { CostMeter } from '../core/cost.ts';
 import {
   BundleError,
   bundleDir,
@@ -231,10 +232,7 @@ function queuedRow(batchId: string, runId: string, entry: ResolvedEntry, repeat:
     finished_at: null,
     duration_ms: null,
     estimated_cost_usd: null,
-    cap_enforcement:
-      request.catalog.entry.pricesPerMTok.input !== null && request.catalog.entry.pricesPerMTok.output !== null
-        ? 'priced_reservations'
-        : 'step_time_only',
+    cap_enforcement: new CostMeter(0, request.catalog.entry.pricesPerMTok).enforcement,
     artifact_dir: relativeDir(runId),
     report_path: null,
     config_hash: sha256(JSON.stringify({ request, task: entry.task, layers })),
@@ -353,6 +351,7 @@ function interruptedReport(row: RunRow, steps: StepRecord[]): RunReport {
       inputTokens: 0,
       outputTokens: 0,
       cachedInputTokens: null,
+      cacheWriteInputTokens: null,
       imageInputTokens: null,
       providerReportedCostUsd: null,
       estimatedCostUsd: null,

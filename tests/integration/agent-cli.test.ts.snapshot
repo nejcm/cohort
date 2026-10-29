@@ -369,6 +369,7 @@ exports[`an agent drives the whole lifecycle through the CLI with no dashboard p
         "usage": {
           "accounting": "string",
           "cachedInputTokens": "number",
+          "cacheWriteInputTokens": "number",
           "capEnforcement": "string",
           "estimatedCostUsd": "number",
           "imageInputTokens": "null",

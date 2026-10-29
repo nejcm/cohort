@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -19,17 +19,26 @@ const tested = (overrides: Partial<ModelCatalogEntry> = {}): ModelCatalogEntry =
   visionCapable: true,
   supportedEffortLevels: ['low', 'medium'],
   defaultEffort: 'low',
-  pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 },
+  pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 },
   pricingVerifiedAt: '2026-10-01',
   untested: false,
   ...overrides,
 });
 
-test('shipped catalog validates and stays disabled until verified live', () => {
+test('shipped catalog is the approved set, and untested entries need explicit confirmation', () => {
   const catalog = validateCatalog(shipped, 'catalog.json');
+  assert.deepEqual(
+    catalog.models.map((entry) => [entry.provider, entry.id, entry.label, entry.defaultEffort, entry.untested]),
+    [['anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5', 'medium', false]],
+  );
+  assert.deepEqual(catalog.models[0]?.pricesPerMTok, { input: 2, output: 10, cachedInput: 0.1, cacheWrite: 2.5 });
   for (const entry of catalog.models) {
-    assert.equal(entry.untested, true);
-    assert.throws(() => resolveModel(catalog, `${entry.provider}/${entry.id}`, { mode: 'vision' }), /disabled/u);
+    const id = `${entry.provider}/${entry.id}`;
+    if (entry.visionCapable === null) assert.throws(() => resolveModel(catalog, id, { mode: 'vision' }), /disabled/u);
+    else if (entry.untested) {
+      assert.throws(() => resolveModel(catalog, id, { mode: 'vision' }), /untested/u);
+      assert.equal(resolveModel(catalog, id, { mode: 'vision', allowUntested: true }).effort, entry.defaultEffort);
+    } else assert.equal(resolveModel(catalog, id, { mode: 'vision' }).effort, entry.defaultEffort);
   }
 });
 
@@ -50,8 +59,17 @@ test('catalog validation reports every bad field', () => {
   assert.match(issues(tested({ supportedEffortLevels: ['max' as 'low'] })), /unique efforts/u);
   assert.match(issues(tested({ defaultEffort: 'high' })), /one of supportedEffortLevels/u);
   assert.match(issues(tested({ visionCapable: null })), /tested entries need/u);
-  assert.match(issues(tested({ pricesPerMTok: { input: -1, output: 1, cachedInput: 0 } })), /nonnegative/u);
+  assert.match(
+    issues(tested({ pricesPerMTok: { input: -1, output: 1, cachedInput: 0, cacheWrite: -1 } })),
+    /nonnegative/u,
+  );
   assert.match(issues(tested({ pricingVerifiedAt: null })), /verification date/u);
+  const { cacheWrite: _, ...noWriteKey } = tested().pricesPerMTok;
+  assert.match(issues({ ...tested(), pricesPerMTok: noWriteKey }), /exactly input, output, cachedInput, cacheWrite/u);
+  const writeUnknown = { input: 1, output: 4, cachedInput: 0.1, cacheWrite: null };
+  assert.match(issues(tested({ pricesPerMTok: writeUnknown })), /cacheWrite: required when input and output/u);
+  const unpriced = { input: null, output: null, cachedInput: null, cacheWrite: null };
+  assert.equal(issues(tested({ pricesPerMTok: unpriced, pricingVerifiedAt: null })), '');
   assert.match(issues(tested({ contextLimitTokens: 1.5 })), /positive integer/u);
   assert.throws(
     () => validateCatalog({ version: 'v', models: [tested(), tested()] }, 'x'),
@@ -90,7 +108,7 @@ models:
     visionCapable: true
     supportedEffortLevels: [low, medium]
     defaultEffort: medium
-    pricesPerMTok: { input: 1, output: 4, cachedInput: null }
+    pricesPerMTok: { input: 1, output: 4, cachedInput: null, cacheWrite: 1 }
     pricingVerifiedAt: "2026-10-01"
     untested: false
 `,
@@ -99,6 +117,9 @@ models:
     assert.equal(catalog.version, `${shipped.version}+local-1`);
     assert.equal(catalog.models.length, shipped.models.length + 1);
     assert.equal(resolveModel(catalog, 'openai/model-a', { mode: 'vision' }).effort, 'medium');
+    const yaml = await readFile(join(root, '.cohort', 'models.yml'), 'utf8');
+    await writeFile(join(root, '.cohort', 'models.yml'), yaml.replace('cacheWrite: 1', 'cacheWrite: null'));
+    await assert.rejects(loadCatalog(root), /models\.yml\.models\[0\]\.pricesPerMTok\.cacheWrite: required/u);
     await writeFile(join(root, '.cohort', 'models.yml'), 'version: bad\nmodels: [{ id: x }]\n');
     await assert.rejects(loadCatalog(root), /\.cohort\/models\.yml\.models\[0\]\.provider: required/u);
   } finally {

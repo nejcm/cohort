@@ -107,23 +107,23 @@ before(async () => {
     `version: test\nmodels:\n${[
       model(
         'test-model',
-        'visionCapable: true\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false',
+        'visionCapable: true\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false',
       ),
       model(
         'unpriced-model',
-        'visionCapable: true\n    pricesPerMTok: { input: null, output: null, cachedInput: null }\n    pricingVerifiedAt: null\n    untested: false',
+        'visionCapable: true\n    pricesPerMTok: { input: null, output: null, cachedInput: null, cacheWrite: null }\n    pricingVerifiedAt: null\n    untested: false',
       ),
       model(
         'fresh-model',
-        'visionCapable: true\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: true',
+        'visionCapable: true\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: true',
       ),
       model(
         'blind-model',
-        'visionCapable: false\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false',
+        'visionCapable: false\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false',
       ),
       model(
         'test-claude',
-        'visionCapable: true\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false',
+        'visionCapable: true\n    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }\n    pricingVerifiedAt: 2026-10-01\n    untested: false',
         'anthropic',
       ),
     ].join('')}`,

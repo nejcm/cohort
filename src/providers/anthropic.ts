@@ -11,7 +11,7 @@ import {
 
 const KEY_ENV = 'ANTHROPIC_API_KEY';
 
-// Wire facts (unverified live): Messages API, `output_config.effort`, forced tool_choice rejected on newer models.
+// Wire facts (live-checked 2026-10-29): Messages API, `output_config.effort`, forced tool_choice rejected on newer models.
 export function createAnthropicAdapter(options: AdapterOptions = {}): ProviderAdapter {
   const env = options.env ?? process.env;
   const baseUrl = options.baseUrl ?? 'https://api.anthropic.com';
@@ -62,6 +62,14 @@ export function createAnthropicAdapter(options: AdapterOptions = {}): ProviderAd
       const cacheWrite =
         usage.cache_creation_input_tokens === undefined ? 0 : tokenCount(usage.cache_creation_input_tokens);
       const counted = inputCount !== null && outputCount !== null && cacheRead !== null && cacheWrite !== null;
+      // The catalog prices only the 5-minute TTL this adapter requests; refuse rather than undercount another TTL.
+      const ttls = (usage.cache_creation ?? {}) as Record<string, unknown>;
+      if (Object.entries(ttls).some(([ttl, tokens]) => ttl !== 'ephemeral_5m_input_tokens' && tokens !== 0))
+        throw new ProviderError(`cache write with an unpriced TTL: ${Object.keys(ttls).join(', ')}`, {
+          status: null,
+          retryable: false,
+          possiblyBilled: true,
+        });
       return {
         calls: content
           .filter((block) => block.type === 'tool_use')
@@ -71,6 +79,7 @@ export function createAnthropicAdapter(options: AdapterOptions = {}): ProviderAd
               inputTokens: inputCount + cacheRead + cacheWrite,
               outputTokens: outputCount,
               cachedInputTokens: usage.cache_read_input_tokens === undefined ? null : cacheRead,
+              cacheWriteInputTokens: usage.cache_creation_input_tokens === undefined ? null : cacheWrite,
               imageInputTokens: null,
               reportedCostUsd: null,
               source: 'provider',

@@ -26,7 +26,7 @@ models:
     visionCapable: true
     supportedEffortLevels: [low]
     defaultEffort: low
-    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1 }
+    pricesPerMTok: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 }
     pricingVerifiedAt: 2026-10-01
     untested: false
   - id: unpriced-model
@@ -35,7 +35,7 @@ models:
     visionCapable: true
     supportedEffortLevels: [low]
     defaultEffort: low
-    pricesPerMTok: { input: null, output: null, cachedInput: null }
+    pricesPerMTok: { input: null, output: null, cachedInput: null, cacheWrite: null }
     pricingVerifiedAt: null
     untested: false
 `;

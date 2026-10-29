@@ -13,8 +13,8 @@ Verified offline on Linux, Node v26.8.2, Playwright 1.64.1 headless Chromium, wi
 | Browser | Chromium 156.0.8078.4 (Playwright revision 1248), headless, plus headed for `cohort login` | Headless local; the headed `cohort login` window is not exercised by tests |
 | Operating system | Linux | Local Linux 7.2; macOS and Windows untested |
 | OpenAI | Responses API through `fetch`, `reasoning.effort` | Fake HTTP server; live 2026-10-29 on `gpt-6.1-terra` and `gpt-6-luna` (efforts low/medium/high, vision, tool calls, usage and cached-token parsing) through a `.cohort/models.yml` entry. See `.plans/reports/live-openai.md` |
-| Anthropic | Messages API through `fetch`, `output_config.effort` | Fake HTTP server only; not live |
-| Shipped models | None enabled | The one catalog entry is a disabled candidate until live verification |
+| Anthropic | Messages API through `fetch`, `output_config.effort` | Fake HTTP server; live 2026-10-29 on `claude-sonnet-5-5` (efforts low/medium/high, vision, `tool_choice: auto` with `disable_parallel_tool_use`, cache-read and 5-minute cache-write usage parsing). See `.plans/reports/live-anthropic.md` |
+| Shipped models | `anthropic/claude-sonnet-5-5` | Enabled (`untested: false`, default effort `medium`). API live-checked and priced, including the $2.50/M 5-minute cache write (2026-10-29); fixture journey 2/3 at `medium` (1/3 low, 0/3 high); all 3 completed runs replay |
 | Dashboard browsers | Chromium | Firefox and WebKit untested |
 
 ## Target resolution and replay
@@ -170,5 +170,5 @@ At each clean capture every element's box is recorded and the mutation log is re
 
 ## Not verified (needs live keys or external targets)
 
-- The provider wire formats were checked only against fake HTTP servers: Anthropic `output_config.effort`, `tool_choice: auto` with `disable_parallel_tool_use`, and OpenAI Responses `reasoning.effort`.
-- Not measured: model IDs, prices, image token accounting, caching, and effort support.
+- OpenAI `cache_write_tokens` parsing is tested against a fake server only, and which retention tier (30 min or 12 h) OpenAI applies by default is not confirmed; set `cacheWrite` to the higher tier when unsure.
+- Anthropic `high` effort alternated between two routes (home and Contact host) for all 40 steps in 3 of 3 runs without loop detection (D6); only the step and time caps bound it. Image token accounting is not reported by the API.

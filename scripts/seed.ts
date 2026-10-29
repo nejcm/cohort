@@ -16,8 +16,18 @@ const PERSONAS = [
   'cautious-banking-user',
 ];
 const MODELS = [
-  { id: 'fast-mini', label: 'Fast mini', prices: '{ input: 0.25, output: 1, cachedInput: 0.03 }', tokens: [900, 60] },
-  { id: 'deep-pro', label: 'Deep pro', prices: '{ input: 3, output: 15, cachedInput: 0.3 }', tokens: [1800, 120] },
+  {
+    id: 'fast-mini',
+    label: 'Fast mini',
+    prices: '{ input: 0.25, output: 1, cachedInput: 0.03, cacheWrite: 0.3125 }',
+    tokens: [900, 60],
+  },
+  {
+    id: 'deep-pro',
+    label: 'Deep pro',
+    prices: '{ input: 3, output: 15, cachedInput: 0.3, cacheWrite: 3.75 }',
+    tokens: [1800, 120],
+  },
 ] as const;
 
 type Outcome = 'completed' | 'abandoned' | 'blocked' | 'limit_reached' | 'agent_error';

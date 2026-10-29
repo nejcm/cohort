@@ -69,7 +69,7 @@ interface ModelInfo {
   visionCapable: boolean | null;
   supportedEffortLevels: string[];
   defaultEffort: string | null;
-  pricesPerMTok: { input: number | null; output: number | null; cachedInput: number | null };
+  pricesPerMTok: { input: number | null; output: number | null; cachedInput: number | null; cacheWrite: number | null };
   pricingVerifiedAt: string | null;
   untested: boolean;
   enabled: boolean;

@@ -59,21 +59,24 @@ export function createOpenAIAdapter(options: AdapterOptions = {}): ProviderAdapt
       const usage = (json.usage ?? {}) as {
         input_tokens?: unknown;
         output_tokens?: unknown;
-        input_tokens_details?: { cached_tokens?: unknown };
+        input_tokens_details?: { cached_tokens?: unknown; cache_write_tokens?: unknown };
       };
       const inputCount = tokenCount(usage.input_tokens);
       const outputCount = tokenCount(usage.output_tokens);
+      const written = usage.input_tokens_details?.cache_write_tokens;
+      const writeCount = written === undefined ? null : tokenCount(written);
       return {
         calls: output
           .filter((item) => item.type === 'function_call')
           .map((item) => ({ name: String(item.name), args: parseArguments(item.arguments) })),
         usage:
-          inputCount === null || outputCount === null
+          inputCount === null || outputCount === null || (written !== undefined && writeCount === null)
             ? null
             : {
                 inputTokens: inputCount,
                 outputTokens: outputCount,
                 cachedInputTokens: tokenCount(usage.input_tokens_details?.cached_tokens),
+                cacheWriteInputTokens: writeCount,
                 imageInputTokens: null,
                 reportedCostUsd: null,
                 source: 'provider',

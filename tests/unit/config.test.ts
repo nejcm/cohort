@@ -18,8 +18,8 @@ import { resolveSubmission, validateSubmission, type RunSubmission } from '../..
 import { validateCatalog, type ModelCatalogEntry } from '../../src/providers/catalog.ts';
 import { createProviders } from '../../src/providers/registry.ts';
 
-const priced = { input: 1, output: 4, cachedInput: 0.1 };
-const unpriced = { input: null, output: null, cachedInput: null };
+const priced = { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 1 };
+const unpriced = { input: null, output: null, cachedInput: null, cacheWrite: null };
 const entry = (id: string, provider: string, extra: Partial<ModelCatalogEntry> = {}): ModelCatalogEntry => ({
   id,
   provider,
