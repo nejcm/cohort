@@ -4,7 +4,7 @@
   import ModelPicker from './ModelPicker.svelte';
   import type { Models } from '../lib/api.ts';
   import type { JsonSchema } from '../../src/core/schema.ts';
-  import { fieldError, fieldGroups, fieldProblems, formProblem, readAt, setAt } from '../lib/source.ts';
+  import { fieldError, fieldGroups, fieldProblems, formProblem, moveAt, readAt, setAt } from '../lib/source.ts';
 
   type Path = (string | number)[];
   let {
@@ -13,7 +13,6 @@
     personas,
     models = null,
     projectMode = 'vision',
-    inheritedModels = [],
     error = '',
     idPrefix,
     invalid = $bindable(false),
@@ -23,7 +22,6 @@
     personas: string[];
     models?: Models | null;
     projectMode?: 'vision' | 'text';
-    inheritedModels?: string[];
     error?: string;
     idPrefix: string;
     invalid?: boolean;
@@ -36,12 +34,15 @@
   let raw = $state(false);
   let editError = $state('');
   const read = (path: Path): unknown => readAt(source, path, false);
-  const entries = $derived(raw ? [] : ((read(['entries']) as unknown[] | null) ?? []));
+  const entries = $derived.by(() => {
+    const found = read(['entries']);
+    return !raw && !problem && Array.isArray(found) ? found : [];
+  });
   const details = $derived(fieldGroups(schema, ['defaults', 'entries']).flatMap((group) => group.fields));
   const defaultGroups = $derived(fieldGroups(defaultsSchema, OUTSIDE, ['defaults']));
   const entryFields = (index: number) => fieldGroups(entrySchema, OUTSIDE, ['entries', index])[0]!.fields;
   const problems = $derived.by(() => {
-    if (raw) return [];
+    if (raw || problem) return [];
     const fields = [
       ...details,
       ...fieldGroups(defaultsSchema, [], ['defaults']).flatMap((group) => group.fields),
@@ -75,9 +76,12 @@
     set: (value: string): void => write(path, value || undefined),
   });
   function move(index: number, by: number): void {
-    const moved = [...entries];
-    [moved[index], moved[index + by]] = [moved[index + by], moved[index]];
-    write(['entries'], moved);
+    try {
+      source = moveAt(source, ['entries'], index, index + by);
+      editError = '';
+    } catch (caught) {
+      editError = (caught as Error).message;
+    }
   }
 </script>
 
@@ -118,7 +122,6 @@
               bind:model={model.get, model.set}
               bind:effort={effort.get, effort.set}
               inherited="persona or project"
-              {inheritedModels}
               idPrefix="{idPrefix}-default"
             />
           </div>

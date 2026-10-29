@@ -107,7 +107,6 @@ entries:
         personas={personaIds}
         {models}
         projectMode={config?.defaults.mode}
-        inheritedModels={config ? [config.defaults.model] : []}
         error={draftError}
         idPrefix="suite"
         bind:invalid={draftInvalid}

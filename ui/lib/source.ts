@@ -1,4 +1,4 @@
-import { isAlias, isScalar, parseDocument, stringify, visit } from 'yaml';
+import { isAlias, isScalar, isSeq, parseDocument, stringify, visit } from 'yaml';
 import { localeProblems } from '../../src/config/locale.ts';
 import { validate, type JsonSchema } from '../../src/core/schema.ts';
 
@@ -39,6 +39,21 @@ export function setAt(source: string, path: Path, value: unknown, markdown: bool
   const match = FRONTMATTER.exec(source);
   if (!match) throw new Error('the persona has no --- frontmatter block');
   return `---\n${edit(match[1]!, path, value)}---\n${source.slice(match[0].length)}`;
+}
+
+/** Moves list item `from` to `to` in the YAML at `path`, keeping each item's comments. */
+export function moveAt(yaml: string, path: Path, from: number, to: number): string {
+  const document = parseDocument(yaml);
+  const list = document.getIn(path, true);
+  if (document.errors.length > 0 || !isSeq(list)) throw new Error(`${path.join('.')} is not a list`);
+  // The parser hangs the first item's leading comment on the list; move it with the item.
+  const first = list.items[0] as { commentBefore?: string | null } | undefined;
+  if (first && list.commentBefore) {
+    first.commentBefore = first.commentBefore ? `${list.commentBefore}\n${first.commentBefore}` : list.commentBefore;
+    list.commentBefore = null;
+  }
+  list.items.splice(to, 0, ...list.items.splice(from, 1));
+  return String(document);
 }
 
 export const bodyOf = (source: string): string => source.slice(FRONTMATTER.exec(source)?.[0].length ?? 0);

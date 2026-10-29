@@ -8,6 +8,7 @@ import {
   fieldGroups,
   fieldProblems,
   formProblem,
+  moveAt,
   readAt,
   setAt,
   withBody,
@@ -377,4 +378,15 @@ test('suite form fields carry list indexes, and form edits round-trip to a valid
   const suite = parseSuite(source, 'x.yml');
   assert.deepEqual(suite.entries[1], { persona: 'admin', url: 'https://example.test/' });
   assert.equal(suite.defaults.repeats, 3);
+});
+
+test('moving a list item keeps the comments of every item', () => {
+  const yaml = 'entries:\n  # first\n  - persona: a # a note\n  # second\n  - persona: b # b note\n';
+  const moved = moveAt(yaml, ['entries'], 1, 0);
+  assert.equal(moved, 'entries:\n  # second\n  - persona: b # b note\n  # first\n  - persona: a # a note\n');
+  const nested = moveAt('entries:\n  # above\n  - # inside\n    persona: a\n  - persona: b\n', ['entries'], 1, 0);
+  assert.match(nested, /# above/u);
+  assert.match(nested, /# inside/u);
+  assert.deepEqual(readAt(nested, ['entries'], false), [{ persona: 'b' }, { persona: 'a' }]);
+  assert.throws(() => moveAt('entries: x\n', ['entries'], 0, 1), /entries is not a list/u);
 });

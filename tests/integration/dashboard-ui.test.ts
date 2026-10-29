@@ -422,6 +422,20 @@ test('suite pickers write model and effort into the YAML; ad-hoc runs save to a 
   assert.ok(!(await page.content()).includes(KEY));
 });
 
+test('opening a suite keeps an effort the project model lacks, and a malformed suite falls back to source', async () => {
+  await put(
+    '.cohort/suites/effortful.yml',
+    'schemaVersion: 1\nid: effortful\nname: E\ndefaults:\n  effort: high\nentries:\n  - persona: guest\n',
+  );
+  await put('.cohort/suites/broken.yml', 'schemaVersion: 1\nid: broken\nname: B\nentries: x\n');
+  await page.goto(`${dashboard.origin}/suites/effortful`);
+  await page.locator('#editor-default-effort').waitFor();
+  assert.equal(await page.locator('#editor-default-effort').inputValue(), 'high');
+  assert.equal(await page.getByText('(unsaved)').count(), 0);
+  await page.goto(`${dashboard.origin}/suites/broken`);
+  await page.getByText('Editing the source because entries is not a list.').waitFor();
+});
+
 test('a new suite is built from form controls', async () => {
   await page.goto(`${dashboard.origin}/suites/new`);
   await page.locator('#suite-id').fill('formed-suite');

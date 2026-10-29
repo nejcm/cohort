@@ -138,7 +138,6 @@
         {personas}
         {models}
         projectMode={config?.defaults.mode}
-        inheritedModels={config ? [config.defaults.model] : []}
         {error}
         idPrefix="editor"
         bind:invalid
