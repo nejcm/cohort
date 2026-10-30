@@ -11,10 +11,13 @@ import {
   readBundleFile,
   readBundleJson,
   readSteps,
+  relativeRunDir,
+  runDir,
+  runsDir,
   writeBatchReports,
-  writeRunReports,
+  writeBundle,
 } from '../evidence/bundle.ts';
-import { writeManifest, type RunManifest } from '../evidence/manifest.ts';
+import type { RunManifest } from '../evidence/manifest.ts';
 import { browserActionCount, buildBatchReport, type RunReport } from '../evidence/report.ts';
 import type { StepRecord } from '../evidence/steps.ts';
 import type { ModelCatalogEntry } from '../providers/catalog.ts';
@@ -52,7 +55,6 @@ interface ResolvedConfigFile {
 }
 
 const now = (): string => new Date().toISOString();
-const relativeDir = (runId: string): string => `.cohort/runs/${runId}`;
 
 /** In-process FIFO over runBatch; events are persisted before broadcast, and cancel requests in the index are polled. */
 export class RunQueue {
@@ -180,7 +182,7 @@ export class RunQueue {
   }
 
   private finish(runId: string, payload: Record<string, unknown>): Promise<void> {
-    return finishRow(this.options.projectRoot, this.options.db, runId, payload).then(() =>
+    return finishRow(this.options.projectRoot, this.options.db, runId).then(() =>
       this.emit(runId, 'run.finished', { status: 'finished', ...payload }),
     );
   }
@@ -218,12 +220,12 @@ export async function runOwnedBatch(
     return await runBatch({
       ...options,
       ids,
-      onEvent: (runId, type, payload) => {
+      onEvent: (runId, type) => {
         try {
           // Indexed at the first run start, so a preflight failure still leaves nothing behind.
           if (type === 'run.started' && !indexed) indexed = !!insertOwnedBatch(db, entries, request, ids);
           if (type === 'run.started') db.updateRun(runId, { status: 'running', started_at: now() });
-          if (type === 'run.finished') finishing.push(finishRow(projectRoot, db, runId, payload).catch(() => {}));
+          if (type === 'run.finished') finishing.push(finishRow(projectRoot, db, runId).catch(() => {}));
         } catch {}
       },
     });
@@ -242,11 +244,11 @@ export async function runOwnedBatch(
   }
 }
 
-async function finishRow(projectRoot: string, db: LabDb, runId: string, payload: Record<string, unknown>) {
+async function finishRow(projectRoot: string, db: LabDb, runId: string) {
   const columns = await bundleDir(projectRoot, runId)
     .then(({ dir }) => readBundleJson<RunReport>(dir, 'report.json'))
     .then((report) => reportColumns(report))
-    .catch(() => ({ outcome_state: String(payload.state ?? 'agent_error') }));
+    .catch(() => ({ outcome_state: 'agent_error', outcome_code: 'artifact_error', report_path: null }));
   db.updateRun(runId, { ...columns, status: 'finished', finished_at: now() });
 }
 
@@ -279,7 +281,7 @@ function queuedRow(batchId: string, runId: string, entry: ResolvedEntry, repeat:
     duration_ms: null,
     estimated_cost_usd: null,
     cap_enforcement: new CostMeter(0, request.catalog.entry.pricesPerMTok).enforcement,
-    artifact_dir: relativeDir(runId),
+    artifact_dir: relativeRunDir(runId),
     report_path: null,
     config_hash: sha256(JSON.stringify({ request, task: entry.task, layers })),
   };
@@ -309,14 +311,12 @@ function ownerAlive(batch: Pick<BatchRow, 'owner_pid' | 'owner_start'>): boolean
 
 // Writes the batch report from its run reports when the owner never did, then marks the batch finished.
 async function finalizeBatch(projectRoot: string, db: LabDb, batchId: string): Promise<void> {
-  const dir = join(projectRoot, relativeDir(batchId));
+  const dir = runDir(projectRoot, batchId);
   if ((await readBundleFile(dir, 'report.json').catch(() => null)) === null) {
     const rows = db.batchRuns(batchId);
     const reports: RunReport[] = [];
     for (const row of rows) {
-      const report = await readBundleJson<RunReport>(join(projectRoot, relativeDir(row.id)), 'report.json').catch(
-        () => null,
-      );
+      const report = await readBundleJson<RunReport>(runDir(projectRoot, row.id), 'report.json').catch(() => null);
       if (report) reports.push(report);
     }
     await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -325,9 +325,7 @@ async function finalizeBatch(projectRoot: string, db: LabDb, batchId: string): P
   // Comparison claims are added to the bundles after their runs finished, so recount from the final reports.
   for (const row of db.batchRuns(batchId)) {
     if (row.status !== 'finished') continue;
-    const report = await readBundleJson<RunReport>(join(projectRoot, relativeDir(row.id)), 'report.json').catch(
-      () => null,
-    );
+    const report = await readBundleJson<RunReport>(runDir(projectRoot, row.id), 'report.json').catch(() => null);
     if (report) {
       const { friction_count, opinion_count } = reportColumns(report);
       db.updateRun(row.id, { friction_count, opinion_count });
@@ -377,17 +375,13 @@ async function recoverRow(projectRoot: string, db: LabDb, row: RunRow): Promise<
 }
 
 async function plainRunDir(projectRoot: string, runId: string): Promise<string> {
-  for (const path of [
-    join(projectRoot, '.cohort'),
-    join(projectRoot, '.cohort', 'runs'),
-    join(projectRoot, relativeDir(runId)),
-  ]) {
+  for (const path of [join(projectRoot, '.cohort'), runsDir(projectRoot), runDir(projectRoot, runId)]) {
     await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
     if (!(await lstat(path)).isDirectory()) throw new BundleError(`${runId}: artifact path is not a plain directory`);
   }
-  return join(projectRoot, relativeDir(runId));
+  return runDir(projectRoot, runId);
 }
 
 function interruptedReport(row: RunRow, steps: StepRecord[]): RunReport {
@@ -443,42 +437,49 @@ function interruptedReport(row: RunRow, steps: StepRecord[]): RunReport {
 
 async function writeRecovered(dir: string, row: RunRow, report: RunReport, steps: StepRecord[]): Promise<void> {
   const resolved = await readBundleJson<ResolvedConfigFile>(dir, 'resolved-config.json').catch(() => null);
-  await writeRunReports(dir, report, steps);
-  await writeManifest(dir, {
-    runId: row.id,
-    batchId: row.batch_id,
-    createdAt: report.startedAt,
-    toolVersion: TOOL_VERSION,
-    runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: null },
-    configuration: {
-      personaId: row.persona_id,
-      personaHash: resolved?.persona?.hash ?? 'unknown',
-      suiteId: resolved?.suiteId ?? null,
-      resolvedConfigHash: null,
-      setupHash: null,
-      mode: report.mode,
-      provider: row.provider,
-      model: row.model,
-      effort: report.effort,
-      catalog: report.catalog,
+  const { failed } = await writeBundle(
+    dir,
+    {
+      runId: row.id,
+      batchId: row.batch_id,
+      createdAt: report.startedAt,
+      toolVersion: TOOL_VERSION,
+      runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: null },
+      configuration: {
+        personaId: row.persona_id,
+        personaHash: resolved?.persona?.hash ?? 'unknown',
+        suiteId: resolved?.suiteId ?? null,
+        resolvedConfigHash: null,
+        setupHash: null,
+        mode: report.mode,
+        provider: row.provider,
+        model: row.model,
+        effort: report.effort,
+        catalog: report.catalog,
+      },
     },
-  });
+    report,
+    steps,
+  );
+  if (failed[0]) throw new Error(failed[0].message);
 }
 
 // Adds finalized run bundles on disk (for example from `cohort run`) that the index does not know yet, and fills claim counts indexed before they existed.
 async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
   let added = 0;
-  const names = await readdir(join(projectRoot, '.cohort', 'runs')).catch(() => []);
+  const names = await readdir(runsDir(projectRoot)).catch(() => []);
   for (const name of names.filter((candidate) => candidate.startsWith('run_')).toSorted()) {
     const known = db.run(name);
-    if (known && (known.friction_count !== null || !known.report_path)) continue;
+    // A finished row without a report is revisited once a report.json appears, for example after a manual repair.
+    if (known && (known.friction_count !== null || (!known.report_path && known.status !== 'finished'))) continue;
     try {
       const { dir } = await bundleDir(projectRoot, name);
       const report = await readBundleJson<RunReport>(dir, 'report.json');
       if (report.runId !== name) continue;
       if (known) {
-        const { friction_count, opinion_count } = reportColumns(report);
-        db.updateRun(name, { friction_count, opinion_count });
+        const columns = reportColumns(report);
+        const { friction_count, opinion_count } = columns;
+        db.updateRun(name, known.report_path ? { friction_count, opinion_count } : columns);
         continue;
       }
       const resolvedText = await readBundleFile(dir, 'resolved-config.json');
@@ -504,7 +505,7 @@ async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
         created_at: report.startedAt,
         started_at: report.startedAt,
         finished_at: null,
-        artifact_dir: relativeDir(name),
+        artifact_dir: relativeRunDir(name),
         config_hash: manifest?.configuration.resolvedConfigHash ?? sha256(resolvedText ?? name),
         outcome_state: null,
         blocked_kind: null,

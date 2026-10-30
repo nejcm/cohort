@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import { checkProject, loadProjectConfig } from './config/files.ts';
 import { playwrightTestCliPath } from './core/replay.ts';
+import { runDir, runsDir } from './evidence/bundle.ts';
 import { loadCatalog, resolveModel } from './providers/catalog.ts';
 import { createProviders } from './providers/registry.ts';
 import type { ProviderAdapter } from './providers/types.ts';
@@ -101,11 +102,8 @@ export async function doctor(
     add('warn', '.cohort/auth is readable by other users; run: chmod 700 .cohort/auth');
 
   const unfinalized: string[] = [];
-  for (const name of (await readdir(join(projectRoot, '.cohort', 'runs')).catch(() => [])).toSorted())
-    if (
-      name.startsWith('run_') &&
-      !(await lstat(join(projectRoot, '.cohort', 'runs', name, 'manifest.json')).catch(() => null))
-    )
+  for (const name of (await readdir(runsDir(projectRoot)).catch(() => [])).toSorted())
+    if (name.startsWith('run_') && !(await lstat(join(runDir(projectRoot, name), 'manifest.json')).catch(() => null)))
       unfinalized.push(name);
   if (unfinalized.length > 0)
     add(

@@ -23,7 +23,7 @@ import { createProviders } from '../providers/registry.ts';
 import { EFFORTS, ProviderError, type Effort, type ProviderAdapter } from '../providers/types.ts';
 import { SecretStore, safeUrl } from '../setup/secrets.ts';
 import type { RunRow } from './db.ts';
-import { appendSuiteEntry, createEditable, EditError, readEditable, saveEditable } from './files.ts';
+import { appendSuiteEntry, createEditable, EditError, readEditable, saveEditable } from '../config/editable.ts';
 import {
   batchDetail,
   configView,

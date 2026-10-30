@@ -95,7 +95,7 @@ Each run writes `.cohort/runs/<run-id>/`; each batch writes `.cohort/runs/<batch
 
 `cohort run --detach` hands the batch to a background `cohort` process that records its PID and start time in the index; `cohort runs wait|cancel` and the dashboard coordinate through the index ([agents.md](agents.md#background-runs)).
 
-A run directory without `manifest.json` was not finalized: it is still running, or its process was killed. `SIGINT` and `SIGTERM` finalize runs as interrupted; a hard kill does not finalize itself. Every batch, foreground `cohort run` included, is indexed with its owning process, so a foreground run needs a writable `.cohort/index.sqlite` (`index_unavailable` otherwise). The next `cohort run`, `cohort ui`, or any `cohort runs` command marks runs whose owner is gone as interrupted and writes a bounded run and batch report. `cohort doctor` stays read-only and only lists such directories. Nothing resumes or spends again.
+A run directory without `manifest.json` was not finalized: it is still running, its process was killed, or writing its bundle failed (the run is then `agent_error(artifact_error)`, with no report in the index when `report.json` itself could not be written). `SIGINT` and `SIGTERM` finalize runs as interrupted; a hard kill does not finalize itself. Every batch, foreground `cohort run` included, is indexed with its owning process, so a foreground run needs a writable `.cohort/index.sqlite` (`index_unavailable` otherwise). The next `cohort run`, `cohort ui`, or any `cohort runs` command marks runs whose owner is gone as interrupted and writes a bounded run and batch report. `cohort doctor` stays read-only and only lists such directories. Nothing resumes or spends again.
 
 ## Retention and deletion
 

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
 import { LabDb, type RunRow } from '../../src/dashboard/db.ts';
-import { saveEditable, type EditError } from '../../src/dashboard/files.ts';
+import { saveEditable, type EditError } from '../../src/config/editable.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
 import { CSP, startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
@@ -887,6 +887,40 @@ test('recovery repairs a missing manifest and never writes through a symlinked r
     await rm(restartRoot, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }
+});
+
+test('a run whose rendered report cannot be written is indexed as an artifact_error with its report', async () => {
+  let runId = '';
+  let known!: () => void;
+  const submitted = new Promise<void>((resolve) => (known = resolve));
+  turn = async (request, index) => {
+    await submitted;
+    await mkdir(join(root, '.cohort/runs', runId, 'report.html', 'blocker'), { recursive: true });
+    return done(request, index);
+  };
+  runId = (await guestRun()).json().runIds[0] as string;
+  known();
+  await dashboard.queue.idle();
+  turn = done;
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
+  const row = side.run(runId);
+  side.close();
+  assert.deepEqual(
+    [row?.status, row?.outcome_code, row?.report_path],
+    ['finished', 'artifact_error', 'report.json'],
+    'the row keeps the degraded report',
+  );
+  const detail = (await call('GET', `/api/runs/${runId}`)).json();
+  assert.equal(detail.report?.outcome.code, 'artifact_error');
+  // With report.json itself unreadable, the row still answers and the entry is never followed.
+  await rm(join(root, '.cohort/runs', runId, 'report.json'));
+  await mkdir(join(root, '.cohort/runs', runId, 'report.json', 'blocker'), { recursive: true });
+  const degraded = await call('GET', `/api/runs/${runId}`);
+  assert.deepEqual(
+    [degraded.status, degraded.json().run.id, degraded.json().report],
+    [200, runId, null],
+    'a run with an unreadable report.json still reads through the detail endpoint',
+  );
 });
 
 test('cohort ui binds loopback by default and warns before an explicit host override', async () => {

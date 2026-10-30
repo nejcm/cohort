@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { lstat, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { inventory, writeAtomic, writeManifest, type RunManifest } from './manifest.ts';
+import { inventory, writeAtomic, writeManifest, type BundleIdentity, type RunManifest } from './manifest.ts';
 import {
   renderBatchHtml,
   renderBatchMarkdown,
@@ -25,12 +25,18 @@ export class BundleError extends Error {
   }
 }
 
+const RUNS = '.cohort/runs';
+export const runsDir = (projectRoot: string): string => join(projectRoot, RUNS);
+export const runDir = (projectRoot: string, id: string): string => join(projectRoot, RUNS, id);
+/** The POSIX spelling relative to the project root, for the index and printed paths. */
+export const relativeRunDir = (id: string): string => `${RUNS}/${id}`;
+
 /** Resolves a run or batch directory by ID; IDs are generated, so anything else is rejected before touching the filesystem. */
 export async function bundleDir(projectRoot: string, id: string): Promise<{ kind: 'run' | 'batch'; dir: string }> {
   const kind = RUN_ID.test(id) ? 'run' : BATCH_ID.test(id) ? 'batch' : null;
   if (!kind) throw new BundleError(`not a run or batch ID: ${id}`, 'not_found');
-  const runs = join(projectRoot, '.cohort', 'runs');
-  const dir = join(runs, id);
+  const runs = runsDir(projectRoot);
+  const dir = runDir(projectRoot, id);
   for (const path of [join(projectRoot, '.cohort'), runs, dir]) {
     const info = await lstat(path).catch(() => null);
     if (!info) throw new BundleError(`no artifacts for ${id}`, 'not_found');
@@ -91,10 +97,63 @@ export async function readSteps(dir: string): Promise<StepRecord[]> {
     .map((line) => JSON.parse(line) as StepRecord);
 }
 
-export async function writeRunReports(dir: string, report: RunReport, steps: readonly StepRecord[]): Promise<void> {
-  await writeAtomic(join(dir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
-  await writeAtomic(join(dir, 'report.md'), renderRunMarkdown(report, steps));
-  await writeAtomic(join(dir, 'report.html'), renderRunHtml(report, steps));
+const runReports = (report: RunReport, steps: readonly StepRecord[]): [string, () => string][] => [
+  ['report.json', () => `${JSON.stringify(report, null, 2)}\n`],
+  ['report.md', () => renderRunMarkdown(report, steps)],
+  ['report.html', () => renderRunHtml(report, steps)],
+];
+
+async function writeRunReports(dir: string, report: RunReport, steps: readonly StepRecord[]): Promise<void> {
+  for (const [name, render] of runReports(report, steps)) await writeAtomic(join(dir, name), render());
+}
+
+export interface BundleFailure {
+  path: string;
+  message: string;
+}
+
+/** Writes report.json, report.md, report.html, then manifest.json; never throws. A failed write hands the failures to `degrade` and writes its report once more. */
+export async function writeBundle(
+  dir: string,
+  identity: BundleIdentity,
+  report: RunReport,
+  steps: readonly StepRecord[],
+  degrade?: (failed: BundleFailure[]) => RunReport,
+): Promise<{ report: RunReport; written: string[]; failed: BundleFailure[] }> {
+  const first = await writePass(dir, identity, report, steps);
+  if (first.failed.length === 0 || !degrade) return { report, ...first };
+  const degraded = degrade(first.failed);
+  return { report: degraded, ...(await writePass(dir, identity, degraded, steps, first.written)) };
+}
+
+// A plain pass writes manifest.json only after every report. The degraded pass (`stale` set) needs only its own
+// report.json, and first removes earlier files it could not rewrite, since they describe the run it no longer is.
+async function writePass(
+  dir: string,
+  identity: BundleIdentity,
+  report: RunReport,
+  steps: readonly StepRecord[],
+  stale?: readonly string[],
+): Promise<{ written: string[]; failed: BundleFailure[] }> {
+  const written: string[] = [];
+  const failed: BundleFailure[] = [];
+  const attempt = async (path: string, write: () => Promise<unknown>): Promise<void> => {
+    try {
+      await write();
+      written.push(path);
+    } catch (error) {
+      failed.push({ path, message: String((error as Error)?.message ?? error) });
+    }
+  };
+  for (const [name, render] of runReports(report, steps)) {
+    await attempt(name, () => writeAtomic(join(dir, name), render()));
+    if (!written.includes('report.json')) break;
+  }
+  for (const path of stale ?? [])
+    if (!written.includes(path)) await rm(join(dir, path), { force: true }).catch(() => {});
+  if (written.includes('report.json') && (stale || failed.length === 0))
+    await attempt('manifest.json', () => writeManifest(dir, identity));
+  return { written, failed };
 }
 
 export async function writeBatchReports(dir: string, report: BatchReport): Promise<void> {
@@ -103,12 +162,27 @@ export async function writeBatchReports(dir: string, report: BatchReport): Promi
   await writeAtomic(join(dir, 'report.html'), renderBatchHtml(report));
 }
 
+async function bundleIdentity(dir: string): Promise<BundleIdentity> {
+  const {
+    schemaVersion: _,
+    finalizedAt: _f,
+    sensitivity: _s,
+    artifacts: _a,
+    ...identity
+  } = await readBundleJson<RunManifest>(dir, 'manifest.json');
+  return identity;
+}
+
+/** Re-inventories a finalized run under a fresh manifest that keeps its identity. */
+export async function reinventory(dir: string): Promise<void> {
+  await writeManifest(dir, await bundleIdentity(dir));
+}
+
 /** Rewrites a finalized run's reports from a changed report, then re-inventories it under a fresh manifest. */
 export async function refreshRun(dir: string, change: (report: RunReport) => RunReport): Promise<RunReport> {
   const report = change(await readBundleJson<RunReport>(dir, 'report.json'));
-  const previous = await readBundleJson<RunManifest>(dir, 'manifest.json');
+  const identity = await bundleIdentity(dir);
   await writeRunReports(dir, report, await readSteps(dir));
-  const { schemaVersion: _, finalizedAt: _f, sensitivity: _s, artifacts: _a, ...identity } = previous;
   await writeManifest(dir, identity);
   return report;
 }

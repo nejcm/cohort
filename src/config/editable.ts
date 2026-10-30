@@ -13,7 +13,7 @@ import {
   readDeclared,
   sha256,
   type SuiteEntry,
-} from '../config/files.ts';
+} from './files.ts';
 import { writeAtomic } from '../evidence/manifest.ts';
 import { CatalogError, validateCatalog } from '../providers/catalog.ts';
 

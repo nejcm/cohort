@@ -94,9 +94,11 @@ export async function inventory(outDir: string): Promise<{ artifacts: ManifestAr
   return { artifacts, rejected };
 }
 
+export type BundleIdentity = Omit<RunManifest, 'schemaVersion' | 'finalizedAt' | 'sensitivity' | 'artifacts'>;
+
 export async function writeManifest(
   outDir: string,
-  manifest: Omit<RunManifest, 'schemaVersion' | 'finalizedAt' | 'sensitivity' | 'artifacts'>,
+  manifest: BundleIdentity,
 ): Promise<{ manifest: RunManifest; rejected: string[] }> {
   const { artifacts, rejected } = await inventory(outDir);
   const complete: RunManifest = {

@@ -3,12 +3,12 @@ import { join } from 'node:path';
 import { ConfigError, listIds, loadProjectConfig, type ProjectConfig } from '../config/files.ts';
 import { resolveSubmission, type ResolvedEntry, type RunSubmission } from '../config/resolve.ts';
 import { preflight } from '../core/estimate.ts';
-import { bundleDir, readBundleFile } from '../evidence/bundle.ts';
+import { BundleError, bundleDir, readBundleFile } from '../evidence/bundle.ts';
 import type { RunManifest } from '../evidence/manifest.ts';
 import { catalogHash, loadCatalog, type ModelCatalog } from '../providers/catalog.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { RUN_FILTERS, RUN_SORTS, type BatchRow, type LabDb, type RunQuery, type RunRow } from './db.ts';
-import { readEditable } from './files.ts';
+import { readEditable } from '../config/editable.ts';
 
 type Providers = Readonly<Record<string, ProviderAdapter>>;
 
@@ -68,11 +68,19 @@ async function screenshotIds(dir: string): Promise<string[]> {
     .toSorted();
 }
 
+// A bundle file that is missing or not a regular file reads as absent: the index row still describes the run.
+function unavailableAsNull(dir: string, name: string): Promise<string | null> {
+  return readBundleFile(dir, name).catch((error: unknown) => {
+    if (error instanceof BundleError) return null;
+    throw error;
+  });
+}
+
 /** One run as the run page shows it: index row, finalized report, manifest artifacts, and screenshot IDs. */
 export async function runDetail(projectRoot: string, row: RunRow) {
   const dir = await runDirOf(projectRoot, row.id);
-  const report = dir ? await readBundleFile(dir, 'report.json') : null;
-  const manifest = dir ? await readBundleFile(dir, 'manifest.json') : null;
+  const report = dir ? await unavailableAsNull(dir, 'report.json') : null;
+  const manifest = dir ? await unavailableAsNull(dir, 'manifest.json') : null;
   return {
     run: publicRun(row),
     report: report ? (JSON.parse(report) as unknown) : null,
@@ -90,7 +98,7 @@ export async function runDetail(projectRoot: string, row: RunRow) {
 
 export async function batchDetail(projectRoot: string, db: LabDb, batch: BatchRow) {
   const dir = await runDirOf(projectRoot, batch.id);
-  const summary = dir ? await readBundleFile(dir, 'report.json') : null;
+  const summary = dir ? await unavailableAsNull(dir, 'report.json') : null;
   return {
     batch: { id: batch.id, createdAt: batch.created_at, request: JSON.parse(batch.request_json) as unknown },
     runs: db.batchRuns(batch.id).map(publicRun),
