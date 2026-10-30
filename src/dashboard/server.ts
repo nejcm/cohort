@@ -15,6 +15,7 @@ import {
 } from '../config/files.ts';
 import { personaTemplates } from '../config/init.ts';
 import { DEFAULT_MASKS, validateSubmission } from '../config/resolve.ts';
+import { asExplore, exploreScrub, exploreSubmission, saveSuggestion, suggest } from '../core/explore.ts';
 import { BundleError, readBundleFile } from '../evidence/bundle.ts';
 import type { RunManifest } from '../evidence/manifest.ts';
 import { GenerateError, generatePersona } from '../personas/generate.ts';
@@ -28,6 +29,7 @@ import {
   batchDetail,
   configView,
   estimate,
+  isActive,
   listRunsPage,
   modelList,
   personaSummaries,
@@ -196,6 +198,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
   const db = await openIndex(projectRoot);
   const queue = new RunQueue({ projectRoot, db, providers, env });
   const streams = new Set<ServerResponse>();
+  const suggesting = new Set<string>();
   let port = 0;
 
   const routes: [
@@ -363,14 +366,16 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       /^\/api\/runs$/u,
       async (_m, request, response) => {
         const body = await readJson(request);
-        const submission = validateSubmission(body.submission);
+        const explore = body.explore === true;
+        const submission = validateSubmission(explore ? exploreSubmission(body.submission) : body.submission);
         // A preview lists untested models (inherited ones included) so the dialog can ask for consent before dispatch.
-        const { entries, plan } = await estimate(
+        const estimated = await estimate(
           projectRoot,
           providers,
           submission,
           body.preview === true || body.allowUntested === true,
         );
+        const { entries, plan } = explore ? asExplore(estimated) : estimated;
         if (body.preview === true) return void json(response, 200, { ...plan });
         json(response, 202, {
           ...queue.enqueue(entries, {
@@ -378,6 +383,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
               ? { ...submission, url: safeUrl(submission.url, new SecretStore()) }
               : submission,
             allowUntested: body.allowUntested === true,
+            ...(explore ? { source: 'explore' } : {}),
           }),
           ...plan,
         });
@@ -415,10 +421,50 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       /^\/api\/runs\/([^/]+)$/u,
       async (match, _q, response) => {
         const row = indexed(match[1]!);
+        const batch = db.batch(row.batch_id);
         json(response, 200, {
           ...(await runDetail(projectRoot, row)),
+          explore: batch !== null && (JSON.parse(batch.request_json) as { source?: unknown }).source === 'explore',
           lastEventId: db.eventsAfter(row.id, 0).at(-1)?.sequence ?? 0,
         });
+      },
+    ],
+    [
+      'POST',
+      /^\/api\/runs\/([^/]+)\/suggestions$/u,
+      async (match, request, response) => {
+        await readJson(request);
+        const row = indexed(match[1]!);
+        if (isActive(row)) throw new HttpError(409, `${row.id} is still running`);
+        if (suggesting.has(row.id)) throw new HttpError(409, `suggestions for ${row.id} are already being made`);
+        suggesting.add(row.id);
+        try {
+          json(
+            response,
+            200,
+            await suggest({
+              projectRoot,
+              runId: row.id,
+              providers,
+              scrub: exploreScrub(env, providers),
+              signal: closedSignal(response),
+            }),
+          );
+        } finally {
+          suggesting.delete(row.id);
+        }
+      },
+    ],
+    [
+      'POST',
+      /^\/api\/runs\/([^/]+)\/suggestions\/save$/u,
+      async (match, request, response) => {
+        const body = await readJson(request);
+        const row = indexed(match[1]!);
+        if (body.kind !== 'personas' && body.kind !== 'suites')
+          throw new HttpError(400, 'kind must be personas or suites');
+        const revision = body.revision === undefined ? undefined : text(body.revision, 'revision');
+        json(response, 200, await saveSuggestion(projectRoot, row.id, body.kind, text(body.id, 'id'), revision));
       },
     ],
     [
