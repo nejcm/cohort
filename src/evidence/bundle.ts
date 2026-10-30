@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, open, rm } from 'node:fs/promises';
+import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inventory, writeAtomic, writeManifest, type BundleIdentity, type RunManifest } from './manifest.ts';
 import {
@@ -30,6 +30,15 @@ export const runsDir = (projectRoot: string): string => join(projectRoot, RUNS);
 export const runDir = (projectRoot: string, id: string): string => join(projectRoot, RUNS, id);
 /** The POSIX spelling relative to the project root, for the index and printed paths. */
 export const relativeRunDir = (id: string): string => `${RUNS}/${id}`;
+
+/** Creates `.cohort/runs` level by level, refusing a symlinked or non-directory level before anything is written through it. */
+export async function ensureRunsDir(projectRoot: string): Promise<void> {
+  for (const path of [join(projectRoot, '.cohort'), runsDir(projectRoot)]) {
+    await mkdir(path, { recursive: true, mode: 0o700 });
+    if (!(await lstat(path)).isDirectory())
+      throw new BundleError(`${path} must be a plain directory, not a symlink or file`);
+  }
+}
 
 /** Resolves a run or batch directory by ID; IDs are generated, so anything else is rejected before touching the filesystem. */
 export async function bundleDir(projectRoot: string, id: string): Promise<{ kind: 'run' | 'batch'; dir: string }> {

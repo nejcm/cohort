@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
+import { runBatch } from '../../src/core/batch.ts';
 import { type Journey, LabDb, type RunRow } from '../../src/dashboard/db.ts';
 import { saveEditable, type EditError } from '../../src/config/editable.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
@@ -603,6 +604,7 @@ test('the index refuses a .cohort that is a symlink and leaves its target untouc
     await symlink(target, join(project, '.cohort'));
     await assert.rejects(openIndex(project), /\.cohort must be a plain directory/u);
     await assert.rejects(saveEditable(project, 'personas', 'guest', '', ''), /\.cohort is not a plain directory/u);
+    await assert.rejects(runBatch({ projectRoot: project, entries: [], providers: {} }), /\.cohort must be a plain/u);
     assert.equal((await stat(target)).mode & 0o777, 0o755);
     assert.deepEqual(await readdir(target), []);
   } finally {
