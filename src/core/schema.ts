@@ -4,7 +4,7 @@ export type JsonSchema = {
   enum?: readonly unknown[];
   required?: readonly string[];
   properties?: Record<string, JsonSchema>;
-  additionalProperties?: false;
+  additionalProperties?: boolean;
   pattern?: string;
   minLength?: number;
   maxLength?: number;
@@ -26,7 +26,7 @@ export function validate(schema: JsonSchema, value: unknown, path = '$'): string
 export function schemaProblems(schema: JsonSchema, value: unknown, path = '$'): string[] {
   if (schema.oneOf) {
     const matches = schema.oneOf.filter((option) => schemaProblems(option, value, path).length === 0).length;
-    return matches === 1 ? [] : [`${path}: must match exactly one schema (matched ${matches})`];
+    if (matches !== 1) return [`${path}: must match exactly one schema (matched ${matches})`];
   }
   if ('const' in schema && value !== schema.const) return [`${path}: must equal ${JSON.stringify(schema.const)}`];
   if (schema.enum && !schema.enum.includes(value)) return [`${path}: must be one of ${schema.enum.join(', ')}`];

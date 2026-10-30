@@ -29,6 +29,18 @@ export type CustomToolResult =
   | { status: 'ok'; output: string; bound: Record<string, string> }
   | { status: 'rejected' | 'error'; code: string; message: string };
 
+const TYPED_KEYWORDS = new Set([
+  'required',
+  'properties',
+  'additionalProperties',
+  'pattern',
+  'minLength',
+  'maxLength',
+  'minimum',
+  'maximum',
+  'items',
+  'minItems',
+]);
 const SCHEMA_TYPES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
 
 function keywordValueSupported(key: string, value: unknown): boolean {
@@ -41,7 +53,7 @@ function keywordValueSupported(key: string, value: unknown): boolean {
     case 'required':
       return Array.isArray(value) && value.every((item) => typeof item === 'string');
     case 'additionalProperties':
-      return value === false;
+      return typeof value === 'boolean';
     case 'properties':
       return typeof value === 'object' && value !== null && !Array.isArray(value);
     case 'pattern':
@@ -69,6 +81,7 @@ function schemaProblem(schema: unknown, path: string): string | null {
   for (const [key, value] of Object.entries(schema)) {
     if (!SCHEMA_KEYWORDS.has(key)) return `${path}.${key} is not a supported schema keyword`;
     if (!keywordValueSupported(key, value)) return `${path}.${key} has an unsupported value`;
+    if (TYPED_KEYWORDS.has(key) && !('type' in schema)) return `${path}.${key} needs a type to be enforced`;
     const nested =
       key === 'properties'
         ? Object.entries(value as object).map(([name, item]) => [`${path}.properties.${name}`, item] as const)

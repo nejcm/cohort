@@ -404,3 +404,15 @@ test('a closed schema refuses keys that only exist on Object.prototype', () => {
     '$.__proto__: unknown property',
   ]);
 });
+
+test('oneOf does not skip the sibling keywords of its schema', () => {
+  const gated = {
+    type: 'object',
+    required: ['approved'],
+    properties: { approved: { const: true } },
+    additionalProperties: false,
+    oneOf: [{}],
+  } as const;
+  assert.deepEqual(schemaProblems(gated, {}), ['$.approved: required']);
+  assert.deepEqual(schemaProblems(gated, { approved: true }), []);
+});
