@@ -912,6 +912,15 @@ test('a run whose rendered report cannot be written is indexed as an artifact_er
   );
   const detail = (await call('GET', `/api/runs/${runId}`)).json();
   assert.equal(detail.report?.outcome.code, 'artifact_error');
+  // With report.json itself unreadable, the row still answers and the entry is never followed.
+  await rm(join(root, '.cohort/runs', runId, 'report.json'));
+  await mkdir(join(root, '.cohort/runs', runId, 'report.json', 'blocker'), { recursive: true });
+  const degraded = await call('GET', `/api/runs/${runId}`);
+  assert.deepEqual(
+    [degraded.status, degraded.json().run.id, degraded.json().report],
+    [200, runId, null],
+    'a run with an unreadable report.json still reads through the detail endpoint',
+  );
 });
 
 test('cohort ui binds loopback by default and warns before an explicit host override', async () => {

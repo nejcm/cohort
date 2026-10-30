@@ -529,6 +529,12 @@ test('a run whose bundle cannot be finalized still counts in batch metrics and c
     'the index records why the run has no report',
   );
   const [kept, lost] = json.runs;
+  const shown = await cli(['runs', 'show', lost.runId, '--json']);
+  assert.deepEqual(
+    [shown.code, shown.json.run.id, shown.json.report, shown.json.artifacts],
+    [0, lost.runId, null, []],
+    'runs show exposes the finished failure without a readable report',
+  );
   const repaired = JSON.parse(await readFile(join(kept.outDir, 'report.json'), 'utf8'));
   await rm(join(lost.outDir, 'report.json'), { recursive: true });
   await writeFile(join(lost.outDir, 'report.json'), JSON.stringify({ ...repaired, runId: lost.runId }));
