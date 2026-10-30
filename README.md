@@ -64,7 +64,7 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 | `cohort replay <run-id>` | Rerun `replay.spec.ts` with no model; needs `@playwright/test` in the project |
 | `cohort compare <run-id> --base <origin> --head <origin> <provenance> --hooks <module> [--json]` | Replay an approved, hash-verified run on base and head with confirmation: `regression`, `no_regression`, or `inconclusive` ([details](docs/compare.md)) |
 | `cohort publish <compare-report.json> [--evidence <url>]` | Post or update the one advisory PR comment for a compare report, skipping a stale PR head; needs only `GITHUB_TOKEN` ([details](docs/compare.md#cohort-publish)) |
-| `cohort explore --url <url> [--steps\|--time-ms\|--dollars\|--max-usd] [--detach]` | One bounded exploration run that refuses destructive controls, then one metered call that suggests personas, goals, and replay tests citing observed steps; written only into the run bundle, saved with `cohort explore save <run-id> --persona\|--suite <id> --yes` ([details](docs/explore.md)) |
+| `cohort explore --url <url> [--steps\|--time-ms\|--dollars\|--max-usd] [--detach]` | One bounded exploration run that refuses destructive controls, then one metered call that suggests personas, goals, and replay tests citing observed steps; written only into the run bundle, saved with `cohort explore save <run-id> --persona\|--suite <id> --yes` or from the dashboard's review page ([details](docs/explore.md)) |
 | `cohort trace <run-id>` | Open the private trace locally with `playwright show-trace` |
 | `cohort login --url <url> --state <name>` | Log in by hand in a headed browser; saves `.cohort/auth/<name>.json` |
 | `cohort persona validate \| schema \| templates` | Check every persona and suite, reporting all problems; print the persona schema or the template list |
@@ -101,7 +101,7 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 
 The MVP ends with screening by outside developers. Add-ons follow in this order, each only after the previous one is useful:
 
-1. Crawler and suggestions: `cohort explore` proposes personas, goals, and replayable tests from observed paths ([docs/explore.md](docs/explore.md)). Still to come: a crawler view in the dashboard.
+1. Crawler and suggestions: `cohort explore` proposes personas, goals, and replayable tests from observed paths ([docs/explore.md](docs/explore.md)), also from the dashboard's New run dialog with a review page per run.
 2. PR regression: `cohort compare` replays a hash-pinned approved run on base and head with provenance, verified scoped resets, and confirmation, and `cohort publish` posts one comment after rechecking the PR head ([docs/compare.md](docs/compare.md)). Still to come: validation on real apps and previews.
 3. CLI-subscription backend: drive the same tools from a local Codex or Claude Code session, only once the providers' terms permit it.
 

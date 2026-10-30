@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
 import type { ToolCall } from '../../src/core/tools.ts';
 import { startBatch, type DetachedBatch } from '../../src/dashboard/runner.ts';
+import { startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
 
 const KEY = 'sk-explore-canary-8484';
@@ -35,7 +36,7 @@ let origin: string;
 let root: string;
 const hits: string[] = [];
 let script: Turn[] = [];
-let suggestions: (request: Parameters<Turn>[0]) => ToolCall = () => ({ name: 'none', args: {} });
+let suggestions: (request: Parameters<Turn>[0]) => ToolCall | Promise<ToolCall> = () => ({ name: 'none', args: {} });
 let index = 0;
 const provider = fakeProvider((request) =>
   request.tools.some((tool) => tool.name === 'write_suggestions')
@@ -286,4 +287,116 @@ test('a detached exploration shows up in runs and keeps start-URL secrets out of
   const prompt = provider.requests.at(-1)!.observation.text;
   for (const text of [steps, prompt, suggested.out, ...(await filesUnder(join(dir, 'suggestions')))])
     assert.ok(!text.includes(URL_SECRET));
+});
+
+function api(dashboard: Dashboard, method: string, path: string, body?: unknown) {
+  const headers = {
+    authorization: `Bearer ${dashboard.token}`,
+    ...(method === 'GET' ? {} : { origin: dashboard.origin, 'content-type': 'application/json' }),
+  };
+  return new Promise<{ status: number; text: string; json: any }>((resolve, reject) => {
+    const req = httpRequest(new URL(path, dashboard.origin), { method, headers }, (response) => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => (text += chunk));
+      response.on('end', () => resolve({ status: response.statusCode!, text, json: JSON.parse(text) }));
+    });
+    req.on('error', reject);
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+test('the dashboard starts an exploration, suggests once, and saves through the same write as the CLI', async () => {
+  const dashboard = await startDashboard({ projectRoot: root, env, providers: { openai: provider } as never });
+  try {
+    const url = `${origin}/?token=${URL_SECRET}`;
+    const adhoc = { selector: { kind: 'adhoc' }, url };
+    const plain = await api(dashboard, 'POST', '/api/runs', {
+      submission: { ...adhoc, note: 'Look.', repeats: 1 },
+      preview: true,
+    });
+    const preview = await api(dashboard, 'POST', '/api/runs', { submission: adhoc, explore: true, preview: true });
+    assert.equal(preview.status, 200, preview.text);
+    assert.equal(preview.json.maxBatchUsd, plain.json.maxBatchUsd + 0.5);
+    for (const submission of [
+      { ...adhoc, note: 'Look.' },
+      { ...adhoc, repeats: 2 },
+      { selector: { kind: 'persona', id: 'searcher' }, url },
+      { selector: { kind: 'adhoc' } },
+    ])
+      assert.equal((await api(dashboard, 'POST', '/api/runs', { submission, explore: true })).status, 400);
+
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    suggestions = async () => {
+      await answered;
+      return write({
+        features: [{ name: 'Search', description: 'The search page.', steps: ['s0002'] }],
+        personas: [{ markdown: persona('browser').replace(URL_SECRET, ''), steps: ['s0002'] }],
+        goals: [{ persona: 'browser', goal: `Open the search page ${KEY}.`, steps: ['s0002'] }],
+      });
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const held: Turn = async (request) => {
+      await gate;
+      return goto('/search')(request, 0);
+    };
+    script = [clickDelete, held, done];
+    index = 0;
+    const started = await api(dashboard, 'POST', '/api/runs', { submission: adhoc, explore: true });
+    assert.equal(started.status, 202, started.text);
+    const runId = started.json.runIds[0];
+    const early = await api(dashboard, 'POST', `/api/runs/${runId}/suggestions`, {});
+    assert.equal(early.status, 409, early.text);
+    release();
+    await dashboard.queue.idle();
+    assert.equal((await api(dashboard, 'GET', `/api/runs/${runId}`)).json.explore, true);
+
+    const asked = provider.requests.length;
+    const pending = api(dashboard, 'POST', `/api/runs/${runId}/suggestions`, {});
+    while (provider.requests.length === asked) await new Promise((resolve) => setImmediate(resolve));
+    const twice = await api(dashboard, 'POST', `/api/runs/${runId}/suggestions`, {});
+    assert.equal(twice.status, 409, twice.text);
+    answer();
+    const suggested = await pending;
+    assert.equal(suggested.status, 200, suggested.text);
+    assert.deepEqual(
+      suggested.json.untried.map((item: any) => item.step),
+      ['s0001'],
+    );
+    assert.deepEqual(
+      suggested.json.personas.map((item: any) => item.id),
+      ['browser'],
+    );
+    // The server stores only the safe URL, so the start-URL secret is kept out of the prompt rather than scrubbed after.
+    for (const text of [suggested.text, provider.requests.at(-1)!.observation.text]) {
+      assert.ok(!text.includes(KEY));
+      assert.ok(!text.includes(URL_SECRET));
+    }
+    const suiteId = suggested.json.suite.id;
+
+    const save = (body: Record<string, unknown>) => api(dashboard, 'POST', `/api/runs/${runId}/suggestions/save`, body);
+    const unsavedPersona = await save({ kind: 'suites', id: suiteId });
+    assert.equal(unsavedPersona.status, 400, unsavedPersona.text);
+    assert.match(unsavedPersona.json.error, /browser/u);
+    const created = await save({ kind: 'personas', id: 'browser' });
+    assert.deepEqual(
+      [created.status, created.json.action, created.json.path],
+      [200, 'created', '.cohort/personas/browser.md'],
+    );
+    assert.equal((await save({ kind: 'personas', id: 'browser' })).status, 409);
+    const replaced = await save({ kind: 'personas', id: 'browser', revision: created.json.revision });
+    assert.deepEqual([replaced.status, replaced.json.action], [200, 'replaced']);
+    assert.equal((await save({ kind: 'tests', id: 'browser' })).status, 400);
+    assert.equal((await save({ kind: 'personas', id: 'ghost' })).status, 400);
+    const suite = await save({ kind: 'suites', id: suiteId });
+    assert.deepEqual([suite.status, suite.json.action], [200, 'created']);
+    assert.equal(
+      await readFile(join(root, suite.json.path), 'utf8'),
+      await readFile(join(root, '.cohort/runs', runId, 'suggestions/suite.yml'), 'utf8'),
+    );
+  } finally {
+    await dashboard.close();
+  }
 });

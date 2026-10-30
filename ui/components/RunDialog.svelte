@@ -28,7 +28,7 @@
   let suites = $state<{ id: string; name: string | null }[]>([]);
   let loadError = $state('');
 
-  let kind = $state<'persona' | 'tag' | 'suite' | 'adhoc'>('persona');
+  let kind = $state<'persona' | 'tag' | 'suite' | 'adhoc' | 'explore'>('persona');
   let target = $state('');
   let url = $state('');
   let note = $state('');
@@ -65,24 +65,29 @@
         ([, value]) => value !== undefined,
       ),
     );
+    const explore = kind === 'explore';
     const selector =
-      kind === 'adhoc'
-        ? { kind }
+      kind === 'adhoc' || explore
+        ? { kind: 'adhoc' }
         : kind === 'tag'
           ? { kind, tag: target }
           : { kind, id: target };
     return {
       selector,
       ...(url.trim() ? { url: url.trim() } : {}),
-      ...(note.trim() ? { note: note.trim() } : {}),
+      ...(note.trim() && !explore ? { note: note.trim() } : {}),
       ...(mode ? { mode } : {}),
-      ...(number(repeats) === undefined ? {} : { repeats: number(repeats) }),
+      ...(number(repeats) === undefined || explore ? {} : { repeats: number(repeats) }),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(Object.keys(limits).length > 0 ? { limits } : {}),
     };
   });
-  const ready = $derived(kind === 'adhoc' ? url.trim() !== '' && note.trim() !== '' : target !== '');
+  const ready = $derived(
+    kind === 'adhoc' ? url.trim() !== '' && note.trim() !== '' : kind === 'explore' ? url.trim() !== '' : target !== '',
+  );
+  const explore = $derived(kind === 'explore' ? { explore: true } : {});
+  const needsUrl = $derived(kind === 'adhoc' || kind === 'explore');
 
   export async function open(): Promise<void> {
     loadError = '';
@@ -108,7 +113,7 @@
 
   let generation = 0;
   $effect(() => {
-    const body = { submission, allowUntested, preview: true };
+    const body = { submission, allowUntested, ...explore, preview: true };
     const current = ++generation;
     preview = null;
     previewError = '';
@@ -133,7 +138,7 @@
     event.preventDefault();
     submitting = true;
     try {
-      const result = await api<{ runIds: string[] }>('POST', '/api/runs', { submission, allowUntested });
+      const result = await api<{ runIds: string[] }>('POST', '/api/runs', { submission, allowUntested, ...explore });
       dialog.close();
       navigate(`/runs/${encodeURIComponent(result.runIds[0]!)}`);
     } catch (error) {
@@ -165,9 +170,10 @@
               <option value="tag">Tag</option>
               <option value="suite">Suite</option>
               <option value="adhoc">Ad-hoc first-time user</option>
+              <option value="explore">Explore: suggest personas and tests</option>
             </select>
           </label>
-          {#if kind !== 'adhoc'}
+          {#if !needsUrl}
             <label for="run-target">{kind === 'persona' ? 'Persona' : kind === 'tag' ? 'Tag' : 'Suite'}
               <select id="run-target" bind:value={target}>
                 {#each targets as item (item)}<option value={item}>{item}</option>{/each}
@@ -175,13 +181,15 @@
               {#if models && targets.length === 0}<span class="hint">No {kind === 'tag' ? 'tagged personas' : `${kind}s`} yet.</span>{/if}
             </label>
           {/if}
-          <label for="run-url"><span>URL <span class="opt">{kind === 'adhoc' ? 'required for ad-hoc' : 'optional'}</span></span>
-            <input id="run-url" type="url" bind:value={url} required={kind === 'adhoc'} placeholder="inherit" />
+          <label for="run-url"><span>URL <span class="opt">{needsUrl ? `required for ${kind === 'explore' ? 'explore' : 'ad-hoc'}` : 'optional'}</span></span>
+            <input id="run-url" type="url" bind:value={url} required={needsUrl} placeholder="inherit" />
           </label>
-          <label for="run-note" class={kind === 'adhoc' ? 'span-2' : ''}>
-            <span>{kind === 'adhoc' ? 'Goal' : 'Note'} {#if kind !== 'adhoc'}<span class="opt">optional</span>{/if}</span>
-            <textarea id="run-note" rows="2" bind:value={note} required={kind === 'adhoc'}></textarea>
-          </label>
+          {#if kind !== 'explore'}
+            <label for="run-note" class={kind === 'adhoc' ? 'span-2' : ''}>
+              <span>{kind === 'adhoc' ? 'Goal' : 'Note'} {#if kind !== 'adhoc'}<span class="opt">optional</span>{/if}</span>
+              <textarea id="run-note" rows="2" bind:value={note} required={kind === 'adhoc'}></textarea>
+            </label>
+          {/if}
         </div>
       </fieldset>
       <fieldset>
@@ -194,9 +202,11 @@
               <option value="text">text</option>
             </select>
           </label>
-          <label for="run-repeats">Repeats
-            <input id="run-repeats" type="number" min="1" max="100" bind:value={repeats} placeholder="inherit" />
-          </label>
+          {#if kind !== 'explore'}
+            <label for="run-repeats">Repeats
+              <input id="run-repeats" type="number" min="1" max="100" bind:value={repeats} placeholder="inherit" />
+            </label>
+          {/if}
           <label for="run-steps">Step cap
             <input id="run-steps" type="number" min="1" bind:value={steps} placeholder="inherit" />
           </label>
@@ -266,7 +276,7 @@
             {#if preview.maxBatchUsd === null}
               <span class="unknown">Batch budget: unknown — some prices are missing, so only step and time caps apply</span>
             {:else}
-              <span>Batch budget: at most <span class="num">{usd(preview.maxBatchUsd)}</span> <span class="muted">(sum of dollar caps)</span></span>
+              <span>Batch budget: at most <span class="num">{usd(preview.maxBatchUsd)}</span> <span class="muted">({kind === 'explore' ? 'dollar cap plus the $0.50 suggestion call' : 'sum of dollar caps'})</span></span>
             {/if}
           </p>
         {:else if !models}
@@ -274,7 +284,7 @@
         {:else if ready}
           <p class="budget muted">Estimating…</p>
         {:else}
-          <p class="budget muted">{kind === 'adhoc' ? 'Enter a URL and a goal to see the estimate.' : 'Nothing to run yet.'}</p>
+          <p class="budget muted">{kind === 'adhoc' ? 'Enter a URL and a goal to see the estimate.' : kind === 'explore' ? 'Enter a URL to see the estimate.' : 'Nothing to run yet.'}</p>
         {/if}
       </section>
     </div>

@@ -50,16 +50,19 @@ Use `cohort persona templates --json` for complete examples: each template's `so
 | `GET /api/storage-states` (saved login names, never contents) | `ls .cohort/auth/` |
 | `POST /api/runs` with `preview` | `cohort estimate <selector> --json` (never calls a model) |
 | `POST /api/runs` | `cohort run <selector> --detach --json` (or without `--detach` to block) |
+| `POST /api/runs` with `explore` (ad-hoc `url` only; no `note` or `repeats`) | `cohort explore --url <url> --detach --json` |
 | `GET /api/runs` (tabs, search, sort, paging) | `cohort runs list --json [--limit] [--filter active\|look\|blocked\|finished] [--search <text>] [--sort <key>] [--asc] [--since <iso-date>] [--cursor]` (`--since` sets where "today" starts for `counts`; default UTC midnight; `look` is limit reached or agent error, and `blocked` runs are counted apart) |
 | `GET /api/journeys` (completion and friction per persona and goal over their latest 10 runs, completion per batch over their latest 10 batches, and `drop`: the latest batch whose rounded completion percentage fell at least 50 points below the previous batch in that window with counted runs) | No CLI equivalent yet; `cohort runs list --json` returns the runs it groups, each with `friction` and `opinions` |
 | `GET /api/runs/:id`, `GET /api/batches/:id` | `cohort runs show <run-or-batch-id> --json` |
 | `GET /api/runs/:id/events` (live stream) | `cohort runs wait <id> --json [--timeout-ms]` |
 | `POST /api/runs/:id/cancel` | `cohort runs cancel <run-or-batch-id> --json` |
+| `POST /api/runs/:id/suggestions` | `cohort explore suggest <run-id> --json` |
+| `POST /api/runs/:id/suggestions/save` with `{ kind: "personas" \| "suites", id, revision? }` | `cohort explore save <run-id> --persona <id> \| --suite <id> --yes [--revision <sha256>] --json` |
 | `GET /api/runs/:id/artifacts/:file`, `.../screenshots/:id` | Read `<dir>/<artifact id>` and `<dir>/screenshots/<id>.png`; `runs show` returns `dir`, `artifacts`, and `screenshots` |
 | Checking personas and suites after a manual edit | `cohort persona validate --json` |
 | Starting the dashboard for a person | `cohort ui --json` runs in the foreground (start it as a background job); it prints `origin`, `pid`, and `urlFile` |
 | Stopping the dashboard | Send `SIGTERM` (or `SIGINT`) to that `pid`; it closes cleanly and removes `urlFile` |
-| Exploring an app and reviewing suggestions (CLI only) | `cohort explore --url <url> --json [--detach]`, then `cohort explore suggest <run-id> --json` after a detached run; `cohort explore save <run-id> --persona <id> \| --suite <id> --yes [--revision <sha256>]` ([explore.md](explore.md)) |
+| Exploring an app and reviewing suggestions | `cohort explore --url <url> --json [--detach]`, then `cohort explore suggest <run-id> --json` after a detached run; `cohort explore save <run-id> --persona <id> \| --suite <id> --yes [--revision <sha256>]` ([explore.md](explore.md)) |
 | Viewing a trace | `cohort trace <run-id> --json` returns the path and opens nothing |
 
 Adding or changing a `setup:` reference stays a manual edit by a person, in the CLI as in the dashboard. Setup modules run as code with your privileges, and the security model allows no model-authored setup ([security.md](security.md)), so an agent must not be the one to wire them in.
