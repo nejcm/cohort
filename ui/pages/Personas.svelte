@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
+  import Avatar from '../components/Avatar.svelte';
   import Skeleton from '../components/Skeleton.svelte';
-  import { api, initials, tint, usd, type Models } from '../lib/api.ts';
+  import { api, usd, type Models } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
   import Editor from '../components/Editor.svelte';
   import ModelPicker from '../components/ModelPicker.svelte';
@@ -144,7 +145,7 @@ Describe who this person is and how they behave.
   <div class="page-head">
     <div class="title"><h1>Personas</h1></div>
     <div class="actions"><a class="button" href="/personas/new"><Icon name="plus" />New persona</a></div>
-    {#if loaded}<p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <span class="mono">.cohort/personas/</span>, each a Markdown file with YAML frontmatter.</p>{/if}
+    {#if loaded}<p class="sub">{personas.length} {personas.length === 1 ? 'persona' : 'personas'} in <code>.cohort/personas/</code>, each a Markdown file with YAML frontmatter.</p>{/if}
   </div>
 {/if}
 {#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
@@ -191,7 +192,7 @@ Describe who this person is and how they behave.
       </div>
     </form>
     <form class="metered" onsubmit={generate} aria-labelledby="generate-title" aria-busy={generating}>
-      <div class="metered-head"><h2 id="generate-title">Generate a draft</h2><span class="badge meter">$ one metered model call</span></div>
+      <div class="metered-head"><h2 id="generate-title">Generate a draft</h2><span class="hint">One metered model call</span></div>
       <div class="metered-body">
         <label for="gen-url">Landing page URL<input id="gen-url" type="url" required bind:value={genUrl} disabled={generating} /></label>
         <label for="gen-description">Who should this persona be?
@@ -233,7 +234,7 @@ Describe who this person is and how they behave.
         {#each personas as persona (persona.id)}
           <li>
             <a href="/personas/{encodeURIComponent(persona.id)}" aria-current={persona.id === id ? 'page' : undefined}>
-              <span class="av {tint(persona.id)}" aria-hidden="true">{initials(persona.id)}</span>
+              <Avatar id={persona.id} />
               <span class="id">{persona.name ?? persona.id}</span>
               <span class="sub">
                 {persona.tags.join(' · ')}

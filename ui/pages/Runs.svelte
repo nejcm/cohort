@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import Ticks from '../components/Ticks.svelte';
   import Icon from '../components/Icon.svelte';
+  import Avatar from '../components/Avatar.svelte';
   import Skeleton from '../components/Skeleton.svelte';
-  import { api, badge, initials, statusLabel, tint, tone, usd, words, type Journey, type ProjectDefaults, type RunSummary } from '../lib/api.ts';
+  import { api, badge, statusLabel, tone, usd, words, type Journey, type ProjectDefaults, type RunSummary } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
 
   let { params }: { params: URLSearchParams } = $props();
@@ -21,6 +21,8 @@
   let allJourneys = $state(false);
   const JOURNEY_ROWS = 6;
   const worst = $derived(journeys.find((journey) => journey.counted > 0 && journey.completed < journey.counted));
+  const filled = (batch: { completed: number; counted: number }): number => (batch.counted ? (Math.min(batch.completed, batch.counted) / batch.counted) * 24 : 0);
+  const share = (n: number): number => (counts?.total ? (Math.min(n, counts.total) / counts.total) * 100 : 0);
   const rate = (journey: Journey): string =>
     journey.counted === 0 ? '—' : `${Math.round((journey.completed / journey.counted) * 100)}%`;
 
@@ -221,7 +223,11 @@
   <dl class="kpis" aria-label="Runs at a glance">
     <div>
       <dt>Needs a look</dt><dd class:warn={counts.lookTotal > 0}>{counts.lookTotal}</dd>
-      <dd><Ticks value={counts.lookTotal} max={counts.total} tone="warn" /></dd>
+      <dd class="bar">
+        <svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
+          <rect class="warn" width={share(counts.lookTotal)} height="6" /><rect class="blocked" x={share(counts.lookTotal)} width={share(counts.blockedTotal)} height="6" />
+        </svg>
+      </dd>
       <dd class="note">
         limit reached or failed{#if counts.blockedTotal > 0};
           <a href={href({ f: 'blocked' })} title="Stopped at an email code, CAPTCHA, sign-in, or payment, which setup modules or saved login can pass">{counts.blockedTotal} blocked</a> apart{/if}
@@ -233,7 +239,9 @@
     </div>
     <div>
       <dt>Finished today</dt><dd>{counts.finishedToday}</dd>
-      <dd><Ticks value={counts.finishedToday} max={counts.total} /></dd>
+      <dd class="bar">
+        <svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect class="good" width={share(counts.finishedToday)} height="6" /></svg>
+      </dd>
       <dd class="note">of {counts.total} runs</dd>
     </div>
     <div>
@@ -262,24 +270,27 @@
             {#each allJourneys ? journeys : journeys.slice(0, JOURNEY_ROWS) as journey (journey.personaId + '\n' + journey.goal)}
               <tr>
                 <td class="clip">
-                  <span class="who"><span class="av {tint(journey.personaId)}" aria-hidden="true">{initials(journey.personaId)}</span><span class="nm">{journey.personaId}</span></span>
+                  <span class="who"><Avatar id={journey.personaId} /><span class="nm">{journey.personaId}</span></span>
                   <span class="goal" title={journey.goal}>{journey.goal}</span>
                 </td>
                 <td>
                   <ol class="marks" aria-label="Latest {journey.latest.length} runs, oldest first">
+                    {#each { length: Math.max(0, span - journey.latest.length) } as _, index (index)}<li class="slot" aria-hidden="true"></li>{/each}
                     {#each journey.latest as run (run.id)}
                       <li><a class="mark {tone(run.outcome, run.interruptedBy)}" href="/runs/{encodeURIComponent(run.id)}" title="{run.id}: {words(run.outcome)}" aria-label="{run.id}: {words(run.outcome)}"></a></li>
                     {/each}
                   </ol>
                 </td>
                 <td class="num">
-                  <span class="fig rate">{rate(journey)}</span>
+                  <span class="rate-line">
                   <ol class="marks batches" aria-label="Completion in the latest {journey.batches.length} batches, oldest first">
                     {#each journey.batches as batch (batch.id)}
                       {@const label = `${batch.id}: ${batch.counted ? `${batch.completed} of ${batch.counted} completed` : 'blocked or cancelled'}${batch.id === journey.drop ? ', dropped' : ''}`}
-                      <li><a class:drop={batch.id === journey.drop} href="/batches/{encodeURIComponent(batch.id)}" title={label} aria-label={label}><Ticks value={batch.completed} max={batch.counted} count={5} size="col" /></a></li>
+                      <li><a class:drop={batch.id === journey.drop} href="/batches/{encodeURIComponent(batch.id)}" title={label} aria-label={label}><svg viewBox="0 0 6 24" aria-hidden="true"><rect class="track" width="6" height="24" rx="2" /><rect class="fill" y={24 - filled(batch)} width="6" height={filled(batch)} rx="2" /></svg></a></li>
                     {/each}
                   </ol>
+                  <span class="fig rate">{rate(journey)}</span>
+                  </span>
                   <span class="of">{journey.completed} of {journey.counted}{journey.blocked ? `, ${journey.blocked} blocked` : ''}</span>
                 </td>
                 <td class="num" class:muted={!journey.friction}>{journey.friction ?? '—'}<span class="ph"> friction</span></td>
@@ -333,7 +344,7 @@
         {#each runs as run (run.id)}
           <tr class:changed={changed.has(run.id)}>
             <td class="clip">
-              <a class="rid who" href="/runs/{encodeURIComponent(run.id)}"><span class="av {tint(run.personaId)}" aria-hidden="true">{initials(run.personaId)}</span><span class="nm">{run.personaId}</span></a>
+              <a class="rid who" href="/runs/{encodeURIComponent(run.id)}"><Avatar id={run.personaId} /><span class="nm">{run.personaId}</span></a>
               <span class="goal" title={run.goal}>{run.goal}</span>
             </td>
             <td>
