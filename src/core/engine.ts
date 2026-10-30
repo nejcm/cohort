@@ -34,6 +34,15 @@ function topLevel(request: Request): boolean {
   }
 }
 
+/** Popup requests are aborted: CDP Fetch below guards redirect hops in the main page only. */
+export function fromPage(request: Request, page: Page | undefined): boolean {
+  try {
+    return request.frame().page() === page;
+  } catch {
+    return false;
+  }
+}
+
 // One fresh browser and context per run, trace started before the first navigation.
 export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
   const screenshotsDir = join(options.outDir, 'screenshots');
@@ -59,9 +68,10 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       ...(options.storageState ? { storageState: options.storageState } : {}),
     });
     const denied: string[] = [];
+    let mainPage: Page | undefined;
     const guard = (route: Route): Promise<void> | undefined => {
       const request = route.request();
-      if (permitted(request.url(), request.isNavigationRequest())) return undefined;
+      if (fromPage(request, mainPage) && permitted(request.url(), request.isNavigationRequest())) return undefined;
       if (request.isNavigationRequest() && topLevel(request)) denied.push(request.url());
       return route.abort('blockedbyclient');
     };
@@ -84,6 +94,7 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
       });
     await context.tracing.start({ screenshots: true, snapshots: true });
     const page = await context.newPage();
+    mainPage = page;
     context.on('page', (popup) => void popup.close());
     // Routes never see redirect hops; CDP Fetch pauses every hop in the page's own process.
     const cdp = await context.newCDPSession(page);

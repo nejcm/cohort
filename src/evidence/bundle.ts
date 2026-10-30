@@ -74,8 +74,9 @@ const RUN_FILES =
 /** Refuses a run bundle whose files differ from its manifest's SHA-256 hashes; returns the manifest. */
 export async function verifyBundle(dir: string): Promise<RunManifest> {
   const manifest = await readBundleJson<RunManifest>(dir, 'manifest.json');
-  const { artifacts, rejected } = await inventory(dir);
+  const { artifacts, rejected, temporary } = await inventory(dir);
   if (rejected.length > 0) throw new BundleError(`${rejected[0]} is not a regular file`);
+  if (temporary.length > 0) throw new BundleError(`${temporary[0]} is not a file a run writes`);
   const listed = new Map(manifest.artifacts.map((artifact) => [artifact.path, artifact.sha256]));
   for (const artifact of artifacts) {
     if (!RUN_FILES.test(artifact.path)) throw new BundleError(`${artifact.path} is not a file a run writes`);

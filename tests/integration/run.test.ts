@@ -877,6 +877,31 @@ test('known identity, captcha, and payment destinations end as harness-detected 
   }
 });
 
+test('a popup to an allowed redirect never reaches the foreign redirect target', async () => {
+  let hits = 0;
+  const outside = createServer((_request, response) => {
+    hits += 1;
+    response.end('escaped');
+  });
+  await new Promise<void>((resolve) => outside.listen(0, '127.0.0.1', resolve));
+  const target = `http://127.0.0.1:${(outside.address() as AddressInfo).port}/`;
+  try {
+    await put(
+      '.cohort/suites/popup-redirect.yml',
+      `schemaVersion: 1\nid: popup-redirect\nname: popup-redirect\ndefaults:\n  url: ${fixture.url}/lab/popup\n  routes:\n    - match: "**/lab/popup"\n      action: fulfill\n      contentType: text/html\n      body: "<h1>Popup</h1><script>window.open('/lab/redirect?to=${encodeURIComponent(target)}')</script>"\nentries:\n  - persona: guest\n`,
+    );
+    turn = async (request) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return done(request, 0);
+    };
+    const result = await lab(['--suite', 'popup-redirect', '--json']);
+    assert.equal(result.json.runs[0].outcome.state, 'completed', JSON.stringify(result.json.runs[0].outcome));
+    assert.equal(hits, 0);
+  } finally {
+    outside.close();
+  }
+});
+
 test('route mocks and blocks apply inside the allowlist and are reported on every run and replay', async () => {
   turn = done;
   const { code, json } = await lab(['--suite', 'routed', '--json']);

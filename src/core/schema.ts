@@ -62,9 +62,12 @@ export function schemaProblems(schema: JsonSchema, value: unknown, path = '$'): 
     case 'object': {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) return [`${path}: must be an object`];
       const record = value as Record<string, unknown>;
-      const found = (schema.required ?? []).filter((key) => !(key in record)).map((key) => `${path}.${key}: required`);
+      const found = (schema.required ?? [])
+        .filter((key) => !Object.hasOwn(record, key))
+        .map((key) => `${path}.${key}: required`);
       for (const [key, item] of Object.entries(record)) {
-        const property = schema.properties?.[key];
+        const property =
+          schema.properties && Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
         if (property) found.push(...schemaProblems(property, item, `${path}.${key}`));
         else if (schema.additionalProperties === false) found.push(`${path}.${key}: unknown property`);
       }
