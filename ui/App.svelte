@@ -128,7 +128,7 @@
       {:else if route[0] === 'batches' && route[1]}
         {#key route[1]}<BatchDetail id={route[1]} />{/key}
       {:else if route[1]}
-        {#key route[1]}<RunDetail id={route[1]} />{/key}
+        {#key route[1]}<RunDetail id={route[1]} shot={new URLSearchParams(query).get('shot')} />{/key}
       {:else}
         <Runs params={new URLSearchParams(query)} />
       {/if}

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "batchId": "batch_20261028_000000_000000",
-  "createdAt": "2026-10-29T16:28:14.961Z",
+  "createdAt": "2026-10-30T06:42:59.300Z",
   "groups": [
     {
       "personaId": "guest",
@@ -10,50 +10,50 @@
       "provider": "openai",
       "model": "example-model",
       "effort": "low",
-      "catalogHash": "sha256:63af94944a90e243cd441c8393abc7c768e021c23d2d89ec2891300d5e8b19f7",
+      "catalogHash": "sha256:fdd5495416fe73cc7131e3483270787d14eed9c3dd0f19fea81bebb9c9468717",
       "untested": false,
       "runs": [
         {
-          "runId": "run_20261029_162810_889750",
+          "runId": "run_20261030_064255_248dc1",
           "outcome": "completed (agent_reported)",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261029_162810_889750/report.json"
+          "reportPath": "run_20261030_064255_248dc1/report.json"
         },
         {
-          "runId": "run_20261029_162811_ff74fb",
+          "runId": "run_20261030_064255_3cc6ad",
           "outcome": "abandoned by the agent",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261029_162811_ff74fb/report.json"
+          "reportPath": "run_20261030_064255_3cc6ad/report.json"
         },
         {
-          "runId": "run_20261029_162811_75f07f",
+          "runId": "run_20261030_064256_b5604d",
           "outcome": "blocked: oauth (agent-declared, unverified)",
           "cost": "$0.0012",
           "costUsd": 0.0012,
-          "reportPath": "run_20261029_162811_75f07f/report.json"
+          "reportPath": "run_20261030_064256_b5604d/report.json"
         },
         {
-          "runId": "run_20261029_162812_1e10c7",
+          "runId": "run_20261030_064256_f79341",
           "outcome": "limit reached: steps (4 of 4; not a UX failure)",
           "cost": "$0.0048",
           "costUsd": 0.0048,
-          "reportPath": "run_20261029_162812_1e10c7/report.json"
+          "reportPath": "run_20261030_064256_f79341/report.json"
         },
         {
-          "runId": "run_20261029_162814_9737a4",
+          "runId": "run_20261030_064258_7166a6",
           "outcome": "cancelled by user (not an agent or UX failure)",
           "cost": "$0.0000 (+$0.0103 unsettled)",
           "costUsd": 0,
-          "reportPath": "run_20261029_162814_9737a4/report.json"
+          "reportPath": "run_20261030_064258_7166a6/report.json"
         },
         {
-          "runId": "run_20261029_162814_3a9e3a",
+          "runId": "run_20261030_064259_16e1bd",
           "outcome": "agent error: browser_error (not a UX failure)",
           "cost": "$0.0000",
           "costUsd": 0,
-          "reportPath": "run_20261029_162814_3a9e3a/report.json"
+          "reportPath": "run_20261030_064259_16e1bd/report.json"
         }
       ],
       "completion": {
@@ -80,6 +80,55 @@
       "costUsd": {
         "total": 0.0084,
         "unknownRuns": 0
+      },
+      "friction": {
+        "measured": [
+          {
+            "kind": "repeated_action",
+            "statement": "The same wait was performed 2 times within 5 browser actions.",
+            "runs": [
+              {
+                "runId": "run_20261030_064256_f79341",
+                "claimIds": [
+                  "c0000"
+                ],
+                "evidence": [
+                  {
+                    "stepId": "s0001",
+                    "screenshotId": "shot-0001"
+                  },
+                  {
+                    "stepId": "s0003",
+                    "screenshotId": "shot-0003"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "repeated_action",
+            "statement": "The same scroll was performed 2 times within 5 browser actions.",
+            "runs": [
+              {
+                "runId": "run_20261030_064256_f79341",
+                "claimIds": [
+                  "c0001"
+                ],
+                "evidence": [
+                  {
+                    "stepId": "s0002",
+                    "screenshotId": "shot-0002"
+                  },
+                  {
+                    "stepId": "s0004",
+                    "screenshotId": "shot-0004"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "opinions": []
       }
     }
   ],
@@ -89,6 +138,7 @@
   "warnings": [
     "trace.zip is private raw evidence and may contain secrets (DOM snapshots, network traffic, URLs, browser state); never share or upload it. Screenshots and reports are redacted for registered secrets but may still show sensitive content. Treat every artifact as sensitive until reviewed.",
     "Vision mode: the agent saw only masked screenshots and acted by pixel coordinates, which the harness converted to locators. It cannot perceive hidden text, accessibility semantics, or content outside the viewport, except that keyboard-input personas are also told the focused element's role and name, even when it is off screen.",
-    "Blocked runs and user cancellations are excluded from the completion denominator; agent-declared blocks are unverified. Agent errors and limits count as non-completions but are not UX failures."
+    "Blocked runs and user cancellations are excluded from the completion denominator; agent-declared blocks are unverified. Agent errors and limits count as non-completions but are not UX failures.",
+    "Measured friction is grouped across a comparison's runs by kind plus page and the step's resolved target, focused element, or error text; anything uncertain stays separate. Agent opinions are listed one by one and never grouped or counted as recurring."
   ]
 }

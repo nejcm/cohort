@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_20261030_064258_7166a6",
+  "batchId": "batch_20261030_064258_8b4c99",
+  "personaId": "guest",
+  "goal": "Request a stay.",
+  "mode": "vision",
+  "provider": "openai",
+  "requestedModel": "example-model",
+  "effort": "low",
+  "catalog": {
+    "version": "phase-0-unverified+example",
+    "hash": "sha256:fdd5495416fe73cc7131e3483270787d14eed9c3dd0f19fea81bebb9c9468717",
+    "entry": {
+      "id": "example-model",
+      "provider": "openai",
+      "label": "Example model",
+      "visionCapable": true,
+      "supportedEffortLevels": [
+        "low"
+      ],
+      "defaultEffort": "low",
+      "pricesPerMTok": {
+        "input": 1,
+        "output": 4,
+        "cachedInput": 0.1,
+        "cacheWrite": 1
+      },
+      "pricingVerifiedAt": "2026-10-01",
+      "untested": false
+    }
+  },
+  "returnedModel": null,
+  "startedAt": "2026-10-30T06:42:58.848Z",
+  "durationMs": 154,
+  "steps": 0,
+  "browserActions": 0,
+  "outcome": {
+    "state": "agent_error",
+    "code": "interrupted",
+    "interruptedBy": "user",
+    "reason": "interrupted by user",
+    "evidence": [
+      {
+        "stepId": "s0000",
+        "screenshotId": "shot-0000"
+      }
+    ]
+  },
+  "friction": [],
+  "usage": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cachedInputTokens": null,
+    "cacheWriteInputTokens": null,
+    "imageInputTokens": null,
+    "providerReportedCostUsd": null,
+    "estimatedCostUsd": 0,
+    "reservedUnsettledCostUsd": 0.010255,
+    "pricingVerifiedAt": "2026-10-01",
+    "accounting": "estimated",
+    "capEnforcement": "priced_reservations"
+  },
+  "replay": {
+    "path": "replay.spec.ts",
+    "status": "not_attempted"
+  },
+  "issues": [],
+  "manifestPath": "manifest.json"
+}

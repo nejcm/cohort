@@ -77,7 +77,7 @@ Every command takes `--json` and never prompts, so a coding agent can drive the 
 
 Exit codes: `0` every run completed, `1` the batch ran but some run did not complete or was cancelled, `2` invalid invocation or configuration, or a refusal such as a batch over its dollar ceiling (JSON errors carry a stable `code`). `cohort compare` exits `1` only for a confirmed regression; `cohort publish` exits `1` when the GitHub API fails.
 
-Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them.
+Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.jsonl`, `replay.spec.ts`, `resolved-config.json`, `report.{json,md,html}`, and `manifest.json` last. Each batch writes a summary report beside them that groups measured friction across runs and lists agent opinions separately.
 
 ## Documentation
 

@@ -170,7 +170,7 @@ Ask the person to run it, then reference the saved state with `storageState: hos
 - Never edit `.cohort/personas` or `.cohort/suites` by hand: use `cohort persona|suite add|edit --file -`, then `cohort persona validate --json`.
 - Price first: `cohort estimate --suite <id> --repeats 1 --json`; if `refusal` is not null, change the request or ask the user. Do not add `--allow-unpriced` or raise `--max-usd` without the user's approval. `init` defaults to 3 repeats; choose the count explicitly.
 - Start with `cohort run --suite <id> --repeats 1 --detach --json`, then `cohort runs wait <batchId> --json --timeout-ms 600000`. Cancel with `cohort runs cancel <id>` if you stop early.
-- Read results from `cohort report <id> --format json`. Never open, upload, or quote `trace.zip`; it contains secrets.
+- Read results from `cohort report <id> --format json`; in a batch report, `groups[].friction.measured` holds harness claims with the runs that hit them, and `friction.opinions` are unverified. Never open, upload, or quote `trace.zip`; it contains secrets.
 - If a command returns `code: "blocked"`, ask the user to run its `command`; do not try to log in yourself.
 ```
 

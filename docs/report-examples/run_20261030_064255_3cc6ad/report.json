@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_20261030_064255_3cc6ad",
+  "batchId": "batch_20261030_064255_e00d69",
+  "personaId": "guest",
+  "goal": "Request a stay.",
+  "mode": "vision",
+  "provider": "openai",
+  "requestedModel": "example-model",
+  "effort": "low",
+  "catalog": {
+    "version": "phase-0-unverified+example",
+    "hash": "sha256:fdd5495416fe73cc7131e3483270787d14eed9c3dd0f19fea81bebb9c9468717",
+    "entry": {
+      "id": "example-model",
+      "provider": "openai",
+      "label": "Example model",
+      "visionCapable": true,
+      "supportedEffortLevels": [
+        "low"
+      ],
+      "defaultEffort": "low",
+      "pricesPerMTok": {
+        "input": 1,
+        "output": 4,
+        "cachedInput": 0.1,
+        "cacheWrite": 1
+      },
+      "pricingVerifiedAt": "2026-10-01",
+      "untested": false
+    }
+  },
+  "returnedModel": "fake-model",
+  "startedAt": "2026-10-30T06:42:55.765Z",
+  "durationMs": 154,
+  "steps": 1,
+  "browserActions": 0,
+  "outcome": {
+    "state": "abandoned",
+    "reason": "The arrival times do not fit my trip.",
+    "initiatedBy": "agent",
+    "evidence": [
+      {
+        "stepId": "s0000",
+        "screenshotId": "shot-0000"
+      }
+    ]
+  },
+  "friction": [],
+  "usage": {
+    "inputTokens": 1000,
+    "outputTokens": 50,
+    "cachedInputTokens": 0,
+    "cacheWriteInputTokens": 0,
+    "imageInputTokens": null,
+    "providerReportedCostUsd": null,
+    "estimatedCostUsd": 0.0012,
+    "reservedUnsettledCostUsd": 0,
+    "pricingVerifiedAt": "2026-10-01",
+    "accounting": "estimated",
+    "capEnforcement": "priced_reservations"
+  },
+  "replay": {
+    "path": "replay.spec.ts",
+    "status": "not_attempted"
+  },
+  "issues": [],
+  "manifestPath": "manifest.json"
+}
