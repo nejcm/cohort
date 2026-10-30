@@ -3,10 +3,12 @@ import { test } from 'node:test';
 import { screenshotToCss, renderLocator } from '../../src/browser/targets.ts';
 import { classify, renderCompareMarkdown, type ExecutionStatus } from '../../src/core/compare.ts';
 import { CostMeter, estimateCostUsd } from '../../src/core/cost.ts';
+import { asExplore, EXPLORE_GOAL, exploreSubmission, SUGGEST_DOLLARS } from '../../src/core/explore.ts';
 import { BUILTIN_TOOLS, toolsFor, validateToolCall } from '../../src/core/tools.ts';
 import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
 import type { StepRecord } from '../../src/evidence/steps.ts';
 import type { Usage } from '../../src/providers/types.ts';
+import type { ResolvedEntry } from '../../src/config/resolve.ts';
 import { isTokenLike, redactValue, safeUrl, SecretStore } from '../../src/setup/secrets.ts';
 
 const usage = (inputTokens: number, outputTokens: number, extra: Partial<Usage> = {}): Usage => ({
@@ -367,4 +369,28 @@ test('the replay helper inherits start-URL query values by the same token rule a
   for (const value of ['abc', 'main', 'Zk3j9QwErT7yUi', 'a'.repeat(20), '12345678', 'abc12345'])
     assert.equal(replayRule(value), isTokenLike(value), value);
   assert.equal(inheritQuery(new URL('http://x.test/next')), 'http://x.test/next?scope=abc&word=main');
+});
+
+test('an exploration submission is ad-hoc with a url and gets the fixed goal and one repeat', () => {
+  const selector = { kind: 'adhoc' };
+  assert.deepEqual(exploreSubmission({ selector, url: 'http://a.test', mode: 'vision' }), {
+    selector,
+    url: 'http://a.test',
+    mode: 'vision',
+    note: EXPLORE_GOAL,
+    repeats: 1,
+  });
+  assert.throws(() => exploreSubmission({ selector, url: 'http://a.test', note: 'x' }), /does not take note/u);
+  assert.throws(() => exploreSubmission({ selector, url: 'http://a.test', repeats: 2 }), /does not take repeats/u);
+  assert.throws(() => exploreSubmission({ selector }), /needs a url/u);
+  assert.throws(() => exploreSubmission({ selector: { kind: 'persona', id: 'p' }, url: 'http://a.test' }), /ad-hoc/u);
+  assert.throws(() => exploreSubmission(null), /ad-hoc/u);
+});
+
+test('explore entries are marked, and only a priced batch budget grows by the suggestion cap', () => {
+  const entries = [{ personaId: 'p' } as unknown as ResolvedEntry];
+  const priced = asExplore({ entries, plan: { maxBatchUsd: 1 } });
+  assert.equal(priced.entries[0]?.explore, true);
+  assert.equal(priced.plan.maxBatchUsd, 1 + SUGGEST_DOLLARS);
+  assert.equal(asExplore({ entries, plan: { maxBatchUsd: null } }).plan.maxBatchUsd, null);
 });

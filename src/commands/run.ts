@@ -3,17 +3,20 @@ import { join } from 'node:path';
 import { ConfigError } from '../config/files.ts';
 import { validateSubmission, type RunSubmission } from '../config/resolve.ts';
 import type { preflight } from '../core/estimate.ts';
-import { EXPLORE_GOAL, saveSuggestion, suggest, SUGGEST_DOLLARS, type ExploreSummary } from '../core/explore.ts';
+import {
+  asExplore,
+  EXPLORE_GOAL,
+  exploreScrub,
+  saveSuggestion,
+  suggest,
+  type ExploreSummary,
+} from '../core/explore.ts';
 import { playwrightTestCliPath } from '../core/replay.ts';
 import { estimate } from '../dashboard/operations.ts';
 import { REPLAY_MISSING } from '../doctor.ts';
 import { openIndex, runOwnedBatch, startBatch, type DetachedBatch } from '../dashboard/runner.ts';
 import { bundleDir, readBundleFile, relativeRunDir } from '../evidence/bundle.ts';
 import { rateText } from '../evidence/report.ts';
-import { urlSecrets } from '../personas/generate.ts';
-import { providerKeys } from '../providers/registry.ts';
-import type { ProviderAdapter } from '../providers/types.ts';
-import { scrubEnv } from '../setup/run.ts';
 import { safeUrl, SecretStore } from '../setup/secrets.ts';
 import { CliError, emit, readInput, type Context, type Dependencies, type Values, type Write } from './context.ts';
 
@@ -175,12 +178,6 @@ function exploreValues(values: Values): Values {
   return { ...values, note: EXPLORE_GOAL, repeats: '1' };
 }
 
-function exploreScrub(env: NodeJS.ProcessEnv, providers: Record<string, ProviderAdapter>, url?: string) {
-  const keys = providerKeys(env, providers);
-  const secrets = url && URL.canParse(url) ? urlSecrets(new URL(url)) : new SecretStore();
-  return (text: string): string => scrubEnv(text, secrets, keys);
-}
-
 function writeSummary(write: Write, summary: ExploreSummary): void {
   const dir = relativeRunDir(summary.runId);
   for (const feature of summary.features) write(`feature: ${feature.name} (steps ${feature.steps.join(', ')})\n`);
@@ -221,9 +218,8 @@ export async function saveCommand(runId: string, ctx: Context): Promise<number> 
     throw new CliError('confirmation_required', `review ${name} in ${runId}, then pass --yes to save it`);
   }
   const saved = await saveSuggestion(ctx.root, runId, kind, id, values.revision as string | undefined);
-  const path = `.cohort/${kind}/${saved.id}.${kind === 'personas' ? 'md' : 'yml'}`;
-  if (ctx.json) emit(ctx.write, { id: saved.id, revision: saved.revision, path, action: saved.action });
-  else ctx.write(`${saved.action} ${path}\n`);
+  if (ctx.json) emit(ctx.write, saved);
+  else ctx.write(`${saved.action} ${saved.path}\n`);
   return 0;
 }
 
@@ -241,13 +237,7 @@ export async function runCommand(
   const values = explore ? exploreValues(given) : given;
   const submission = submissionFrom(values);
   const estimated = await estimate(projectRoot, providers, submission, values['allow-untested'] === true);
-  const entries = explore
-    ? estimated.entries.map((entry) => ({ ...entry, explore: true as const }))
-    : estimated.entries;
-  const plan =
-    explore && estimated.plan.maxBatchUsd !== null
-      ? { ...estimated.plan, maxBatchUsd: estimated.plan.maxBatchUsd + SUGGEST_DOLLARS }
-      : estimated.plan;
+  const { entries, plan } = explore ? asExplore(estimated) : estimated;
   if (!values.json) write(`${plan.lines.join('\n')}\n${budgetLine(plan)}\n`);
   const { maxUsd, refusal } = costRefusal(plan, values);
   if (refusal) throw refusal;

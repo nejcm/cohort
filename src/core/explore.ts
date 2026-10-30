@@ -8,9 +8,12 @@ import { writeAtomic } from '../evidence/manifest.ts';
 import { generateReplay, replayGaps } from '../evidence/replay.ts';
 import type { RunReport } from '../evidence/report.ts';
 import type { StepRecord } from '../evidence/steps.ts';
-import { GenerateError, OPERATOR_FIELDS, SCHEMA_TEXT } from '../personas/generate.ts';
-import type { RunRequest } from '../config/resolve.ts';
+import { GenerateError, OPERATOR_FIELDS, SCHEMA_TEXT, urlSecrets } from '../personas/generate.ts';
+import type { ResolvedEntry, RunRequest } from '../config/resolve.ts';
+import { providerKeys } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
+import { scrubEnv } from '../setup/run.ts';
+import { SecretStore } from '../setup/secrets.ts';
 import { CostMeter, estimateCostUsd } from './cost.ts';
 import { validateToolCall, type ToolDefinition } from './tools.ts';
 
@@ -19,6 +22,36 @@ export const EXPLORE_GOAL =
 
 /** Dollar cap of the one suggestion call that follows an exploration run. */
 export const SUGGEST_DOLLARS = 0.5;
+
+/** Scrubs provider keys and, when the start URL is known, its query secrets from suggestion output. */
+export function exploreScrub(env: NodeJS.ProcessEnv, providers: Record<string, ProviderAdapter>, url?: string) {
+  const keys = providerKeys(env, providers);
+  const secrets = url && URL.canParse(url) ? urlSecrets(new URL(url)) : new SecretStore();
+  return (text: string): string => scrubEnv(text, secrets, keys);
+}
+
+/** Turns an ad-hoc submission into an exploration; the dashboard's counterpart of the CLI's flag checks. */
+export function exploreSubmission(value: unknown): unknown {
+  const submission = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+  const selector = submission.selector as { kind?: unknown } | undefined;
+  if (selector?.kind !== 'adhoc') throw new ConfigError('submission.selector: an exploration is ad-hoc');
+  const refused = ['note', 'repeats'].filter((key) => submission[key] !== undefined);
+  if (refused.length > 0) throw new ConfigError(`an exploration does not take ${refused.join(', ')}`);
+  if (typeof submission.url !== 'string' || submission.url === '') throw new ConfigError('an exploration needs a url');
+  return { ...submission, note: EXPLORE_GOAL, repeats: 1 };
+}
+
+/** Marks entries as explorations and adds the suggestion call to the batch budget. */
+export function asExplore<Plan extends { maxBatchUsd: number | null }>(estimated: {
+  entries: readonly ResolvedEntry[];
+  plan: Plan;
+}): { entries: ResolvedEntry[]; plan: Plan } {
+  const { entries, plan } = estimated;
+  return {
+    entries: entries.map((entry) => ({ ...entry, explore: true as const })),
+    plan: plan.maxBatchUsd === null ? plan : { ...plan, maxBatchUsd: plan.maxBatchUsd + SUGGEST_DOLLARS },
+  };
+}
 
 const DESTRUCTIVE =
   /\b(delete|remove|destroy|erase|purge|pay|payment|purchase|buy|checkout|check out|place order|order now|subscribe|unsubscribe|cancel (?:account|subscription|plan|order)|close account|deactivate|transfer|withdraw|change (?:password|email)|reset password)\b/iu;
@@ -321,7 +354,7 @@ export async function saveSuggestion(
   kind: 'personas' | 'suites',
   id: string,
   revision?: string,
-): Promise<{ id: string; revision: string; action: 'created' | 'replaced' }> {
+): Promise<{ id: string; revision: string; path: string; action: 'created' | 'replaced' }> {
   if (!ID.test(id)) throw new BundleError(`invalid id: ${id}`, 'not_found');
   const { dir } = await bundleDir(projectRoot, runId);
   const suggestions = join(dir, 'suggestions');
@@ -331,10 +364,16 @@ export async function saveSuggestion(
       : await readBundleFile(suggestions, 'suite.yml');
   if (source === null || (kind === 'suites' && parseSuite(source, 'suggested suite').id !== id))
     throw new BundleError(`${runId} has no suggested ${kind.slice(0, -1)} ${id}`, 'not_found');
+  const withPath = (saved: { id: string; revision: string }, action: 'created' | 'replaced') => ({
+    id: saved.id,
+    revision: saved.revision,
+    path: `.cohort/${kind}/${saved.id}.${kind === 'personas' ? 'md' : 'yml'}`,
+    action,
+  });
   try {
-    return { ...(await createEditable(projectRoot, kind, source)), action: 'created' };
+    return withPath(await createEditable(projectRoot, kind, source), 'created');
   } catch (error) {
     if (!(error instanceof EditError && error.status === 409 && revision)) throw error;
-    return { ...(await saveEditable(projectRoot, kind, id, source, revision)), action: 'replaced' };
+    return withPath(await saveEditable(projectRoot, kind, id, source, revision), 'replaced');
   }
 }
