@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
-import { LabDb, type RunRow } from '../../src/dashboard/db.ts';
+import { type Journey, LabDb, type RunRow } from '../../src/dashboard/db.ts';
 import { saveEditable, type EditError } from '../../src/config/editable.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
 import { CSP, startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
@@ -811,9 +811,65 @@ test('journeys group finished runs by persona and goal over a recent window, wor
         { id: 'run_20260101_000000_jour04', outcome: 'completed', interruptedBy: null },
         { id: 'run_20260101_000000_jour05', outcome: 'agent_error', interruptedBy: 'process' },
       ],
+      batches: [{ id: 'batch_20260101_000000_aaaaaa', completed: 2, counted: 4 }],
+      drop: null,
     },
     'the window drops the oldest runs; user cancellations leave the denominator, recovered crashes count against it',
   );
+  db.close();
+  await rm(dir, { recursive: true, force: true });
+});
+
+const journeyOf = (journeys: Journey[], goal: string): Journey => journeys.find((journey) => journey.goal === goal)!;
+
+test('journeys chart completion per batch and mark the latest drop of at least 50 points', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lab-journey-batches-'));
+  const db = new LabDb(join(dir, 'lab.db'));
+  const batches: [string, string[], string][] = [
+    ['batch_20260101_000000_aaaaaa', ['completed', 'completed'], 'completed'],
+    ['batch_20260102_000000_aaaaaa', ['blocked'], 'abandoned'],
+    ['batch_20260103_000000_aaaaaa', ['completed', 'abandoned'], 'completed'],
+    ['batch_20260104_000000_aaaaaa', ['completed', 'completed', 'completed'], 'abandoned'],
+    ['batch_20260105_000000_aaaaaa', ['completed', 'completed', 'abandoned'], 'completed'],
+  ];
+  for (const [day, [batchId, outcomes, checkout]] of batches.entries()) {
+    db.insertBatch(batchId, {});
+    const runs: [string, number, string][] = [
+      ...outcomes.map((outcome): [string, number, string] => ['Look around.', 0, outcome]),
+      ['Check out.', 1, checkout],
+    ];
+    for (const [index, [goal, entry, outcome]] of runs.entries())
+      db.insertRun({
+        ...orphan(`run_2026010${day + 1}_000000_batch${index}`, 'queued', entry),
+        batch_id: batchId,
+        repeat_index: index,
+        goal,
+        status: 'finished',
+        outcome_state: outcome,
+        created_at: `2026-01-0${day + 1}T00:00:00.000Z`,
+      });
+  }
+  const journey = journeyOf(db.journeys(10), 'Look around.');
+  assert.deepEqual(journey.batches, [
+    { id: 'batch_20260101_000000_aaaaaa', completed: 2, counted: 2 },
+    { id: 'batch_20260102_000000_aaaaaa', completed: 0, counted: 0 },
+    { id: 'batch_20260103_000000_aaaaaa', completed: 1, counted: 2 },
+    { id: 'batch_20260104_000000_aaaaaa', completed: 3, counted: 3 },
+    { id: 'batch_20260105_000000_aaaaaa', completed: 2, counted: 3 },
+  ]);
+  assert.equal(
+    journey.drop,
+    'batch_20260103_000000_aaaaaa',
+    'a blocked batch is skipped; a 33-point fall is not a drop',
+  );
+  assert.equal(
+    journeyOf(db.journeys(10), 'Check out.').drop,
+    'batch_20260104_000000_aaaaaa',
+    'the latest of two drops stays marked after a recovery',
+  );
+  const windowed = journeyOf(db.journeys(4), 'Look around.');
+  assert.equal(windowed.batches.length, 4);
+  assert.equal(windowed.drop, null, 'a drop needs a counted batch inside the window before it');
   db.close();
   await rm(dir, { recursive: true, force: true });
 });

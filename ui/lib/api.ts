@@ -182,6 +182,8 @@ export interface Journey {
   blocked: number;
   friction: number | null;
   latest: { id: string; outcome: string; interruptedBy: string | null }[];
+  batches: { id: string; completed: number; counted: number }[];
+  drop: string | null;
 }
 
 /** Outcome and claim codes read as words: limit_reached → limit reached. */
