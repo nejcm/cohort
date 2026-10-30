@@ -14,6 +14,7 @@ import {
   readBundleJson,
   refreshRun,
   verifyBundle,
+  EXPLORED_FILES,
 } from '../evidence/bundle.ts';
 import type { RunReport } from '../evidence/report.ts';
 import { providerKeys } from '../providers/registry.ts';
@@ -69,7 +70,12 @@ export async function replayRun(
   options: ReplayOptions,
 ): Promise<{ report: RunReport; output: string }> {
   const { kind, dir: bundle } = await bundleDir(projectRoot, runId);
-  if (kind === 'run') await verifyBundle(bundle);
+  if (kind === 'run') {
+    const { artifacts } = await verifyBundle(bundle, EXPLORED_FILES);
+    // Playwright collects every file matching the unanchored pattern `replay.spec.ts`.
+    const shadow = artifacts.find(({ path }) => path !== 'replay.spec.ts' && /replay.spec.ts/u.test(path));
+    if (shadow) throw new BundleError(`${shadow.path} would run as the replay script`);
+  }
   const { dir, passed, output } = await executeReplay(projectRoot, runId, options);
   const status = passed ? 'passed' : 'failed';
   const report = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));

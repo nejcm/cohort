@@ -71,15 +71,20 @@ export async function readBundleJson<T>(dir: string, name: string): Promise<T> {
 const RUN_FILES =
   /^(report\.(json|md|html)|steps\.jsonl|resolved-config\.json|replay\.spec\.ts|trace\.zip|screenshots\/[\w.-]+\.png)$/u;
 
+// What `cohort explore suggest` adds; replay accepts these, compare does not.
+export const EXPLORED_FILES =
+  /^suggestions\/(explore\.json|suite\.yml|personas\/[a-z0-9-]+\.md|tests\/[a-z0-9-]+\.spec\.ts)$/u;
+
 /** Refuses a run bundle whose files differ from its manifest's SHA-256 hashes; returns the manifest. */
-export async function verifyBundle(dir: string): Promise<RunManifest> {
+export async function verifyBundle(dir: string, extra?: RegExp): Promise<RunManifest> {
   const manifest = await readBundleJson<RunManifest>(dir, 'manifest.json');
   const { artifacts, rejected, temporary } = await inventory(dir);
   if (rejected.length > 0) throw new BundleError(`${rejected[0]} is not a regular file`);
   if (temporary.length > 0) throw new BundleError(`${temporary[0]} is not a file a run writes`);
   const listed = new Map(manifest.artifacts.map((artifact) => [artifact.path, artifact.sha256]));
   for (const artifact of artifacts) {
-    if (!RUN_FILES.test(artifact.path)) throw new BundleError(`${artifact.path} is not a file a run writes`);
+    if (!RUN_FILES.test(artifact.path) && !extra?.test(artifact.path))
+      throw new BundleError(`${artifact.path} is not a file a run writes`);
     if (listed.get(artifact.path) !== artifact.sha256)
       throw new BundleError(`${artifact.path} does not match its SHA-256 hash in manifest.json`);
   }

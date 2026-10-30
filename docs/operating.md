@@ -47,7 +47,7 @@ Every run ends in exactly one state: `completed`, `abandoned`, `blocked(kind)`, 
 
 ## Replay bindings
 
-`cohort replay <run-id>` runs the generated `replay.spec.ts` with no model. It needs `@playwright/test` installed in the project. Bindings, in order:
+`cohort replay <run-id>` runs the generated `replay.spec.ts` with no model. It needs `@playwright/test` installed in the project. Replay first checks every bundle file against `manifest.json`, so a hand-edited `replay.spec.ts` is refused; no command re-hashes an edited bundle. Bindings, in order:
 
 1. If the run used a setup module, it runs again; its custom tools are served over a loopback bridge so one-time codes are fresh.
 2. Otherwise `COHORT_START_URL` from the environment.
