@@ -9,7 +9,7 @@ const MAX_DESCRIPTION_LENGTH = 500;
 type CleanupIssue = { code: 'cleanup_timeout' | 'cleanup_failed'; message: string };
 
 export interface SetupSession {
-  /** Loads and runs the module under `signal`; validates tools and startUrl, then binds returned secrets. */
+  /** Runs the module once under `signal`; binds returned secrets, then validates tools and startUrl. */
   run(options: { path: string; runId: string; scopeId: string; signal: AbortSignal }): Promise<SetupResult>;
   /** Redacts bound secrets, provider keys, every env value the module read, and `alsoScrub()` values. */
   scrub(text: string): string;
@@ -57,9 +57,9 @@ export function createSetupSession(options: {
         ),
         signal,
       );
+      for (const [name, value] of Object.entries(result.secrets ?? {})) secrets.bind(name, value);
       customToolDefinitions(result.tools);
       if (!URL.canParse(result.startUrl)) throw new Error('setup returned an invalid startUrl');
-      for (const [name, value] of Object.entries(result.secrets ?? {})) secrets.bind(name, value);
       return result;
     },
     scrub,

@@ -341,6 +341,10 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   const stuck =
     "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); throw new Error('nope'); };\n";
   assert.match((await replayWith(stuck, 'x'))!.out, /setup failed: nope/u);
+  assert.match(
+    (await replayWith("export default async () => ({ startUrl: 'not a url' });\n", 'x'))!.out,
+    /setup failed: setup returned an invalid startUrl/u,
+  );
   await writeFile(configPath, original);
 });
 

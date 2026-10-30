@@ -19,7 +19,7 @@ A setup module is a TypeScript or JavaScript file inside `.cohort/setup/`. You r
 import type { SetupModule } from 'cohort-lab';
 
 const setup: SetupModule = async (ctx) => ({
-  startUrl, // required; the run starts here, even if a URL is configured
+  startUrl, // required absolute URL (runs and replays reject anything else); the run starts here, even if a URL is configured
   storageState, // optional; Playwright storage state for this run's fresh context
   secrets, // optional; { name: value } exposed to the model only as {{name}}
   tools, // optional; custom tools, described below

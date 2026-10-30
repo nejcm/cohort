@@ -119,7 +119,7 @@ test('a hung module is rejected by its signal and close still runs its cleanups'
   assert.deepEqual(events, ['registered', 'cleaned']);
 });
 
-test('invalid tools or a bad startUrl throw before any secret binds', async () => {
+test('invalid tools or a bad startUrl throw after returned secrets bind, so they still redact', async () => {
   const tools = await fixture(
     'bad-tools',
     `export default async () => ({
@@ -138,7 +138,8 @@ test('invalid tools or a bad startUrl throw before any secret binds', async () =
   ] as const) {
     const { secrets, session: setup } = session();
     assert.equal(setup.describe(await thrown(setup.run({ path, ...ids() }))), message);
-    assert.deepEqual(secrets.names, []);
+    assert.deepEqual(secrets.names, ['password']);
+    assert.equal(setup.scrub('as hunter-2-canary'), 'as {{password}}');
   }
 });
 

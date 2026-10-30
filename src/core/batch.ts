@@ -18,7 +18,7 @@ import {
   type RunReport,
 } from '../evidence/report.ts';
 import type { StepRecord } from '../evidence/steps.ts';
-import { providerKeys as providerKeysOf } from '../providers/registry.ts';
+import { providerKeys } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { heldTimeout, scrubEnv } from '../setup/run.ts';
 import { isTokenLike, redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
@@ -99,7 +99,7 @@ async function loadNamedStates(projectRoot: string, entries: readonly ResolvedEn
 export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   const { projectRoot, entries, signal } = options;
   const env = options.env ?? process.env;
-  const providerKeys = providerKeysOf(env, options.providers);
+  const keys = providerKeys(env, options.providers);
   const states = await loadNamedStates(projectRoot, entries);
   const batchId = options.ids?.batchId ?? newId('batch');
   const runs: BatchRun[] = [];
@@ -173,7 +173,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   function failedRun(run: BatchRun, trail: Trail, failures: readonly Failure[]): BatchRun {
     const failed = failures.map(({ path, message }) => ({
       path,
-      reason: firstLine(scrubEnv(message, trail.secrets, providerKeys)),
+      reason: firstLine(scrubEnv(message, trail.secrets, keys)),
     }));
     const detail = failed.map(({ path, reason }) => (path ? `${path}: ${reason}` : reason)).join('; ');
     return {
@@ -341,7 +341,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       issues.push(unavailable);
       return { ...base, outcome, usage: null, issues };
     };
-    const session = createSetupSession({ projectRoot, env, secrets, providerKeys });
+    const session = createSetupSession({ projectRoot, env, secrets, providerKeys: keys });
     const agentError = (code: 'setup_error' | 'browser_error', error: unknown): BatchRun =>
       failed({ state: 'agent_error', code, reason: session.describe(error), evidence: [] });
 
