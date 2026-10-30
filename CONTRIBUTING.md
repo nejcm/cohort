@@ -16,4 +16,4 @@ bun run verify
 - Do not commit `.env`, `.cohort/auth`, `.cohort/runs`, or real user data.
 - Add or update tests for behavior changes and keep docs accurate.
 
-See [AGENTS.md](AGENTS.md) for the full command table and constraints.
+See [AGENTS.md](AGENTS.md) for the full command table and constraints, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations.

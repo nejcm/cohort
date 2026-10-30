@@ -18,5 +18,5 @@ Terms with a specific meaning in this project.
 
 ## Important boundaries
 
-- The tool is target-agnostic; Staywise is only an external test target.
+- The tool is target-agnostic; test targets stay external to this repository.
 - Deterministic harness data (not the LLM) decides measured friction; agent-reported friction is shown as opinion.

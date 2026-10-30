@@ -4,7 +4,7 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 
 ## Constraints
 
-- Nothing shipped may be specific to any one target app. Staywise (`/home/nejc/Work/staywise`) is the owner's external test target only; keep notes about it out of this repository.
+- Nothing shipped may be specific to any one target app. The owner's own test targets are external; keep notes about them out of this repository.
 - Secrets never reach prompts, LLM transcripts, screenshots, generated scripts, logs, or API responses. Native traces are private evidence that may contain secrets; never publish or commit them. Keys come from the environment only.
 - Runtime stays Node 24; the published package is compiled JavaScript and must not need Bun. Use Node built-ins first (HTTP, fs, hashing, `parseArgs`, `node:test`, `node:sqlite`).
 - Runtime dependencies are Playwright and a maintained YAML parser only; no provider SDKs. Add a dependency only for a concrete need.
