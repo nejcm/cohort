@@ -58,8 +58,14 @@ export function createSetupSession(options: {
         signal,
       );
       for (const [name, value] of Object.entries(result.secrets ?? {})) secrets.bind(name, value);
-      customToolDefinitions(result.tools);
-      if (!URL.canParse(result.startUrl)) throw new Error('setup returned an invalid startUrl');
+      try {
+        customToolDefinitions(result.tools);
+        if (!URL.canParse(result.startUrl)) throw new Error('setup returned an invalid startUrl');
+      } catch (error) {
+        // A rejected result's start URL may be signed, and validation errors can echo it.
+        if (typeof result.startUrl === 'string' && result.startUrl) envRead.push(result.startUrl);
+        throw error;
+      }
       return result;
     },
     scrub,
