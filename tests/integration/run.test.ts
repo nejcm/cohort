@@ -13,6 +13,7 @@ import { chromium } from 'playwright';
 import { MASK_RGB } from '../../src/browser/observations.ts';
 import { run } from '../../src/cli.ts';
 import { LabDb } from '../../src/dashboard/db.ts';
+import { openIndex } from '../../src/dashboard/runner.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
@@ -526,6 +527,19 @@ test('a run whose bundle cannot be finalized still counts in batch metrics and c
     [row?.status, row?.outcome_state, row?.outcome_code, row?.report_path],
     ['finished', 'agent_error', 'artifact_error', null],
     'the index records why the run has no report',
+  );
+  const [kept, lost] = json.runs;
+  const repaired = JSON.parse(await readFile(join(kept.outDir, 'report.json'), 'utf8'));
+  await rm(join(lost.outDir, 'report.json'), { recursive: true });
+  await writeFile(join(lost.outDir, 'report.json'), JSON.stringify({ ...repaired, runId: lost.runId }));
+  (await openIndex(root)).close();
+  const reopened = new LabDb(join(root, '.cohort/index.sqlite'));
+  const fixed = reopened.run(lost.runId);
+  reopened.close();
+  assert.deepEqual(
+    [fixed?.outcome_state, fixed?.report_path],
+    ['completed', 'report.json'],
+    'a repaired report.json is indexed on the next open',
   );
 });
 

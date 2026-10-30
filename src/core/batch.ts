@@ -5,9 +5,9 @@ import { join, relative } from 'node:path';
 import type { BrowserContextOptions } from 'playwright';
 import { loadStorageState, sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
-import { refreshRun, runDir, writeBatchReports, writeBundle } from '../evidence/bundle.ts';
+import { refreshRun, runDir, writeBatchReports, writeBundle, type BundleFailure } from '../evidence/bundle.ts';
 import { claimId, deriveClaims, validateClaim, type FrictionClaim } from '../evidence/friction.ts';
-import { inventory } from '../evidence/manifest.ts';
+import { inventory, type BundleIdentity } from '../evidence/manifest.ts';
 import {
   accountingOf,
   browserActionCount,
@@ -85,6 +85,8 @@ const stamp = (): string => new Date().toISOString().replace(/[-:]/gu, '').repla
 export const newId = (prefix: string): string => `${prefix}_${stamp()}_${randomBytes(3).toString('hex')}`;
 const firstLine = (text: string): string => text.split('\n')[0]!;
 
+type Failure = Omit<BundleFailure, 'path'> & { path?: string };
+
 // Missing or malformed named states fail before any run starts.
 async function loadNamedStates(projectRoot: string, entries: readonly ResolvedEntry[]) {
   const states = new Map<string, Record<string, unknown>>();
@@ -151,22 +153,62 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       resolvedConfigHash: null,
     };
     const run = await execute(entry, repeat, runId, outDir, trail, runSignal);
-    try {
-      const report = await finalize(entry, run, trail);
-      for (const claim of report.friction)
-        options.onEvent?.(runId, 'friction.created', { claimId: claim.id, kind: claim.kind });
-      options.onEvent?.(runId, 'run.finished', { state: report.outcome.state });
-      return { run, report };
-    } catch (error) {
-      const reason = `artifact finalization failed: ${trail.secrets.redact(firstLine(String((error as Error)?.message ?? error)))}`;
-      run.issues.push({ code: 'artifact_error', message: reason.slice(0, 200) });
-      const failed: BatchRun = {
-        ...run,
-        outcome: { state: 'agent_error', code: 'artifact_error', reason, evidence: [] },
-      };
-      options.onEvent?.(runId, 'run.finished', { state: 'agent_error' });
-      return { run: failed, report: reportOf(entry, failed, trail, []) };
-    }
+    const failures: Failure[] = [];
+    let finished = run;
+    const degrade = (more: readonly Failure[]): RunReport => {
+      for (const failure of more) if (!failures.some((known) => known.path === failure.path)) failures.push(failure);
+      finished = failedRun(run, trail, failures);
+      return reportOf(entry, finished, trail, []);
+    };
+    const prepared = await finalReport(entry, run, trail).catch((error: unknown) =>
+      degrade([{ message: String((error as Error)?.message ?? error) }]),
+    );
+    const bundle = await writeBundle(outDir, identityOf(entry, run, trail), prepared, trail.steps, degrade);
+    // A failed degraded write cannot be described on disk, so only the returned report records it.
+    const report = bundle.failed.length > 0 ? degrade(bundle.failed) : bundle.report;
+    for (const claim of report.friction)
+      options.onEvent?.(runId, 'friction.created', { claimId: claim.id, kind: claim.kind });
+    options.onEvent?.(runId, 'run.finished', { state: report.outcome.state });
+    return { run: finished, report };
+  }
+
+  function failedRun(run: BatchRun, trail: Trail, failures: readonly Failure[]): BatchRun {
+    const reasons = failures.map(
+      ({ path, message }) => `${path ?? 'artifact finalization failed'}: ${trail.secrets.redact(firstLine(message))}`,
+    );
+    return {
+      ...run,
+      outcome: {
+        state: 'agent_error',
+        code: 'artifact_error',
+        reason: `artifact finalization failed: ${reasons.join('; ')}`.slice(0, 500),
+        evidence: [],
+      },
+      issues: [...run.issues, ...reasons.map((reason) => ({ code: 'artifact_error', message: reason.slice(0, 200) }))],
+    };
+  }
+
+  function identityOf(entry: ResolvedEntry, run: BatchRun, trail: Trail): BundleIdentity {
+    const { request } = entry;
+    return {
+      runId: run.runId,
+      batchId,
+      createdAt: new Date(trail.startedAt).toISOString(),
+      toolVersion: TOOL_VERSION,
+      runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: trail.browserVersion },
+      configuration: {
+        personaId: entry.persona.id,
+        personaHash: entry.persona.hash,
+        suiteId: entry.suiteId,
+        resolvedConfigHash: trail.resolvedConfigHash,
+        setupHash: trail.setupHash,
+        mode: request.mode,
+        provider: request.provider,
+        model: request.model,
+        effort: request.effort,
+        catalog: request.catalog,
+      },
+    };
   }
 
   function reportOf(entry: ResolvedEntry, run: BatchRun, trail: Trail, friction: FrictionClaim[]): RunReport {
@@ -217,8 +259,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     ) as RunReport;
   }
 
-  async function finalize(entry: ResolvedEntry, run: BatchRun, trail: Trail): Promise<RunReport> {
-    const { request } = entry;
+  async function finalReport(entry: ResolvedEntry, run: BatchRun, trail: Trail): Promise<RunReport> {
     const { artifacts, rejected } = await inventory(run.outDir);
     for (const path of rejected)
       run.issues.push({ code: 'artifact_rejected', message: `${path} is not a regular file and was not inventoried` });
@@ -235,33 +276,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (invalid) run.issues.push({ code: 'invalid_claim', message: invalid.slice(0, 200) });
       else friction.push(claim);
     }
-    const report = reportOf(entry, run, trail, friction);
-    const { failed } = await writeBundle(
-      run.outDir,
-      {
-        runId: run.runId,
-        batchId,
-        createdAt: report.startedAt,
-        toolVersion: TOOL_VERSION,
-        runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: trail.browserVersion },
-        configuration: {
-          personaId: entry.persona.id,
-          personaHash: entry.persona.hash,
-          suiteId: entry.suiteId,
-          resolvedConfigHash: trail.resolvedConfigHash,
-          setupHash: trail.setupHash,
-          mode: request.mode,
-          provider: request.provider,
-          model: request.model,
-          effort: request.effort,
-          catalog: request.catalog,
-        },
-      },
-      report,
-      trail.steps,
-    );
-    if (failed[0]) throw new Error(failed[0].message);
-    return report;
+    return reportOf(entry, run, trail, friction);
   }
 
   // Needs every repetition of a comparison, so it runs once the batch ends and refreshes the affected bundles.

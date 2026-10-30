@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, rmSync } from 'node:fs';
 import { link, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import type { Outcome } from '../../src/core/outcomes.ts';
-import { BundleError, bundleDir, readBundleFile, readSteps, refreshRun } from '../../src/evidence/bundle.ts';
+import {
+  BundleError,
+  bundleDir,
+  readBundleFile,
+  readSteps,
+  refreshRun,
+  writeBundle,
+} from '../../src/evidence/bundle.ts';
 import { deriveClaims, validateClaim } from '../../src/evidence/friction.ts';
 import { inventory, writeAtomic, writeManifest } from '../../src/evidence/manifest.ts';
 import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
@@ -364,6 +372,60 @@ test('an atomic write replaces the target by rename and leaves no temp file when
   assert.deepEqual(
     (await readdir(dir)).filter((name) => /^(ok\.json|blocked)/u.test(name)),
     ['blocked', 'ok.json'],
+  );
+});
+
+test('a failed bundle write degrades once and writes manifest.json only after that pass wrote report.json', async () => {
+  const identity = {
+    runId: 'run_a',
+    batchId: 'batch_x',
+    createdAt: '2026-10-28T09:00:00.000Z',
+    toolVersion: '0.0.0',
+    runtime: { node: process.version, playwright: '1.64.1', chromium: null },
+    configuration: {
+      personaId: 'guest',
+      personaHash: 'sha256:p',
+      suiteId: null,
+      resolvedConfigHash: null,
+      setupHash: null,
+      mode: 'vision' as const,
+      provider: 'openai',
+      model: 'm',
+      effort: 'low' as const,
+      catalog,
+    },
+  };
+  const failedReport = (failed: { path: string }[]): RunReport =>
+    report('run_a', {
+      state: 'agent_error',
+      code: 'artifact_error',
+      reason: failed.map((failure) => failure.path).join(', '),
+      evidence: [],
+    });
+  const kept = join(dir, 'degraded-html');
+  await mkdir(join(kept, 'report.html', 'blocker'), { recursive: true });
+  const partial = await writeBundle(kept, identity, report('run_a', completed), [], failedReport);
+  assert.deepEqual(
+    [partial.report.outcome.state, partial.written, partial.failed.map((failure) => failure.path)],
+    ['agent_error', ['report.json', 'report.md', 'manifest.json'], ['report.html']],
+  );
+  assert.equal(JSON.parse(await readFile(join(kept, 'report.json'), 'utf8')).outcome.code, 'artifact_error');
+
+  const lost = join(dir, 'degraded-json');
+  await mkdir(join(lost, 'report.html', 'blocker'), { recursive: true });
+  const unwritable = await writeBundle(lost, identity, report('run_a', completed), [], (failed) => {
+    rmSync(join(lost, 'report.json'));
+    mkdirSync(join(lost, 'report.json', 'blocker'), { recursive: true });
+    return failedReport(failed);
+  });
+  assert.deepEqual(
+    unwritable.failed.map((failure) => failure.path),
+    ['report.json'],
+  );
+  assert.deepEqual(
+    (await readdir(lost)).toSorted(),
+    ['report.html', 'report.json'],
+    'no manifest, and the first pass report.md is removed rather than left describing a completed run',
   );
 });
 

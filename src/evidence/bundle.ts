@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { lstat, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inventory, writeAtomic, writeManifest, type BundleIdentity, type RunManifest } from './manifest.ts';
 import {
@@ -104,15 +104,39 @@ async function writeRunReports(dir: string, report: RunReport, steps: readonly S
   for (const [name, render] of runReports(report, steps)) await writeAtomic(join(dir, name), render());
 }
 
-/** Writes the run reports then manifest.json, each attempted on its own; never throws, and skips the manifest without report.json. */
+export interface BundleFailure {
+  path: string;
+  message: string;
+}
+
+/** Writes report.json, report.md, report.html, then manifest.json; never throws. A failed write hands the failures to `degrade` and writes its report once more. */
 export async function writeBundle(
   dir: string,
   identity: BundleIdentity,
   report: RunReport,
   steps: readonly StepRecord[],
-): Promise<{ written: string[]; failed: { path: string; message: string }[] }> {
+  degrade?: (failed: BundleFailure[]) => RunReport,
+): Promise<{ report: RunReport; written: string[]; failed: BundleFailure[] }> {
+  const first = await writePass(dir, identity, report, steps, !degrade);
+  if (first.failed.length === 0 || !degrade) return { report, ...first };
+  const degraded = degrade(first.failed);
+  const final = await writePass(dir, identity, degraded, steps, true);
+  // A file the first pass wrote but the degraded pass could not would describe the run it no longer is.
+  for (const path of first.written)
+    if (!final.written.includes(path)) await rm(join(dir, path), { force: true }).catch(() => {});
+  return { report: degraded, ...final };
+}
+
+// manifest.json follows only a report.json written in this pass, and only after every report when `partial` is false.
+async function writePass(
+  dir: string,
+  identity: BundleIdentity,
+  report: RunReport,
+  steps: readonly StepRecord[],
+  partial: boolean,
+): Promise<{ written: string[]; failed: BundleFailure[] }> {
   const written: string[] = [];
-  const failed: { path: string; message: string }[] = [];
+  const failed: BundleFailure[] = [];
   const attempt = async (path: string, write: () => Promise<unknown>): Promise<void> => {
     try {
       await write();
@@ -121,9 +145,12 @@ export async function writeBundle(
       failed.push({ path, message: String((error as Error)?.message ?? error) });
     }
   };
-  for (const [name, render] of runReports(report, steps))
+  for (const [name, render] of runReports(report, steps)) {
     await attempt(name, () => writeAtomic(join(dir, name), render()));
-  if (written.includes('report.json')) await attempt('manifest.json', () => writeManifest(dir, identity));
+    if (!written.includes('report.json')) break;
+  }
+  if (written.includes('report.json') && (partial || failed.length === 0))
+    await attempt('manifest.json', () => writeManifest(dir, identity));
   return { written, failed };
 }
 
@@ -133,12 +160,22 @@ export async function writeBatchReports(dir: string, report: BatchReport): Promi
   await writeAtomic(join(dir, 'report.html'), renderBatchHtml(report));
 }
 
+/** Re-inventories a finalized run under a fresh manifest that keeps its identity. */
+export async function reinventory(dir: string): Promise<void> {
+  const {
+    schemaVersion: _,
+    finalizedAt: _f,
+    sensitivity: _s,
+    artifacts: _a,
+    ...identity
+  } = await readBundleJson<RunManifest>(dir, 'manifest.json');
+  await writeManifest(dir, identity);
+}
+
 /** Rewrites a finalized run's reports from a changed report, then re-inventories it under a fresh manifest. */
 export async function refreshRun(dir: string, change: (report: RunReport) => RunReport): Promise<RunReport> {
   const report = change(await readBundleJson<RunReport>(dir, 'report.json'));
-  const previous = await readBundleJson<RunManifest>(dir, 'manifest.json');
   await writeRunReports(dir, report, await readSteps(dir));
-  const { schemaVersion: _, finalizedAt: _f, sensitivity: _s, artifacts: _a, ...identity } = previous;
-  await writeManifest(dir, identity);
+  await reinventory(dir);
   return report;
 }

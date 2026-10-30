@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { stringify } from 'yaml';
 import { ConfigError, parsePersona, parseSuite, type Persona, type RouteRule } from '../config/files.ts';
 import { createEditable, EditError, saveEditable } from '../config/editable.ts';
-import { BundleError, bundleDir, readBundleFile, readBundleJson, readSteps } from '../evidence/bundle.ts';
-import { writeAtomic, writeManifest, type RunManifest } from '../evidence/manifest.ts';
+import { BundleError, bundleDir, readBundleFile, readBundleJson, readSteps, reinventory } from '../evidence/bundle.ts';
+import { writeAtomic } from '../evidence/manifest.ts';
 import { generateReplay, replayGaps } from '../evidence/replay.ts';
 import type { RunReport } from '../evidence/report.ts';
 import type { StepRecord } from '../evidence/steps.ts';
@@ -310,14 +310,7 @@ export async function suggest(options: SuggestOptions): Promise<ExploreSummary> 
   };
   const scrubbed = JSON.parse(options.scrub(JSON.stringify(summary))) as ExploreSummary;
   await writeAtomic(join(out, 'explore.json'), `${JSON.stringify(scrubbed, null, 2)}\n`);
-  const {
-    schemaVersion: _,
-    finalizedAt: _f,
-    sensitivity: _s,
-    artifacts: _a,
-    ...identity
-  } = await readBundleJson<RunManifest>(dir, 'manifest.json');
-  await writeManifest(dir, identity);
+  await reinventory(dir);
   return scrubbed;
 }
 

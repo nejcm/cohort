@@ -182,7 +182,7 @@ export class RunQueue {
   }
 
   private finish(runId: string, payload: Record<string, unknown>): Promise<void> {
-    return finishRow(this.options.projectRoot, this.options.db, runId, payload).then(() =>
+    return finishRow(this.options.projectRoot, this.options.db, runId).then(() =>
       this.emit(runId, 'run.finished', { status: 'finished', ...payload }),
     );
   }
@@ -220,12 +220,12 @@ export async function runOwnedBatch(
     return await runBatch({
       ...options,
       ids,
-      onEvent: (runId, type, payload) => {
+      onEvent: (runId, type) => {
         try {
           // Indexed at the first run start, so a preflight failure still leaves nothing behind.
           if (type === 'run.started' && !indexed) indexed = !!insertOwnedBatch(db, entries, request, ids);
           if (type === 'run.started') db.updateRun(runId, { status: 'running', started_at: now() });
-          if (type === 'run.finished') finishing.push(finishRow(projectRoot, db, runId, payload).catch(() => {}));
+          if (type === 'run.finished') finishing.push(finishRow(projectRoot, db, runId).catch(() => {}));
         } catch {}
       },
     });
@@ -244,11 +244,11 @@ export async function runOwnedBatch(
   }
 }
 
-async function finishRow(projectRoot: string, db: LabDb, runId: string, payload: Record<string, unknown>) {
+async function finishRow(projectRoot: string, db: LabDb, runId: string) {
   const columns = await bundleDir(projectRoot, runId)
     .then(({ dir }) => readBundleJson<RunReport>(dir, 'report.json'))
     .then((report) => reportColumns(report))
-    .catch(() => ({ outcome_state: String(payload.state ?? 'agent_error') }));
+    .catch(() => ({ outcome_state: 'agent_error', outcome_code: 'artifact_error', report_path: null }));
   db.updateRun(runId, { ...columns, status: 'finished', finished_at: now() });
 }
 
@@ -470,14 +470,16 @@ async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
   const names = await readdir(runsDir(projectRoot)).catch(() => []);
   for (const name of names.filter((candidate) => candidate.startsWith('run_')).toSorted()) {
     const known = db.run(name);
-    if (known && (known.friction_count !== null || !known.report_path)) continue;
+    // A finished row without a report is revisited once a report.json appears, for example after a manual repair.
+    if (known && (known.friction_count !== null || (!known.report_path && known.status !== 'finished'))) continue;
     try {
       const { dir } = await bundleDir(projectRoot, name);
       const report = await readBundleJson<RunReport>(dir, 'report.json');
       if (report.runId !== name) continue;
       if (known) {
-        const { friction_count, opinion_count } = reportColumns(report);
-        db.updateRun(name, { friction_count, opinion_count });
+        const columns = reportColumns(report);
+        const { friction_count, opinion_count } = columns;
+        db.updateRun(name, known.report_path ? { friction_count, opinion_count } : columns);
         continue;
       }
       const resolvedText = await readBundleFile(dir, 'resolved-config.json');

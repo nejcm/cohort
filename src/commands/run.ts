@@ -6,7 +6,7 @@ import type { preflight } from '../core/estimate.ts';
 import { EXPLORE_GOAL, saveSuggestion, suggest, SUGGEST_DOLLARS, type ExploreSummary } from '../core/explore.ts';
 import { estimate } from '../dashboard/operations.ts';
 import { openIndex, runOwnedBatch, startBatch, type DetachedBatch } from '../dashboard/runner.ts';
-import { bundleDir, readBundleFile } from '../evidence/bundle.ts';
+import { bundleDir, readBundleFile, runDir } from '../evidence/bundle.ts';
 import { rateText } from '../evidence/report.ts';
 import { urlSecrets } from '../personas/generate.ts';
 import { createProviders } from '../providers/registry.ts';
@@ -182,7 +182,7 @@ function exploreScrub(env: NodeJS.ProcessEnv, providers: Record<string, Provider
 }
 
 function writeSummary(write: Write, summary: ExploreSummary): void {
-  const dir = `.cohort/runs/${summary.runId}`;
+  const dir = runDir('.', summary.runId);
   for (const feature of summary.features) write(`feature: ${feature.name} (steps ${feature.steps.join(', ')})\n`);
   for (const item of summary.untried) write(`untried: ${item.step} ${item.reason}\n`);
   for (const item of summary.dropped) write(`dropped ${item.kind} ${item.name}: ${item.reason}\n`);
