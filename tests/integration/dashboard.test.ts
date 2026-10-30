@@ -878,6 +878,31 @@ test('recovery repairs a missing manifest and never writes through a symlinked r
   }
 });
 
+test('a run whose rendered report cannot be written is indexed as an artifact_error with its report', async () => {
+  let runId = '';
+  let known!: () => void;
+  const submitted = new Promise<void>((resolve) => (known = resolve));
+  turn = async (request, index) => {
+    await submitted;
+    await mkdir(join(root, '.cohort/runs', runId, 'report.html', 'blocker'), { recursive: true });
+    return done(request, index);
+  };
+  runId = (await guestRun()).json().runIds[0] as string;
+  known();
+  await dashboard.queue.idle();
+  turn = done;
+  const side = new LabDb(join(root, '.cohort/index.sqlite'));
+  const row = side.run(runId);
+  side.close();
+  assert.deepEqual(
+    [row?.status, row?.outcome_code, row?.report_path],
+    ['finished', 'artifact_error', 'report.json'],
+    'the row keeps the degraded report',
+  );
+  const detail = (await call('GET', `/api/runs/${runId}`)).json();
+  assert.equal(detail.report?.outcome.code, 'artifact_error');
+});
+
 test('cohort ui binds loopback by default and warns before an explicit host override', async () => {
   const start = async (args: string[]): Promise<string> => {
     const controller = new AbortController();

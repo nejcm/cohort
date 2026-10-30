@@ -12,6 +12,7 @@ import type { AddressInfo } from 'node:net';
 import { chromium } from 'playwright';
 import { MASK_RGB } from '../../src/browser/observations.ts';
 import { run } from '../../src/cli.ts';
+import { LabDb } from '../../src/dashboard/db.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
@@ -505,7 +506,8 @@ test('a run whose bundle cannot be finalized still counts in batch metrics and c
     }
     return done(request, 0);
   };
-  const { json } = await lab(['--persona', 'guest', '--url', `${fixture.url}/`, '--repeats', '2', '--json']);
+  const { code, json } = await lab(['--persona', 'guest', '--url', `${fixture.url}/`, '--repeats', '2', '--json']);
+  assert.equal(code, 1);
   assert.deepEqual(
     json.runs.map((item: any) => item.outcome.code ?? item.outcome.state),
     ['completed', 'artifact_error'],
@@ -517,6 +519,40 @@ test('a run whose bundle cannot be finalized still counts in batch metrics and c
   assert.ok(group.costUsd.total > 0);
   const single = json.summary.groups[0].runs[0].costUsd;
   assert.ok(Math.abs(group.costUsd.total - 2 * single) < 1e-9);
+  const db = new LabDb(join(root, '.cohort/index.sqlite'));
+  const row = db.run(json.runs[1].runId);
+  db.close();
+  assert.deepEqual(
+    [row?.status, row?.outcome_state, row?.outcome_code, row?.report_path],
+    ['finished', 'agent_error', 'artifact_error', null],
+    'the index records why the run has no report',
+  );
+});
+
+test('a bundle whose rendered report cannot be written still keeps report.json and manifest.json', async () => {
+  let calls = 0;
+  turn = (request) => {
+    if (calls++ === 0) {
+      const runs = join(root, '.cohort/runs');
+      const open = readdirSync(runs).filter(
+        (name) => name.startsWith('run_') && !existsSync(join(runs, name, 'report.json')),
+      );
+      assert.equal(open.length, 1);
+      mkdirSync(join(runs, open[0]!, 'report.html', 'blocker'), { recursive: true });
+    }
+    return done(request, 0);
+  };
+  const { json } = await lab(['--persona', 'guest', '--url', `${fixture.url}/`, '--json']);
+  const [item] = json.runs;
+  assert.equal(item.outcome.code, 'artifact_error');
+  const report = JSON.parse(await readFile(join(item.outDir, 'report.json'), 'utf8'));
+  assert.equal(report.outcome.code, 'artifact_error', 'report.json records the failed finalization');
+  assert.ok(
+    report.issues.some((issue: any) => issue.code === 'artifact_error' && /report\.html/u.test(issue.message)),
+    'the artifact_error issue names report.html',
+  );
+  const manifest = JSON.parse(await readFile(join(item.outDir, 'manifest.json'), 'utf8'));
+  assert.ok(manifest.artifacts.some((artifact: any) => artifact.path === 'report.json'));
 });
 
 test('the OAuth fault page cannot leave the allowlist; the agent reports the blocker', async () => {
