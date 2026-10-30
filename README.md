@@ -36,8 +36,8 @@ open .cohort/runs/<batch-id>/report.html                    # the run prints its
 
 | Command | Purpose |
 | --- | --- |
-| `cohort init [--template <id>]...` | Create `.cohort/` without overwriting anything; `--template` adds the named [persona templates](docs/personas.md#templates) instead of the default three |
-| `cohort doctor [--json]` | Check the setup; exit 2 on any error |
+| `cohort init [--template <id>]... [--pack <id>]...` | Create `.cohort/` without overwriting anything; `--template` adds the named [persona templates](docs/personas.md#templates) instead of the default three, `--pack keyboard\|small-screen` adds a [scenario pack](docs/personas.md#scenario-packs) and its personas |
+| `cohort doctor [--json]` | Check the setup, including whether `cohort replay` can run; exit 2 on any error |
 | `cohort run --persona <id> \| --tag <tag> \| --suite <id> \| --url <url> --note <goal>` | Run a batch. Options: `--mode`, `--model <provider>/<id>`, `--effort`, `--repeats`, `--steps`, `--time-ms`, `--dollars`, `--max-usd` (batch ceiling, default $10), `--allow-unpriced`, `--allow-untested`, `--detach`, `--json` |
 | `cohort estimate <selector> [run options]` | Price a batch and show whether `run` would refuse it; never calls a model |
 | `cohort runs list \| show \| wait \| cancel [<run-or-batch-id>]` | List (`--filter`, `--search`, `--sort`, `--asc`, `--since`), inspect, wait for (`--timeout-ms`), or cancel runs, including detached ones and those started from the dashboard |

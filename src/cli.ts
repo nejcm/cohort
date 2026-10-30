@@ -32,7 +32,7 @@ import { runsCommand } from './commands/runs.ts';
 import { loginCommand, uiCommand } from './commands/serve.ts';
 
 const USAGE = `Usage: cohort [options]
-       cohort init [--template <id>]...
+       cohort init [--template <id>]... [--pack keyboard|small-screen]...
        cohort doctor
        cohort config show | edit --file <path>|- [--revision <sha256>]
        cohort models list | show | edit --file <path>|- [--revision <sha256>]
@@ -41,7 +41,7 @@ const USAGE = `Usage: cohort [options]
        cohort explore --url <url> [--mode|--model|--effort|--steps|--time-ms|--dollars|--max-usd] [--detach]
        cohort explore suggest <run-id>
        cohort explore save <run-id> (--persona <id> | --suite <id>) [--revision <sha256>] --yes
-       cohort runs list [--limit <n>] [--filter active|look|finished] [--sort <key>] [--asc] [--search <text>]
+       cohort runs list [--limit <n>] [--filter active|look|blocked|finished] [--sort <key>] [--asc] [--search <text>]
                         [--since <iso-date>] [--cursor <c>]
        cohort runs show|wait|cancel <run-or-batch-id> [--timeout-ms <n>]
        cohort report <run-or-batch-id> [--format json|md|html]  (--json implies json)
@@ -96,6 +96,7 @@ const RUN_OPTIONS = {
   port: { type: 'string' },
   state: { type: 'string' },
   template: { type: 'string', multiple: true },
+  pack: { type: 'string', multiple: true },
   base: { type: 'string' },
   head: { type: 'string' },
   markdown: { type: 'string' },

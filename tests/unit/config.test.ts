@@ -11,6 +11,7 @@ import {
   loadSuite,
   parsePersona,
   saveStorageState,
+  storageStateNames,
 } from '../../src/config/files.ts';
 import { personaTemplates } from '../../src/config/init.ts';
 import { PERSONA_GUIDANCE } from '../../src/personas/generate.ts';
@@ -474,5 +475,21 @@ test('saved login state refuses a symlinked .cohort or .cohort/auth', async () =
   } finally {
     await rm(project, { recursive: true, force: true });
     await rm(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test('storage state names list saved logins by name only, skipping other files', async () => {
+  const project = await mkdtemp(join(tmpdir(), 'lab-states-'));
+  try {
+    assert.deepEqual(await storageStateNames(project), [], 'no auth directory yet');
+    const state = { cookies: [], origins: [] };
+    await saveStorageState(project, 'host', state);
+    await saveStorageState(project, 'admin', state);
+    await writeFile(join(project, '.cohort/auth/notes.txt'), 'x');
+    await writeFile(join(project, '.cohort/auth/Bad Name.json'), '{}');
+    await mkdir(join(project, '.cohort/auth/dir.json'));
+    assert.deepEqual(await storageStateNames(project), ['admin', 'host']);
+  } finally {
+    await rm(project, { recursive: true, force: true });
   }
 });

@@ -190,6 +190,7 @@ export function configView(project: ProjectConfig, providers: Providers) {
       allowedOrigins: project.allowedOrigins ?? [],
     },
     providers: Object.fromEntries(Object.keys(providers).map((id) => [id, available(providers, id)])),
+    keyEnvs: Object.fromEntries(Object.entries(providers).map(([id, provider]) => [id, provider.keyEnv])),
   };
 }
 

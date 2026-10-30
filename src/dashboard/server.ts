@@ -5,7 +5,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { isIP, type AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ConfigError, loadProjectConfig, personaSchema, suiteSchema, type SuiteEntry } from '../config/files.ts';
+import {
+  ConfigError,
+  loadProjectConfig,
+  personaSchema,
+  storageStateNames,
+  suiteSchema,
+  type SuiteEntry,
+} from '../config/files.ts';
 import { personaTemplates } from '../config/init.ts';
 import { DEFAULT_MASKS, validateSubmission } from '../config/resolve.ts';
 import { BundleError, readBundleFile } from '../evidence/bundle.ts';
@@ -229,6 +236,13 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       /^\/api\/suite-schema$/u,
       async (_m, _q, response) => {
         json(response, 200, { schema: suiteSchema });
+      },
+    ],
+    [
+      'GET',
+      /^\/api\/storage-states$/u,
+      async (_m, _q, response) => {
+        json(response, 200, { names: await storageStateNames(projectRoot) });
       },
     ],
     [

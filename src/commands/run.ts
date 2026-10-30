@@ -4,7 +4,9 @@ import { ConfigError } from '../config/files.ts';
 import { validateSubmission, type RunSubmission } from '../config/resolve.ts';
 import type { preflight } from '../core/estimate.ts';
 import { EXPLORE_GOAL, saveSuggestion, suggest, SUGGEST_DOLLARS, type ExploreSummary } from '../core/explore.ts';
+import { playwrightTestCliPath } from '../core/replay.ts';
 import { estimate } from '../dashboard/operations.ts';
+import { REPLAY_MISSING } from '../doctor.ts';
 import { openIndex, runOwnedBatch, startBatch, type DetachedBatch } from '../dashboard/runner.ts';
 import { bundleDir, readBundleFile, relativeRunDir } from '../evidence/bundle.ts';
 import { rateText } from '../evidence/report.ts';
@@ -330,6 +332,7 @@ export async function runCommand(
       );
     for (const warning of batch.summary.warnings) write(`warning: ${warning}\n`);
     write(`report: ${join(batch.reportDir, 'report.html')}\n`);
+    if (batch.runs.length > 0 && playwrightTestCliPath(ctx.root) === null) write(`note: ${REPLAY_MISSING}\n`);
   }
   return exitCode;
 }

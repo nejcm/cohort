@@ -1,13 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import Ticks from '../components/Ticks.svelte';
   import Icon from '../components/Icon.svelte';
   import Skeleton from '../components/Skeleton.svelte';
-  import { api, badge, initials, statusLabel, tint, tone, usd, words, type Journey, type RunSummary } from '../lib/api.ts';
+  import { api, badge, initials, statusLabel, tint, tone, usd, words, type Journey, type ProjectDefaults, type RunSummary } from '../lib/api.ts';
   import { navigate } from '../lib/nav.ts';
 
   let { params }: { params: URLSearchParams } = $props();
   let runs = $state<RunSummary[]>([]);
-  let counts = $state<Record<'all' | 'active' | 'look' | 'finished' | 'total' | 'lookTotal' | 'running' | 'queued' | 'finishedToday' | 'frictionToday' | 'spentToday', number> | null>(null);
+  let counts = $state<Record<'all' | 'active' | 'look' | 'blocked' | 'finished' | 'total' | 'lookTotal' | 'blockedTotal' | 'running' | 'queued' | 'finishedToday' | 'frictionToday' | 'spentToday', number> | null>(null);
   let cursor = $state<string | null>(null);
   let error = $state('');
   let loaded = $state(false);
@@ -36,6 +37,7 @@
     ['', 'All'],
     ['active', 'Active'],
     ['look', 'Needs a look'],
+    ['blocked', 'Blocked'],
     ['finished', 'Finished'],
   ];
   const tab = $derived(TABS.find(([key]) => key === params.get('f'))?.[0] ?? '');
@@ -121,6 +123,20 @@
     return () => clearInterval(timer);
   });
 
+  // Facts for the first-run checklist, loaded only while there are no runs.
+  let setup = $state<{ config: ProjectDefaults; personas: number } | null>(null);
+  $effect(() => {
+    if (!loaded || counts?.total !== 0 || setup) return;
+    void Promise.all([
+      api<ProjectDefaults>('GET', '/api/config'),
+      api<{ personas: unknown[] }>('GET', '/api/personas'),
+    ]).then(
+      ([config, found]) => (setup = { config, personas: found.personas.length }),
+      () => undefined,
+    );
+  });
+  const provider = $derived(setup?.config.defaults.model.split('/')[0] ?? '');
+
   const order = (key: string, kind?: string): void => setSort(key, sort === key ? !asc : !kind && key !== 'started');
   const SORTS: [string, string][] = [
     ['created:desc', 'Newest first'],
@@ -150,6 +166,7 @@
 <div class="page-head">
   <div class="title"><h1>Runs</h1></div>
   {#if counts && counts.total > 0}
+    <p class="spend" title="Reported or estimated">Spent today {usd(counts.spentToday)}</p>
     <p class="sub">
       {#if counts.running + counts.queued > 0}{counts.running} running, {counts.queued} queued.{/if}
       {#if worst}
@@ -161,7 +178,6 @@
         <strong>{stuck.personaId}</strong> was blocked or cancelled on every recent run of “{stuck.goal}”
       {/if}
     </p>
-    <p class="spend">Spent today <span class="fig">{usd(counts.spentToday)}</span>, reported or estimated</p>
   {/if}
 </div>
 {#if error}
@@ -173,13 +189,43 @@
   <div class="empty">
     <Icon name="play" size={24} />
     <strong>No runs yet.</strong>
-    <p>Start one with <strong>New run</strong>.</p>
+    {#if setup}
+      {@const keySet = setup.config.providers[provider] === true}
+      <ol class="checklist" aria-label="Before the first run">
+        <li class:done={keySet}>
+          <Icon name={keySet ? 'check' : 'lock'} />
+          {#if keySet}
+            <span>Key set for <span class="mono">{setup.config.defaults.model}</span>.</span>
+          {:else}
+            <span>Set <code>{setup.config.keyEnvs[provider] ?? 'the provider key'}</code> for <span class="mono">{setup.config.defaults.model}</span>, then restart <code>cohort ui</code>.</span>
+          {/if}
+        </li>
+        <li class:done={setup.personas > 0}>
+          <Icon name={setup.personas > 0 ? 'check' : 'persona'} />
+          {#if setup.personas > 0}
+            <span><a href="/personas">{setup.personas} persona{setup.personas === 1 ? '' : 's'}</a> ready.</span>
+          {:else}
+            <span>Add a persona in <a href="/personas">Personas</a>, or run <code>cohort init</code>.</span>
+          {/if}
+        </li>
+        <li>
+          <Icon name="sparkle" />
+          <span>Start with <strong>New run</strong>, or let <code>cohort explore --url &lt;your-app&gt;</code> suggest personas and goals from what it sees. <code>cohort doctor</code> checks the browser and setup.</span>
+        </li>
+      </ol>
+    {:else}
+      <p>Start one with <strong>New run</strong>.</p>
+    {/if}
   </div>
 {:else if counts}
   <dl class="kpis" aria-label="Runs at a glance">
     <div>
-      <dt>Needs a look</dt><dd class:warn={counts.lookTotal > 0}>{#if counts.lookTotal > 0}<span class="tick" aria-hidden="true"></span>{/if}{counts.lookTotal}</dd>
-      <dd class="note">blocked, limit reached, failed</dd>
+      <dt>Needs a look</dt><dd class:warn={counts.lookTotal > 0}>{counts.lookTotal}</dd>
+      <dd><Ticks value={counts.lookTotal} max={counts.total} tone="warn" /></dd>
+      <dd class="note">
+        limit reached or failed{#if counts.blockedTotal > 0};
+          <a href={href({ f: 'blocked' })} title="Stopped at an email code, CAPTCHA, sign-in, or payment, which setup modules or saved login can pass">{counts.blockedTotal} blocked</a> apart{/if}
+      </dd>
     </div>
     <div>
       <dt>Friction today</dt><dd>{counts.frictionToday}</dd>
@@ -187,6 +233,7 @@
     </div>
     <div>
       <dt>Finished today</dt><dd>{counts.finishedToday}</dd>
+      <dd><Ticks value={counts.finishedToday} max={counts.total} /></dd>
       <dd class="note">of {counts.total} runs</dd>
     </div>
     <div>
@@ -227,6 +274,7 @@
                 </td>
                 <td class="num">
                   <span class="fig rate">{rate(journey)}</span>
+                  <Ticks value={journey.completed} max={journey.counted || 1} count={10} size="sm" />
                   <span class="of">{journey.completed} of {journey.counted}{journey.blocked ? `, ${journey.blocked} blocked` : ''}</span>
                 </td>
                 <td class="num" class:muted={!journey.friction}>{journey.friction ?? '—'}<span class="ph"> friction</span></td>

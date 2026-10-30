@@ -13,12 +13,14 @@ import { emit, type Context, type Dependencies, type Values, type Write } from '
 const GENERATE_DOLLARS = 0.5;
 
 export async function initCommand(ctx: Context): Promise<number> {
-  const { created, kept } = await initProject(ctx.root, ctx.values.template as string[] | undefined);
+  const packs = (ctx.values.pack as string[] | undefined) ?? [];
+  const { created, kept } = await initProject(ctx.root, ctx.values.template as string[] | undefined, packs);
   if (ctx.json) emit(ctx.write, { created, kept });
   else {
     for (const path of created) ctx.write(`created ${path}\n`);
     for (const path of kept) ctx.write(`kept ${path} (exists)\n`);
     ctx.write('next: cohort doctor\n');
+    for (const pack of packs) ctx.write(`then: cohort run --suite ${pack}-pack --url <your-app-url>\n`);
   }
   return 0;
 }

@@ -47,9 +47,10 @@ Use `cohort persona templates --json` for complete examples: each template's `so
 | `POST /api/suites/:id/entries` | `cohort suite add-entry <suite> --persona <id> [--goal] [--url] [--note] [--model] [--effort]` |
 | `POST /api/personas/generate` | `cohort persona generate ... --json` |
 | `GET /api/suites` | `cohort suite list --json` |
+| `GET /api/storage-states` (saved login names, never contents) | `ls .cohort/auth/` |
 | `POST /api/runs` with `preview` | `cohort estimate <selector> --json` (never calls a model) |
 | `POST /api/runs` | `cohort run <selector> --detach --json` (or without `--detach` to block) |
-| `GET /api/runs` (tabs, search, sort, paging) | `cohort runs list --json [--limit] [--filter active\|look\|finished] [--search <text>] [--sort <key>] [--asc] [--since <iso-date>] [--cursor]` (`--since` sets where "today" starts for `counts`; default UTC midnight) |
+| `GET /api/runs` (tabs, search, sort, paging) | `cohort runs list --json [--limit] [--filter active\|look\|blocked\|finished] [--search <text>] [--sort <key>] [--asc] [--since <iso-date>] [--cursor]` (`--since` sets where "today" starts for `counts`; default UTC midnight; `look` is limit reached or agent error, and `blocked` runs are counted apart) |
 | `GET /api/journeys` (completion and friction per persona and goal over their latest 10 runs) | No CLI equivalent yet; `cohort runs list --json` returns the runs it groups, each with `friction` and `opinions` |
 | `GET /api/runs/:id`, `GET /api/batches/:id` | `cohort runs show <run-or-batch-id> --json` |
 | `GET /api/runs/:id/events` (live stream) | `cohort runs wait <id> --json [--timeout-ms]` |
