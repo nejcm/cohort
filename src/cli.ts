@@ -158,6 +158,7 @@ export async function run(
   deps: Dependencies = {},
 ): Promise<number> {
   const env = deps.env ?? process.env;
+  // Not providerKeys(): output redaction skips keys shorter than MIN_SECRET_LENGTH so ordinary text survives.
   const keys = [...Object.values(createProviders(env)), ...Object.values(deps.providers ?? {})]
     .flatMap((provider) => env[provider.keyEnv] ?? [])
     .filter((key) => key.length >= MIN_SECRET_LENGTH);
@@ -315,6 +316,7 @@ if (import.meta.main) {
   process.exitCode = await run(process.argv.slice(2), undefined, { signal: controller.signal }).catch(
     (error: unknown) => {
       // Bounded and key-free; COHORT_DEBUG=1 adds the stack.
+      // Registry only, from process.env: the crash handler must not depend on deps that may have failed.
       const keys = Object.values(createProviders()).flatMap((provider) => process.env[provider.keyEnv] ?? []);
       const text = process.env.COHORT_DEBUG === '1' ? String((error as Error)?.stack ?? error) : firstLine(error);
       const scrubbed = scrubEnv(text, new SecretStore(), keys);

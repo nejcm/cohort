@@ -9,10 +9,11 @@ import { join } from 'node:path';
 import { loadStorageState } from '../config/files.ts';
 import { BundleError, bundleDir, readBundleFile, readBundleJson, refreshRun } from '../evidence/bundle.ts';
 import type { RunReport } from '../evidence/report.ts';
-import { createProviders } from '../providers/registry.ts';
-import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
+import { providerKeys } from '../providers/registry.ts';
+import { heldTimeout } from '../setup/run.ts';
 import { SecretStore } from '../setup/secrets.ts';
-import { customToolDefinitions, runCustomTool } from '../setup/tools.ts';
+import { createSetupSession } from '../setup/session.ts';
+import { runCustomTool } from '../setup/tools.ts';
 import type { CustomTool } from '../setup/types.ts';
 
 interface ResolvedConfig {
@@ -83,21 +84,14 @@ export async function executeReplay(
   const cli = playwrightTestCli(projectRoot);
   const scratch = await mkdtemp(join(tmpdir(), 'lab-replay-'));
   const env: NodeJS.ProcessEnv = { ...options.env };
-  const cleanups: Cleanup[] = [];
   const secrets = new SecretStore();
-  const envRead: string[] = [];
-  const providerKeys = Object.values(createProviders(options.env)).flatMap(({ keyEnv }) => options.env[keyEnv] ?? []);
-  const scrub = (text: string): string =>
-    scrubEnv(text, secrets, [
-      ...providerKeys,
-      ...envRead,
-      ...(options.scrubValues ?? []),
-      ...Object.entries(env).flatMap(([name, value]) =>
-        value && (name === 'COHORT_START_URL' || name === 'COHORT_TOOL_TOKEN' || name.startsWith('COHORT_SECRET_'))
-          ? [value]
-          : [],
-      ),
-    ]);
+  const session = createSetupSession({
+    projectRoot,
+    env: options.env,
+    secrets,
+    providerKeys: providerKeys(options.env),
+    alsoScrub: () => [...(options.scrubValues ?? []), ...cohortEnvValues(env)],
+  });
   const capMs = config.request.limits.timeMs;
   const deadlineAt = Date.now() + capMs;
   let bridge: { close: () => void } | null = null;
@@ -111,32 +105,24 @@ export async function executeReplay(
       const signal = options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
       const scopeId = `replay_${randomBytes(3).toString('hex')}`;
       try {
-        const result = await runSetup({
-          projectRoot,
+        const result = await session.run({
           path: join(projectRoot, config.setup.path),
           runId: scopeId,
           scopeId,
-          env: options.env,
           signal,
-          envRead,
-          cleanups,
         });
-        for (const [name, value] of Object.entries(result.secrets ?? {})) {
-          secrets.bind(name, value);
+        for (const [name, value] of Object.entries(result.secrets ?? {}))
           env[`COHORT_SECRET_${name.toUpperCase()}`] = value;
-        }
         env.COHORT_START_URL = result.startUrl;
         storageState = result.storageState ?? storageState;
-        if (Object.keys(result.tools ?? {}).length > 0) {
-          customToolDefinitions(result.tools);
-          bridge = await serveTools(result.tools!, secrets, scrub, deadlineAt, env);
-        }
+        if (Object.keys(result.tools ?? {}).length > 0)
+          bridge = await serveTools(result.tools!, secrets, session.scrub, deadlineAt, env);
       } catch (error) {
         const reason = options.signal?.aborted
           ? 'cancelled'
           : deadline.signal.aborted
             ? 'it ran past the run time limit'
-            : scrub(String((error as Error)?.message ?? error)).split('\n')[0]!;
+            : session.scrub(String((error as Error)?.message ?? error)).split('\n')[0]!;
         throw new ReplaySetupError(`replay setup failed: ${reason}`);
       } finally {
         deadline.clear();
@@ -171,12 +157,21 @@ export async function executeReplay(
           resolve({ code: error ? Number((error as { code?: unknown }).code) || 1 : 0, output: `${stdout}${stderr}` }),
       );
     });
-    return { dir, passed: code === 0, output: scrub(output) };
+    return { dir, passed: code === 0, output: session.scrub(output) };
   } finally {
     bridge?.close();
-    await runCleanups(cleanups, capMs, () => '');
+    await session.close(capMs);
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+// The script's COHORT_* bindings; setup results and the tool bridge add them after the session is created.
+function cohortEnvValues(env: NodeJS.ProcessEnv): string[] {
+  return Object.entries(env).flatMap(([name, value]) =>
+    value && (name === 'COHORT_START_URL' || name === 'COHORT_TOOL_TOKEN' || name.startsWith('COHORT_SECRET_'))
+      ? [value]
+      : [],
+  );
 }
 
 // Loopback only, one random token, alive just for this replay: the script calls trusted tools as the run did.

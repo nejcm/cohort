@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { BUILTIN_TOOLS } from '../../src/core/tools.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
+import { providerKeys } from '../../src/providers/registry.ts';
 import {
   EFFORTS,
   ProviderError,
@@ -12,6 +13,7 @@ import {
   type Effort,
   type ProviderAdapter,
 } from '../../src/providers/types.ts';
+import { fakeProvider } from '../helpers/fake-provider.ts';
 
 const KEY = 'sk-test-canary-0123456789';
 
@@ -268,4 +270,12 @@ test('missing or invalid usage counts yield null usage so the reservation stays 
       await server.close();
     }
   }
+});
+
+test('provider keys dedupe a shared key env, skip unset keys, and include injected adapters', () => {
+  const env = { OPENAI_API_KEY: 'sk-openai-canary', FAKE_API_KEY: 'fk-fake-canary' };
+  const shared = { ...fakeProvider([]), id: 'shared', keyEnv: 'OPENAI_API_KEY' };
+  assert.deepEqual(providerKeys(env), ['sk-openai-canary']);
+  assert.deepEqual(providerKeys(env, { fake: fakeProvider([]), shared }), ['sk-openai-canary', 'fk-fake-canary']);
+  assert.deepEqual(providerKeys({}, { fake: fakeProvider([]) }), []);
 });

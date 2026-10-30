@@ -341,6 +341,15 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   const stuck =
     "export default async (ctx) => { ctx.onCleanup(() => new Promise(() => {})); throw new Error('nope'); };\n";
   assert.match((await replayWith(stuck, 'x'))!.out, /setup failed: nope/u);
+  assert.match(
+    (await replayWith("export default async () => ({ startUrl: 'not a url' });\n", 'x'))!.out,
+    /setup failed: setup returned an invalid startUrl/u,
+  );
+  const signed = 'https://app.example/start?sig=replay-canary-88';
+  const echoed = `export default async () => ({ startUrl: '${signed}', tools: { ['${signed}']: { description: 'x', inputSchema: { type: 'object' }, execute: async () => ({}) } } });\n`;
+  const leakedUrl = (await replayWith(echoed, 'x'))!.out;
+  assert.match(leakedUrl, /setup failed: custom tool name "\[env\]" is invalid/u);
+  assert.doesNotMatch(leakedUrl, /replay-canary-88/u, 'a rejected setup result never echoes its start URL');
   await writeFile(configPath, original);
 });
 

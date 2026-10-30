@@ -11,7 +11,7 @@ import { openIndex, runOwnedBatch, startBatch, type DetachedBatch } from '../das
 import { bundleDir, readBundleFile, relativeRunDir } from '../evidence/bundle.ts';
 import { rateText } from '../evidence/report.ts';
 import { urlSecrets } from '../personas/generate.ts';
-import { createProviders } from '../providers/registry.ts';
+import { providerKeys } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { scrubEnv } from '../setup/run.ts';
 import { safeUrl, SecretStore } from '../setup/secrets.ts';
@@ -176,9 +176,7 @@ function exploreValues(values: Values): Values {
 }
 
 function exploreScrub(env: NodeJS.ProcessEnv, providers: Record<string, ProviderAdapter>, url?: string) {
-  const keys = [...Object.values(createProviders(env)), ...Object.values(providers)].flatMap(
-    (provider) => env[provider.keyEnv] ?? [],
-  );
+  const keys = providerKeys(env, providers);
   const secrets = url && URL.canParse(url) ? urlSecrets(new URL(url)) : new SecretStore();
   return (text: string): string => scrubEnv(text, secrets, keys);
 }
