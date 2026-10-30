@@ -65,6 +65,7 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/project"
           echo "tarball=$RUNNER_TEMP/$(npm pack --pack-destination "$RUNNER_TEMP" | tail -n 1)" >> "$GITHUB_OUTPUT"
+      # Expected to fail with exit 2 (no .cohort project); the next step asserts it.
       - id: action
         uses: ./
         continue-on-error: true
