@@ -19,6 +19,10 @@
 > [!NOTE]
 > Working title. Release candidate `0.1.0-rc.0`: tested offline against a scripted model; no shipped model is enabled until live verification.
 
+<p align="center">
+  <img src="screenshot.png" alt="cohort dashboard showing runs and journeys" width="900">
+</p>
+
 Give a persona a goal. An agent drives a real Chromium browser from screenshots, the way a first-time user would, and every action is recorded as an inspectable Playwright trail plus a replayable script. Reports separate what the harness measured from what the agent thought, and every claim cites screenshot evidence.
 
 ## Why cohort

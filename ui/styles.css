@@ -97,6 +97,7 @@
   --font-figure: var(--font-sans);
 
   /* Type scale: size / line-height */
+  --text-2xs: 11px;
   --text-xs: 13px;
   --lh-xs: 16px; /* labels, badges, captions */
   --text-sm: 14px;
@@ -364,7 +365,7 @@ body {
   margin-top: auto;
   padding: 0 var(--s-2);
   color: var(--muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   line-height: var(--lh-xs);
 }
 
