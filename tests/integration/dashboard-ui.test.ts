@@ -728,6 +728,12 @@ test('run headers sort on the server and the filter box narrows rows', async () 
     .first()
     .waitFor();
   assert.match((await journey.locator('td').nth(2).innerText()).trim(), /^\d+%\s+\d+ of \d+/u);
+  const batch = journey
+    .locator('td')
+    .nth(2)
+    .getByRole('link', { name: /^batch_\w+: (\d+ of \d+ completed|blocked or cancelled)/u })
+    .first();
+  assert.match((await batch.getAttribute('href')) ?? '', /^\/batches\/batch_/u);
   assert.equal(await page.getByRole('combobox', { name: 'Sort runs' }).inputValue(), 'created:desc');
   assert.equal(await page.locator('th[aria-sort]').count(), 0);
   const sorted = page.waitForResponse((response) => response.url().includes('sort=cost'));

@@ -245,7 +245,7 @@
     <section class="section journeys" aria-labelledby="journeys-title">
       <div class="section-head">
         <h2 id="journeys-title">Journeys <span class="count">{journeys.length}</span></h2>
-        <span class="hint">Each persona and goal over its latest {span} runs, lowest completion first</span>
+        <span class="hint">Each persona and goal over its latest {span} runs and {span} batches, lowest completion first</span>
       </div>
       <div class="table-wrap boxed">
         <table class="journeys">
@@ -274,7 +274,12 @@
                 </td>
                 <td class="num">
                   <span class="fig rate">{rate(journey)}</span>
-                  <Ticks value={journey.completed} max={journey.counted || 1} count={10} size="sm" />
+                  <ol class="marks batches" aria-label="Completion in the latest {journey.batches.length} batches, oldest first">
+                    {#each journey.batches as batch (batch.id)}
+                      {@const label = `${batch.id}: ${batch.counted ? `${batch.completed} of ${batch.counted} completed` : 'blocked or cancelled'}${batch.id === journey.drop ? ', dropped' : ''}`}
+                      <li><a class:drop={batch.id === journey.drop} href="/batches/{encodeURIComponent(batch.id)}" title={label} aria-label={label}><Ticks value={batch.completed} max={batch.counted} count={5} size="col" /></a></li>
+                    {/each}
+                  </ol>
                   <span class="of">{journey.completed} of {journey.counted}{journey.blocked ? `, ${journey.blocked} blocked` : ''}</span>
                 </td>
                 <td class="num" class:muted={!journey.friction}>{journey.friction ?? '—'}<span class="ph"> friction</span></td>

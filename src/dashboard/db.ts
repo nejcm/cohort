@@ -128,9 +128,24 @@ export interface Journey {
   /** Harness claims; null when no run in the window has been counted yet. */
   friction: number | null;
   latest: { id: string; outcome: string; interruptedBy: string | null }[];
+  /** Completion per batch over the latest `window` batches, oldest first; same denominator as `counted`. */
+  batches: { id: string; completed: number; counted: number }[];
+  /** The latest batch whose completion fell at least 50 points below the batch before it. */
+  drop: string | null;
 }
 
 const now = (): string => new Date().toISOString();
+
+const DROP_POINTS = 50;
+const percent = (batch: { completed: number; counted: number }): number =>
+  Math.round((batch.completed / batch.counted) * 100);
+function dropOf(batches: Journey['batches']): string | null {
+  const counted = batches.filter((batch) => batch.counted > 0);
+  return (
+    counted.findLast((batch, index) => index > 0 && percent(counted[index - 1]!) - percent(batch) >= DROP_POINTS)?.id ??
+    null
+  );
+}
 
 /** Sort keys never NULL, so `(key, id)` row-value comparisons page correctly. */
 export const RUN_SORTS = {
@@ -363,13 +378,19 @@ export class LabDb {
       .get(...(text ? [text] : []), since, since, since) as unknown as RunCounts;
   }
 
-  /** Finished runs grouped by persona and goal, over each journey's latest `window` runs, worst completion first. */
+  /** Finished runs grouped by persona and goal, over each journey's latest `window` runs and batches, worst completion first. */
   journeys(window: number): Journey[] {
     const rows = this.db
       .prepare(
         `WITH recent AS (
           SELECT *, ROW_NUMBER() OVER (PARTITION BY persona_id, goal ORDER BY created_at DESC, id DESC) AS n
-          FROM runs WHERE outcome_state IS NOT NULL)
+          FROM runs WHERE outcome_state IS NOT NULL),
+        batched AS (
+          SELECT persona_id, goal, batch_id, MAX(created_at) AS at,
+            TOTAL(outcome_state = 'completed') AS completed, TOTAL(${COUNTED}) AS counted
+          FROM runs WHERE outcome_state IS NOT NULL GROUP BY persona_id, goal, batch_id),
+        ranked AS (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY persona_id, goal ORDER BY at DESC, batch_id DESC) AS n FROM batched)
         SELECT persona_id AS personaId, goal, MAX(created_at) AS lastAt,
           (SELECT COUNT(*) FROM runs r WHERE r.persona_id = recent.persona_id AND r.goal = recent.goal AND r.outcome_state IS NOT NULL) AS total,
           COUNT(DISTINCT provider || '/' || model) AS models,
@@ -377,21 +398,35 @@ export class LabDb {
           TOTAL(${COUNTED}) AS counted,
           TOTAL(outcome_state = 'blocked') AS blocked,
           SUM(friction_count) AS friction,
-          json_group_array(json_array(id, outcome_state, interrupted_by) ORDER BY n DESC) AS latest
+          json_group_array(json_array(id, outcome_state, interrupted_by) ORDER BY n DESC) AS latest,
+          (SELECT json_group_array(json_array(batch_id, completed, counted) ORDER BY n DESC) FROM ranked b
+            WHERE b.persona_id = recent.persona_id AND b.goal = recent.goal AND b.n <= ?) AS batches
         FROM recent WHERE n <= ? GROUP BY persona_id, goal`,
       )
-      .all(window) as unknown as (Omit<Journey, 'latest'> & { latest: string })[];
-    const rate = (journey: Omit<Journey, 'latest'>): number =>
+      .all(window, window) as unknown as (Omit<Journey, 'latest' | 'batches' | 'drop'> & {
+      latest: string;
+      batches: string;
+    })[];
+    const rate = (journey: Pick<Journey, 'completed' | 'counted'>): number =>
       journey.counted === 0 ? 2 : journey.completed / journey.counted;
     return rows
-      .map((row) => ({
-        ...row,
-        latest: (JSON.parse(row.latest) as [string, string, string | null][]).map(([id, outcome, interruptedBy]) => ({
+      .map((row) => {
+        const batches = (JSON.parse(row.batches) as [string, number, number][]).map(([id, completed, counted]) => ({
           id,
-          outcome,
-          interruptedBy,
-        })),
-      }))
+          completed,
+          counted,
+        }));
+        return {
+          ...row,
+          latest: (JSON.parse(row.latest) as [string, string, string | null][]).map(([id, outcome, interruptedBy]) => ({
+            id,
+            outcome,
+            interruptedBy,
+          })),
+          batches,
+          drop: dropOf(batches),
+        };
+      })
       .toSorted((a, b) => rate(a) - rate(b) || b.lastAt.localeCompare(a.lastAt));
   }
 

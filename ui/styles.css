@@ -672,6 +672,16 @@ body {
 .ticks.sm i {
   width: 3px;
 }
+.ticks.col {
+  flex-direction: column-reverse;
+  width: 4px;
+  height: 22px;
+  gap: 2px;
+}
+.ticks.col i {
+  flex: 1;
+  width: auto;
+}
 
 /* Live progress against the step cap: the one place the teal fills an area */
 /* <progress max="40" value="6">: CSP-safe (no style= width), native semantics */
@@ -3043,9 +3053,19 @@ body {
   background: var(--band);
 }
 .mark:hover,
-.mark:focus-visible {
+.mark:focus-visible,
+.batches a:hover,
+.batches a:focus-visible {
   outline: var(--bw) solid var(--fg);
   outline-offset: 2px;
+}
+.batches a {
+  display: flex;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+}
+.batches a.drop {
+  border-bottom-color: var(--bad);
 }
 .mark.succeeded {
   background: var(--good);
@@ -3122,7 +3142,7 @@ body {
     display: inline;
   }
 }
-.journeys td.num .ticks {
+.journeys td.num .batches {
   justify-content: flex-end;
   margin: 4px 0;
 }
