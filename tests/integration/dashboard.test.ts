@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
+import { runBatch } from '../../src/core/batch.ts';
 import { type Journey, LabDb, type RunRow } from '../../src/dashboard/db.ts';
 import { saveEditable, type EditError } from '../../src/config/editable.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
@@ -592,6 +593,23 @@ test('a forged manifest cannot reach files outside the bundle, directly or throu
     await writeFile(join(dir, 'manifest.json'), original);
     await rm(join(dir, 'linked'));
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('the index refuses a .cohort that is a symlink and leaves its target untouched', async () => {
+  const project = await mkdtemp(join(tmpdir(), 'lab-linked-'));
+  const target = await mkdtemp(join(tmpdir(), 'lab-target-'));
+  try {
+    await chmod(target, 0o755);
+    await symlink(target, join(project, '.cohort'));
+    await assert.rejects(openIndex(project), /\.cohort must be a plain directory/u);
+    await assert.rejects(saveEditable(project, 'personas', 'guest', '', ''), /\.cohort is not a plain directory/u);
+    await assert.rejects(runBatch({ projectRoot: project, entries: [], providers: {} }), /\.cohort must be a plain/u);
+    assert.equal((await stat(target)).mode & 0o777, 0o755);
+    assert.deepEqual(await readdir(target), []);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
   }
 });
 

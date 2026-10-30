@@ -28,6 +28,25 @@ test('custom tool definitions reject built-in overrides, bad names, and schemas 
     /t\.inputSchema\.properties\.a\.format is not a supported schema keyword/u,
   );
   assert.throws(() => customToolDefinitions({ t: tool(async () => ({}), { type: 'string' }) }), /type object/u);
+  assert.equal(
+    customToolDefinitions({ t: tool(async () => ({}), { type: 'object', additionalProperties: true }) }).length,
+    1,
+  );
+  for (const [where, inputSchema] of [
+    ['type', { type: ['object', 'null'] }],
+    ['additionalProperties', { type: 'object', additionalProperties: { type: 'string' } }],
+    ['properties.a.enum', { type: 'object', properties: { a: { enum: 'ab' } } }],
+    ['properties.a.pattern', { type: 'object', properties: { a: { type: 'string', pattern: '(' } } }],
+    ['properties.a.minLength', { type: 'object', properties: { a: { type: 'string', minLength: '1' } } }],
+    ['required', { type: 'object', required: 'a' }],
+    ['properties.a.minimum', { type: 'object', properties: { a: { minimum: 1 } } }],
+    ['properties', { type: 'object', properties: [] }],
+  ] as const)
+    assert.throws(
+      () => customToolDefinitions({ t: tool(async () => ({}), inputSchema) }),
+      new RegExp(`t\\.inputSchema\\.${where.replaceAll('.', '\\.')} (has an unsupported value|needs a type)`, 'u'),
+      where,
+    );
   assert.throws(() => customToolDefinitions({ t: { ...ok, execute: undefined as never } }), /execute function/u);
 });
 

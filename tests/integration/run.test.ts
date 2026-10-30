@@ -15,6 +15,7 @@ import { run } from '../../src/cli.ts';
 import { LabDb } from '../../src/dashboard/db.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
+import { reinventory } from '../../src/evidence/bundle.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
@@ -323,6 +324,24 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
     'replay writes nothing into the bundle but its refreshed reports',
   );
   assert.match((await cli(['replay', json.batchId])).out, /takes a run ID/u);
+  await mkdir(join(first.outDir, 'x.tmp-0'));
+  await writeFile(join(first.outDir, 'x.tmp-0/replay.spec.ts'), 'process.exit(0);\n');
+  const planted = await cli(['replay', first.runId]);
+  await rm(join(first.outDir, 'x.tmp-0'), { recursive: true });
+  assert.equal(planted.code, 2, planted.out);
+  assert.match(planted.out, /x\.tmp-0\/replay\.spec\.ts is not a file a run writes/u);
+  const marker = join(root, 'shadow-ran');
+  await mkdir(join(first.outDir, 'suggestions/tests'), { recursive: true });
+  await writeFile(
+    join(first.outDir, 'suggestions/tests/x-replay.spec.ts'),
+    `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\n`,
+  );
+  await reinventory(first.outDir);
+  const shadowed = await cli(['replay', first.runId]);
+  await rm(join(first.outDir, 'suggestions'), { recursive: true });
+  await reinventory(first.outDir);
+  assert.equal(shadowed.code, 0, shadowed.out);
+  assert.ok(!existsSync(marker), 'only the bundle root replay.spec.ts runs');
 
   const configPath = join(first.outDir, 'resolved-config.json');
   const original = await readFile(configPath, 'utf8');
@@ -333,6 +352,7 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
     config.setup.path = path;
     config.request.limits.timeMs = 300;
     await writeFile(configPath, JSON.stringify(config));
+    await reinventory(first.outDir);
     const env = { OPENAI_API_KEY: 'sk-replay-provider-9', COHORT_LEAK: leak, COHORT_FIXTURE_ORIGIN: fixture.url };
     const hung = new Promise<null>((resolve) => setTimeout(resolve, 5000, null).unref());
     return Promise.race([cli(['replay', first.runId], { env }), hung]);
@@ -362,6 +382,7 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   assert.match(leakedUrl, /setup failed: custom tool name "\[env\]" is invalid/u);
   assert.doesNotMatch(leakedUrl, /replay-canary-88/u, 'a rejected setup result never echoes its start URL');
   await writeFile(configPath, original);
+  await reinventory(first.outDir);
 });
 
 test('each repeat gets a fresh browser context; named storage state is loaded', async () => {
@@ -813,6 +834,7 @@ test('a setup module signs in with storage state; its code tool rebinds just bef
   resolved.setup.path = resolved.setup.path.replace('fixture-auth.ts', 'slow-auth.ts');
   resolved.request.limits.timeMs = 1600;
   await writeFile(configPath, JSON.stringify(resolved));
+  await reinventory(first.outDir);
   const late = await cli(['replay', first.runId]);
   assert.match(late.out, /tool_timeout: the replay ran past its time limit/u);
   assert.match(late.out, /replay run_\S+: failed/u);
@@ -874,6 +896,31 @@ test('known identity, captcha, and payment destinations end as harness-detected 
     const declared = (await lab(['--persona', 'guest', '--url', `${fixture.url}${path}`, '--json'])).json.runs[0]
       .outcome;
     assert.deepEqual([declared.state, declared.kind, declared.detectedBy], ['blocked', kind, 'agent']);
+  }
+});
+
+test('a popup to an allowed redirect never reaches the foreign redirect target', async () => {
+  let hits = 0;
+  const outside = createServer((_request, response) => {
+    hits += 1;
+    response.end('escaped');
+  });
+  await new Promise<void>((resolve) => outside.listen(0, '127.0.0.1', resolve));
+  const target = `http://127.0.0.1:${(outside.address() as AddressInfo).port}/`;
+  try {
+    await put(
+      '.cohort/suites/popup-redirect.yml',
+      `schemaVersion: 1\nid: popup-redirect\nname: popup-redirect\ndefaults:\n  url: ${fixture.url}/lab/popup\n  routes:\n    - match: "**/lab/popup"\n      action: fulfill\n      contentType: text/html\n      body: "<h1>Popup</h1><script>window.open('/lab/redirect?to=${encodeURIComponent(target)}')</script>"\nentries:\n  - persona: guest\n`,
+    );
+    turn = async (request) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return done(request, 0);
+    };
+    const result = await lab(['--suite', 'popup-redirect', '--json']);
+    assert.equal(result.json.runs[0].outcome.state, 'completed', JSON.stringify(result.json.runs[0].outcome));
+    assert.equal(hits, 0);
+  } finally {
+    outside.close();
   }
 });
 

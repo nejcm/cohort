@@ -4,6 +4,7 @@ import { screenshotToCss, renderLocator } from '../../src/browser/targets.ts';
 import { classify, renderCompareMarkdown, type ExecutionStatus } from '../../src/core/compare.ts';
 import { CostMeter, estimateCostUsd } from '../../src/core/cost.ts';
 import { asExplore, EXPLORE_GOAL, exploreSubmission, SUGGEST_DOLLARS } from '../../src/core/explore.ts';
+import { schemaProblems } from '../../src/core/schema.ts';
 import { BUILTIN_TOOLS, toolsFor, validateToolCall } from '../../src/core/tools.ts';
 import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
 import type { StepRecord } from '../../src/evidence/steps.ts';
@@ -393,4 +394,25 @@ test('explore entries are marked, and only a priced batch budget grows by the su
   assert.equal(priced.entries[0]?.explore, true);
   assert.equal(priced.plan.maxBatchUsd, 1 + SUGGEST_DOLLARS);
   assert.equal(asExplore({ entries, plan: { maxBatchUsd: null } }).plan.maxBatchUsd, null);
+});
+
+test('a closed schema refuses keys that only exist on Object.prototype', () => {
+  const closed = { type: 'object', additionalProperties: false, required: ['toString'], properties: {} } as const;
+  assert.deepEqual(schemaProblems(closed, JSON.parse('{"constructor":1,"__proto__":{}}')), [
+    '$.toString: required',
+    '$.constructor: unknown property',
+    '$.__proto__: unknown property',
+  ]);
+});
+
+test('oneOf does not skip the sibling keywords of its schema', () => {
+  const gated = {
+    type: 'object',
+    required: ['approved'],
+    properties: { approved: { const: true } },
+    additionalProperties: false,
+    oneOf: [{}],
+  } as const;
+  assert.deepEqual(schemaProblems(gated, {}), ['$.approved: required']);
+  assert.deepEqual(schemaProblems(gated, { approved: true }), []);
 });

@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, open, rm } from 'node:fs/promises';
+import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inventory, writeAtomic, writeManifest, type BundleIdentity, type RunManifest } from './manifest.ts';
 import {
@@ -30,6 +30,15 @@ export const runsDir = (projectRoot: string): string => join(projectRoot, RUNS);
 export const runDir = (projectRoot: string, id: string): string => join(projectRoot, RUNS, id);
 /** The POSIX spelling relative to the project root, for the index and printed paths. */
 export const relativeRunDir = (id: string): string => `${RUNS}/${id}`;
+
+/** Creates `.cohort/runs` level by level, refusing a symlinked or non-directory level before anything is written through it. */
+export async function ensureRunsDir(projectRoot: string): Promise<void> {
+  for (const path of [join(projectRoot, '.cohort'), runsDir(projectRoot)]) {
+    await mkdir(path, { recursive: true, mode: 0o700 });
+    if (!(await lstat(path)).isDirectory())
+      throw new BundleError(`${path} must be a plain directory, not a symlink or file`);
+  }
+}
 
 /** Resolves a run or batch directory by ID; IDs are generated, so anything else is rejected before touching the filesystem. */
 export async function bundleDir(projectRoot: string, id: string): Promise<{ kind: 'run' | 'batch'; dir: string }> {
@@ -71,14 +80,20 @@ export async function readBundleJson<T>(dir: string, name: string): Promise<T> {
 const RUN_FILES =
   /^(report\.(json|md|html)|steps\.jsonl|resolved-config\.json|replay\.spec\.ts|trace\.zip|screenshots\/[\w.-]+\.png)$/u;
 
+// What `cohort explore suggest` adds; replay accepts these, compare does not.
+export const EXPLORED_FILES =
+  /^suggestions\/(explore\.json|suite\.yml|personas\/[a-z0-9][a-z0-9-]{0,63}\.md|tests\/[a-z0-9][a-z0-9-]{0,63}\.spec\.ts)$/u;
+
 /** Refuses a run bundle whose files differ from its manifest's SHA-256 hashes; returns the manifest. */
-export async function verifyBundle(dir: string): Promise<RunManifest> {
+export async function verifyBundle(dir: string, extra?: RegExp): Promise<RunManifest> {
   const manifest = await readBundleJson<RunManifest>(dir, 'manifest.json');
-  const { artifacts, rejected } = await inventory(dir);
+  const { artifacts, rejected, temporary } = await inventory(dir);
   if (rejected.length > 0) throw new BundleError(`${rejected[0]} is not a regular file`);
+  if (temporary.length > 0) throw new BundleError(`${temporary[0]} is not a file a run writes`);
   const listed = new Map(manifest.artifacts.map((artifact) => [artifact.path, artifact.sha256]));
   for (const artifact of artifacts) {
-    if (!RUN_FILES.test(artifact.path)) throw new BundleError(`${artifact.path} is not a file a run writes`);
+    if (!RUN_FILES.test(artifact.path) && !extra?.test(artifact.path))
+      throw new BundleError(`${artifact.path} is not a file a run writes`);
     if (listed.get(artifact.path) !== artifact.sha256)
       throw new BundleError(`${artifact.path} does not match its SHA-256 hash in manifest.json`);
   }

@@ -4,7 +4,7 @@ export type JsonSchema = {
   enum?: readonly unknown[];
   required?: readonly string[];
   properties?: Record<string, JsonSchema>;
-  additionalProperties?: false;
+  additionalProperties?: boolean;
   pattern?: string;
   minLength?: number;
   maxLength?: number;
@@ -26,7 +26,7 @@ export function validate(schema: JsonSchema, value: unknown, path = '$'): string
 export function schemaProblems(schema: JsonSchema, value: unknown, path = '$'): string[] {
   if (schema.oneOf) {
     const matches = schema.oneOf.filter((option) => schemaProblems(option, value, path).length === 0).length;
-    return matches === 1 ? [] : [`${path}: must match exactly one schema (matched ${matches})`];
+    if (matches !== 1) return [`${path}: must match exactly one schema (matched ${matches})`];
   }
   if ('const' in schema && value !== schema.const) return [`${path}: must equal ${JSON.stringify(schema.const)}`];
   if (schema.enum && !schema.enum.includes(value)) return [`${path}: must be one of ${schema.enum.join(', ')}`];
@@ -62,9 +62,12 @@ export function schemaProblems(schema: JsonSchema, value: unknown, path = '$'): 
     case 'object': {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) return [`${path}: must be an object`];
       const record = value as Record<string, unknown>;
-      const found = (schema.required ?? []).filter((key) => !(key in record)).map((key) => `${path}.${key}: required`);
+      const found = (schema.required ?? [])
+        .filter((key) => !Object.hasOwn(record, key))
+        .map((key) => `${path}.${key}: required`);
       for (const [key, item] of Object.entries(record)) {
-        const property = schema.properties?.[key];
+        const property =
+          schema.properties && Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
         if (property) found.push(...schemaProblems(property, item, `${path}.${key}`));
         else if (schema.additionalProperties === false) found.push(`${path}.${key}: unknown property`);
       }

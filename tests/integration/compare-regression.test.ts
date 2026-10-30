@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFile, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { sha256 } from '../../src/config/files.ts';
@@ -124,6 +124,18 @@ test('a tampered bundle, a planted file, or a script that is not the approved on
     assert.match(out, /playwright\.config\.ts is not a file a run writes/u);
   } finally {
     await rm(join(f.runDir, 'playwright.config.ts'));
+  }
+  for (const planted of ['x.tmp-0/replay.spec.ts', 'replay.spec.ts.tmp-0']) {
+    await mkdir(join(f.runDir, 'x.tmp-0'), { recursive: true });
+    await writeFile(join(f.runDir, planted), 'process.exit(0);\n');
+    try {
+      const { code, out } = await compare();
+      assert.equal(code, 2, out);
+      assert.ok(out.includes(`${planted} is not a file a run writes`), out);
+    } finally {
+      await rm(join(f.runDir, 'x.tmp-0'), { recursive: true });
+      await rm(join(f.runDir, planted), { force: true });
+    }
   }
   await rename(join(f.runDir, 'trace.zip'), join(f.root, 'trace.zip'));
   await rename(join(f.runDir, 'steps.jsonl'), join(f.root, 'steps.jsonl'));

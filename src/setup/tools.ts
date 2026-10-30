@@ -29,11 +29,59 @@ export type CustomToolResult =
   | { status: 'ok'; output: string; bound: Record<string, string> }
   | { status: 'rejected' | 'error'; code: string; message: string };
 
+const TYPED_KEYWORDS = new Set([
+  'required',
+  'properties',
+  'additionalProperties',
+  'pattern',
+  'minLength',
+  'maxLength',
+  'minimum',
+  'maximum',
+  'items',
+  'minItems',
+]);
+const SCHEMA_TYPES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
+
+function keywordValueSupported(key: string, value: unknown): boolean {
+  switch (key) {
+    case 'type':
+      return typeof value === 'string' && SCHEMA_TYPES.has(value);
+    case 'enum':
+    case 'oneOf':
+      return Array.isArray(value);
+    case 'required':
+      return Array.isArray(value) && value.every((item) => typeof item === 'string');
+    case 'additionalProperties':
+      return typeof value === 'boolean';
+    case 'properties':
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    case 'pattern':
+      try {
+        return typeof value === 'string' && Boolean(new RegExp(value, 'u'));
+      } catch {
+        return false;
+      }
+    case 'minLength':
+    case 'maxLength':
+    case 'minimum':
+    case 'maximum':
+    case 'minItems':
+      return Number.isFinite(value);
+    case 'description':
+      return typeof value === 'string';
+    default:
+      return true;
+  }
+}
+
 // Unknown keywords would be silently ignored by the validator, weakening the schema the user wrote.
 function schemaProblem(schema: unknown, path: string): string | null {
   if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) return `${path} must be an object`;
   for (const [key, value] of Object.entries(schema)) {
     if (!SCHEMA_KEYWORDS.has(key)) return `${path}.${key} is not a supported schema keyword`;
+    if (!keywordValueSupported(key, value)) return `${path}.${key} has an unsupported value`;
+    if (TYPED_KEYWORDS.has(key) && !('type' in schema)) return `${path}.${key} needs a type to be enforced`;
     const nested =
       key === 'properties'
         ? Object.entries(value as object).map(([name, item]) => [`${path}.properties.${name}`, item] as const)

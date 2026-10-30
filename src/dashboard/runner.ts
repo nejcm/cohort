@@ -529,8 +529,11 @@ async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
 
 /** Opens `.cohort/index.sqlite` owner-only, recovers runs whose owning process is gone, and indexes bundles on disk. */
 export async function openIndex(projectRoot: string): Promise<LabDb> {
-  await mkdir(join(projectRoot, '.cohort'), { recursive: true });
-  await chmod(join(projectRoot, '.cohort'), 0o700);
+  const cohort = join(projectRoot, '.cohort');
+  await mkdir(cohort, { recursive: true });
+  if (!(await lstat(cohort)).isDirectory())
+    throw new BundleError('.cohort must be a plain directory, not a symlink or file');
+  await chmod(cohort, 0o700);
   const dbPath = join(projectRoot, '.cohort', 'index.sqlite');
   await writeFile(dbPath, '', { flag: 'a', mode: 0o600 });
   const db = new LabDb(dbPath);

@@ -5,7 +5,14 @@ import { join, relative } from 'node:path';
 import type { BrowserContextOptions } from 'playwright';
 import { loadStorageState, sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
-import { refreshRun, runDir, writeBatchReports, writeBundle, type BundleFailure } from '../evidence/bundle.ts';
+import {
+  ensureRunsDir,
+  refreshRun,
+  runDir,
+  writeBatchReports,
+  writeBundle,
+  type BundleFailure,
+} from '../evidence/bundle.ts';
 import { claimId, deriveClaims, validateClaim, type FrictionClaim } from '../evidence/friction.ts';
 import { inventory, type BundleIdentity } from '../evidence/manifest.ts';
 import {
@@ -101,6 +108,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   const env = options.env ?? process.env;
   const keys = providerKeys(env, options.providers);
   const states = await loadNamedStates(projectRoot, entries);
+  await ensureRunsDir(projectRoot);
   const batchId = options.ids?.batchId ?? newId('batch');
   const runs: BatchRun[] = [];
   const reports: RunReport[] = [];

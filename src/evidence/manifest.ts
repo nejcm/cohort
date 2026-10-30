@@ -70,15 +70,19 @@ export async function writeAtomic(path: string, data: string | Buffer): Promise<
 }
 
 /** Regular files under `outDir`; symlinks and other entries are rejected, never followed. */
-export async function inventory(outDir: string): Promise<{ artifacts: ManifestArtifact[]; rejected: string[] }> {
+export async function inventory(
+  outDir: string,
+): Promise<{ artifacts: ManifestArtifact[]; rejected: string[]; temporary: string[] }> {
   const artifacts: ManifestArtifact[] = [];
   const rejected: string[] = [];
+  const temporary: string[] = [];
   async function walk(relative: string): Promise<void> {
     for (const name of (await readdir(join(outDir, relative))).toSorted()) {
       const path = relative ? posix.join(relative, name) : name;
-      if (path === 'manifest.json' || TEMP.test(name)) continue;
+      if (path === 'manifest.json') continue;
       const info = await lstat(join(outDir, path));
       if (info.isDirectory()) await walk(path);
+      else if (info.isFile() && TEMP.test(name)) temporary.push(path);
       else if (info.isFile())
         artifacts.push({
           path,
@@ -91,7 +95,7 @@ export async function inventory(outDir: string): Promise<{ artifacts: ManifestAr
     }
   }
   await walk('');
-  return { artifacts, rejected };
+  return { artifacts, rejected, temporary };
 }
 
 export type BundleIdentity = Omit<RunManifest, 'schemaVersion' | 'finalizedAt' | 'sensitivity' | 'artifacts'>;
