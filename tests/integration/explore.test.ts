@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { after, before, test } from 'node:test';
 import { run } from '../../src/cli.ts';
 import type { ToolCall } from '../../src/core/tools.ts';
-import { EXPLORED_FILES, reinventory, verifyBundle } from '../../src/evidence/bundle.ts';
+import { EXPLORED_FILES, verifyBundle } from '../../src/evidence/bundle.ts';
 import { startBatch, type DetachedBatch } from '../../src/dashboard/runner.ts';
 import { startDashboard, type Dashboard } from '../../src/dashboard/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../helpers/fake-provider.ts';
@@ -208,14 +208,11 @@ test('explore refuses destructive controls, keeps only cited suggestions, and sa
   const manifest = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'));
   assert.ok(manifest.artifacts.some((artifact: any) => artifact.path === 'suggestions/explore.json'));
   await verifyBundle(dir, EXPLORED_FILES);
+  assert.ok(
+    !EXPLORED_FILES.test('suggestions/personas/-x.md') &&
+      !EXPLORED_FILES.test(`suggestions/tests/${'a'.repeat(65)}.spec.ts`),
+  );
   await assert.rejects(verifyBundle(dir), /suggestions\/\S+ is not a file a run writes/u);
-  await writeFile(join(dir, 'suggestions/tests/x-replay.spec.ts'), 'process.exit(0);\n');
-  await reinventory(dir);
-  const shadowed = await cli(['replay', json.runId]);
-  await rm(join(dir, 'suggestions/tests/x-replay.spec.ts'));
-  await reinventory(dir);
-  assert.equal(shadowed.code, 2, JSON.stringify(shadowed.json));
-  assert.match(JSON.stringify(shadowed.json), /x-replay\.spec\.ts would run as the replay script/u);
   await assert.rejects(readFile(join(root, '.cohort/personas/searcher.md')));
 
   const unreviewed = await cli(['explore', 'save', json.runId, '--persona', 'searcher']);

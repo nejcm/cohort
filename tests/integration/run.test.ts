@@ -330,6 +330,18 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   await rm(join(first.outDir, 'x.tmp-0'), { recursive: true });
   assert.equal(planted.code, 2, planted.out);
   assert.match(planted.out, /x\.tmp-0\/replay\.spec\.ts is not a file a run writes/u);
+  const marker = join(root, 'shadow-ran');
+  await mkdir(join(first.outDir, 'suggestions/tests'), { recursive: true });
+  await writeFile(
+    join(first.outDir, 'suggestions/tests/x-replay.spec.ts'),
+    `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'ran');\n`,
+  );
+  await reinventory(first.outDir);
+  const shadowed = await cli(['replay', first.runId]);
+  await rm(join(first.outDir, 'suggestions'), { recursive: true });
+  await reinventory(first.outDir);
+  assert.equal(shadowed.code, 0, shadowed.out);
+  assert.ok(!existsSync(marker), 'only the bundle root replay.spec.ts runs');
 
   const configPath = join(first.outDir, 'resolved-config.json');
   const original = await readFile(configPath, 'utf8');

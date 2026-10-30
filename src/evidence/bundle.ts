@@ -73,7 +73,7 @@ const RUN_FILES =
 
 // What `cohort explore suggest` adds; replay accepts these, compare does not.
 export const EXPLORED_FILES =
-  /^suggestions\/(explore\.json|suite\.yml|personas\/[a-z0-9-]+\.md|tests\/[a-z0-9-]+\.spec\.ts)$/u;
+  /^suggestions\/(explore\.json|suite\.yml|personas\/[a-z0-9][a-z0-9-]{0,63}\.md|tests\/[a-z0-9][a-z0-9-]{0,63}\.spec\.ts)$/u;
 
 /** Refuses a run bundle whose files differ from its manifest's SHA-256 hashes; returns the manifest. */
 export async function verifyBundle(dir: string, extra?: RegExp): Promise<RunManifest> {

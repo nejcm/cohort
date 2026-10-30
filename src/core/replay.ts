@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { loadStorageState } from '../config/files.ts';
 import {
   BundleError,
@@ -70,12 +70,7 @@ export async function replayRun(
   options: ReplayOptions,
 ): Promise<{ report: RunReport; output: string }> {
   const { kind, dir: bundle } = await bundleDir(projectRoot, runId);
-  if (kind === 'run') {
-    const { artifacts } = await verifyBundle(bundle, EXPLORED_FILES);
-    // Playwright collects every file matching the unanchored pattern `replay.spec.ts`.
-    const shadow = artifacts.find(({ path }) => path !== 'replay.spec.ts' && /replay.spec.ts/u.test(path));
-    if (shadow) throw new BundleError(`${shadow.path} would run as the replay script`);
-  }
+  if (kind === 'run') await verifyBundle(bundle, EXPLORED_FILES);
   const { dir, passed, output } = await executeReplay(projectRoot, runId, options);
   const status = passed ? 'passed' : 'failed';
   const report = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));
@@ -156,6 +151,9 @@ export async function executeReplay(
       env.COHORT_STORAGE_STATE = join(scratch, 'state.json');
       await writeFile(env.COHORT_STORAGE_STATE, JSON.stringify(storageState), { mode: 0o600 });
     }
+    const script = join(await realpath(dir), 'replay.spec.ts')
+      .split(sep)
+      .join('/');
     const { code, output } = await new Promise<{ code: number; output: string }>((resolve) => {
       execFile(
         process.execPath,
@@ -165,7 +163,8 @@ export async function executeReplay(
           '--reporter=line',
           `--output=${join(scratch, 'results')}`,
           ...(options.timeoutMs ? [`--timeout=${options.timeoutMs}`] : []),
-          'replay.spec.ts',
+          // Playwright reads a positional filter as a regex over the absolute path; Windows paths are also tried with `/`.
+          `^${script.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}$`,
         ],
         { cwd: dir, env, ...(options.signal ? { signal: options.signal } : {}) },
         (error, stdout, stderr) =>
