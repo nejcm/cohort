@@ -5,9 +5,9 @@ import { join, relative } from 'node:path';
 import type { BrowserContextOptions } from 'playwright';
 import { loadStorageState, sha256 } from '../config/files.ts';
 import type { ResolvedEntry } from '../config/resolve.ts';
-import { refreshRun, writeBatchReports, writeRunReports } from '../evidence/bundle.ts';
+import { refreshRun, runDir, writeBatchReports, writeBundle } from '../evidence/bundle.ts';
 import { claimId, deriveClaims, validateClaim, type FrictionClaim } from '../evidence/friction.ts';
-import { inventory, writeManifest } from '../evidence/manifest.ts';
+import { inventory } from '../evidence/manifest.ts';
 import {
   accountingOf,
   browserActionCount,
@@ -126,7 +126,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   await addAboveMinimumClaims(runs, reports);
   const skipped = total - runs.length;
   const summary = buildBatchReport(batchId, reports, skipped);
-  const reportDir = join(projectRoot, '.cohort', 'runs', batchId);
+  const reportDir = runDir(projectRoot, batchId);
   await mkdir(reportDir, { recursive: true, mode: 0o700 });
   await writeBatchReports(reportDir, summary);
   return { batchId, runs, skipped, summary, reportDir };
@@ -137,7 +137,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     runId: string,
     runSignal: AbortSignal | undefined,
   ): Promise<{ run: BatchRun; report: RunReport }> {
-    const outDir = join(projectRoot, '.cohort', 'runs', runId);
+    const outDir = runDir(projectRoot, runId);
     await mkdir(outDir, { recursive: true, mode: 0o700 });
     options.onRunStart?.({ runId, entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
     options.onEvent?.(runId, 'run.started', { entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
@@ -236,26 +236,31 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       else friction.push(claim);
     }
     const report = reportOf(entry, run, trail, friction);
-    await writeRunReports(run.outDir, report, trail.steps);
-    await writeManifest(run.outDir, {
-      runId: run.runId,
-      batchId,
-      createdAt: report.startedAt,
-      toolVersion: TOOL_VERSION,
-      runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: trail.browserVersion },
-      configuration: {
-        personaId: entry.persona.id,
-        personaHash: entry.persona.hash,
-        suiteId: entry.suiteId,
-        resolvedConfigHash: trail.resolvedConfigHash,
-        setupHash: trail.setupHash,
-        mode: request.mode,
-        provider: request.provider,
-        model: request.model,
-        effort: request.effort,
-        catalog: request.catalog,
+    const { failed } = await writeBundle(
+      run.outDir,
+      {
+        runId: run.runId,
+        batchId,
+        createdAt: report.startedAt,
+        toolVersion: TOOL_VERSION,
+        runtime: { node: process.version, playwright: PLAYWRIGHT_VERSION, chromium: trail.browserVersion },
+        configuration: {
+          personaId: entry.persona.id,
+          personaHash: entry.persona.hash,
+          suiteId: entry.suiteId,
+          resolvedConfigHash: trail.resolvedConfigHash,
+          setupHash: trail.setupHash,
+          mode: request.mode,
+          provider: request.provider,
+          model: request.model,
+          effort: request.effort,
+          catalog: request.catalog,
+        },
       },
-    });
+      report,
+      trail.steps,
+    );
+    if (failed[0]) throw new Error(failed[0].message);
     return report;
   }
 

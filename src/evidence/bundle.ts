@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 import { join } from 'node:path';
-import { inventory, writeAtomic, writeManifest, type RunManifest } from './manifest.ts';
+import { inventory, writeAtomic, writeManifest, type BundleIdentity, type RunManifest } from './manifest.ts';
 import {
   renderBatchHtml,
   renderBatchMarkdown,
@@ -25,12 +25,15 @@ export class BundleError extends Error {
   }
 }
 
+export const runsDir = (projectRoot: string): string => join(projectRoot, '.cohort', 'runs');
+export const runDir = (projectRoot: string, id: string): string => join(runsDir(projectRoot), id);
+
 /** Resolves a run or batch directory by ID; IDs are generated, so anything else is rejected before touching the filesystem. */
 export async function bundleDir(projectRoot: string, id: string): Promise<{ kind: 'run' | 'batch'; dir: string }> {
   const kind = RUN_ID.test(id) ? 'run' : BATCH_ID.test(id) ? 'batch' : null;
   if (!kind) throw new BundleError(`not a run or batch ID: ${id}`, 'not_found');
-  const runs = join(projectRoot, '.cohort', 'runs');
-  const dir = join(runs, id);
+  const runs = runsDir(projectRoot);
+  const dir = runDir(projectRoot, id);
   for (const path of [join(projectRoot, '.cohort'), runs, dir]) {
     const info = await lstat(path).catch(() => null);
     if (!info) throw new BundleError(`no artifacts for ${id}`, 'not_found');
@@ -91,10 +94,37 @@ export async function readSteps(dir: string): Promise<StepRecord[]> {
     .map((line) => JSON.parse(line) as StepRecord);
 }
 
-export async function writeRunReports(dir: string, report: RunReport, steps: readonly StepRecord[]): Promise<void> {
-  await writeAtomic(join(dir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
-  await writeAtomic(join(dir, 'report.md'), renderRunMarkdown(report, steps));
-  await writeAtomic(join(dir, 'report.html'), renderRunHtml(report, steps));
+const runReports = (report: RunReport, steps: readonly StepRecord[]): [string, () => string][] => [
+  ['report.json', () => `${JSON.stringify(report, null, 2)}\n`],
+  ['report.md', () => renderRunMarkdown(report, steps)],
+  ['report.html', () => renderRunHtml(report, steps)],
+];
+
+async function writeRunReports(dir: string, report: RunReport, steps: readonly StepRecord[]): Promise<void> {
+  for (const [name, render] of runReports(report, steps)) await writeAtomic(join(dir, name), render());
+}
+
+/** Writes the run reports then manifest.json, each attempted on its own; never throws, and skips the manifest without report.json. */
+export async function writeBundle(
+  dir: string,
+  identity: BundleIdentity,
+  report: RunReport,
+  steps: readonly StepRecord[],
+): Promise<{ written: string[]; failed: { path: string; message: string }[] }> {
+  const written: string[] = [];
+  const failed: { path: string; message: string }[] = [];
+  const attempt = async (path: string, write: () => Promise<unknown>): Promise<void> => {
+    try {
+      await write();
+      written.push(path);
+    } catch (error) {
+      failed.push({ path, message: String((error as Error)?.message ?? error) });
+    }
+  };
+  for (const [name, render] of runReports(report, steps))
+    await attempt(name, () => writeAtomic(join(dir, name), render()));
+  if (written.includes('report.json')) await attempt('manifest.json', () => writeManifest(dir, identity));
+  return { written, failed };
 }
 
 export async function writeBatchReports(dir: string, report: BatchReport): Promise<void> {
