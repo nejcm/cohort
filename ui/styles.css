@@ -3059,8 +3059,13 @@ body {
   outline: var(--bw) solid var(--fg);
   outline-offset: 2px;
 }
+.batches {
+  gap: 0;
+}
 .batches a {
   display: flex;
+  justify-content: center;
+  width: 14px;
   padding-bottom: 2px;
   border-bottom: 2px solid transparent;
 }
@@ -3143,6 +3148,7 @@ body {
   }
 }
 .journeys td.num .batches {
+  flex-wrap: wrap;
   justify-content: flex-end;
   margin: 4px 0;
 }

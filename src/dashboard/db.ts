@@ -130,7 +130,7 @@ export interface Journey {
   latest: { id: string; outcome: string; interruptedBy: string | null }[];
   /** Completion per batch over the latest `window` batches, oldest first; same denominator as `counted`. */
   batches: { id: string; completed: number; counted: number }[];
-  /** The latest batch whose completion fell at least 50 points below the batch before it. */
+  /** The latest batch whose rounded completion % fell at least 50 points below the previous counted batch in the window. */
   drop: string | null;
 }
 
