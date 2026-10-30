@@ -7,7 +7,14 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadStorageState } from '../config/files.ts';
-import { BundleError, bundleDir, readBundleFile, readBundleJson, refreshRun } from '../evidence/bundle.ts';
+import {
+  BundleError,
+  bundleDir,
+  readBundleFile,
+  readBundleJson,
+  refreshRun,
+  verifyBundle,
+} from '../evidence/bundle.ts';
 import type { RunReport } from '../evidence/report.ts';
 import { providerKeys } from '../providers/registry.ts';
 import { heldTimeout } from '../setup/run.ts';
@@ -61,6 +68,8 @@ export async function replayRun(
   runId: string,
   options: ReplayOptions,
 ): Promise<{ report: RunReport; output: string }> {
+  const { kind, dir: bundle } = await bundleDir(projectRoot, runId);
+  if (kind === 'run') await verifyBundle(bundle);
   const { dir, passed, output } = await executeReplay(projectRoot, runId, options);
   const status = passed ? 'passed' : 'failed';
   const report = await refreshRun(dir, (current) => ({ ...current, replay: { ...current.replay, status } }));

@@ -15,6 +15,7 @@ import { run } from '../../src/cli.ts';
 import { LabDb } from '../../src/dashboard/db.ts';
 import { openIndex } from '../../src/dashboard/runner.ts';
 import { createAnthropicAdapter } from '../../src/providers/anthropic.ts';
+import { reinventory } from '../../src/evidence/bundle.ts';
 import { validateClaim } from '../../src/evidence/friction.ts';
 import { createOpenAIAdapter } from '../../src/providers/openai.ts';
 import { startFixture, type FixtureServer } from '../fixtures/friction-app/server.ts';
@@ -323,6 +324,12 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
     'replay writes nothing into the bundle but its refreshed reports',
   );
   assert.match((await cli(['replay', json.batchId])).out, /takes a run ID/u);
+  await mkdir(join(first.outDir, 'x.tmp-0'));
+  await writeFile(join(first.outDir, 'x.tmp-0/replay.spec.ts'), 'process.exit(0);\n');
+  const planted = await cli(['replay', first.runId]);
+  await rm(join(first.outDir, 'x.tmp-0'), { recursive: true });
+  assert.equal(planted.code, 2, planted.out);
+  assert.match(planted.out, /x\.tmp-0\/replay\.spec\.ts is not a file a run writes/u);
 
   const configPath = join(first.outDir, 'resolved-config.json');
   const original = await readFile(configPath, 'utf8');
@@ -333,6 +340,7 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
     config.setup.path = path;
     config.request.limits.timeMs = 300;
     await writeFile(configPath, JSON.stringify(config));
+    await reinventory(first.outDir);
     const env = { OPENAI_API_KEY: 'sk-replay-provider-9', COHORT_LEAK: leak, COHORT_FIXTURE_ORIGIN: fixture.url };
     const hung = new Promise<null>((resolve) => setTimeout(resolve, 5000, null).unref());
     return Promise.race([cli(['replay', first.runId], { env }), hung]);
@@ -362,6 +370,7 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
   assert.match(leakedUrl, /setup failed: custom tool name "\[env\]" is invalid/u);
   assert.doesNotMatch(leakedUrl, /replay-canary-88/u, 'a rejected setup result never echoes its start URL');
   await writeFile(configPath, original);
+  await reinventory(first.outDir);
 });
 
 test('each repeat gets a fresh browser context; named storage state is loaded', async () => {
@@ -813,6 +822,7 @@ test('a setup module signs in with storage state; its code tool rebinds just bef
   resolved.setup.path = resolved.setup.path.replace('fixture-auth.ts', 'slow-auth.ts');
   resolved.request.limits.timeMs = 1600;
   await writeFile(configPath, JSON.stringify(resolved));
+  await reinventory(first.outDir);
   const late = await cli(['replay', first.runId]);
   assert.match(late.out, /tool_timeout: the replay ran past its time limit/u);
   assert.match(late.out, /replay run_\S+: failed/u);
