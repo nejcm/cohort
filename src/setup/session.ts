@@ -1,4 +1,5 @@
-import { runCleanups, runSetup, scrubEnv, type Cleanup } from './run.ts';
+import { loadSetupModule } from './load.ts';
+import { runCleanups, scrubEnv, settleWithin, type Cleanup } from './run.ts';
 import type { SecretStore } from './secrets.ts';
 import { customToolDefinitions } from './tools.ts';
 import type { SetupResult } from './types.ts';
@@ -37,7 +38,25 @@ export function createSetupSession(options: {
       .slice(0, MAX_DESCRIPTION_LENGTH);
   return {
     async run({ path, runId, scopeId, signal }) {
-      const result = await runSetup({ projectRoot, path, runId, scopeId, env, signal, envRead, cleanups });
+      // Reads and cleanups are recorded as they happen, so a module that throws afterwards still scrubs and cleans up.
+      const result = await settleWithin(
+        loadSetupModule(projectRoot, path).then((setup) =>
+          setup({
+            runId,
+            scopeId,
+            projectRoot,
+            signal,
+            env(name) {
+              const value = env[name];
+              if (!value) throw new Error(`environment variable ${name} is not set`);
+              envRead.push(value);
+              return value;
+            },
+            onCleanup: (handler) => void cleanups.push(handler),
+          }),
+        ),
+        signal,
+      );
       customToolDefinitions(result.tools);
       if (!URL.canParse(result.startUrl)) throw new Error('setup returned an invalid startUrl');
       for (const [name, value] of Object.entries(result.secrets ?? {})) secrets.bind(name, value);

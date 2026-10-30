@@ -1,6 +1,4 @@
-import { loadSetupModule } from './load.ts';
 import type { SecretStore } from './secrets.ts';
-import type { SetupResult } from './types.ts';
 
 const MIN_SCRUB_LENGTH = 4;
 const CLEANUP_BUDGET_MS = 10_000;
@@ -32,38 +30,6 @@ export function scrubEnv(text: string, secrets: SecretStore, values: readonly st
   return values
     .toSorted((a, b) => b.length - a.length)
     .reduce((scrubbed, value) => (value ? scrubbed.split(value).join('[env]') : scrubbed), redacted);
-}
-
-/** Loads and runs a setup module, settling by `signal`; values it reads through `ctx.env` land in `envRead`. */
-export function runSetup(options: {
-  projectRoot: string;
-  path: string;
-  runId: string;
-  scopeId: string;
-  env: NodeJS.ProcessEnv;
-  signal: AbortSignal;
-  envRead: string[];
-  cleanups: Cleanup[];
-}): Promise<SetupResult> {
-  const { projectRoot, path, runId, scopeId, env, signal, envRead, cleanups } = options;
-  return settleWithin(
-    loadSetupModule(projectRoot, path).then((setup) =>
-      setup({
-        runId,
-        scopeId,
-        projectRoot,
-        signal,
-        env(name) {
-          const value = env[name];
-          if (!value) throw new Error(`environment variable ${name} is not set`);
-          envRead.push(value);
-          return value;
-        },
-        onCleanup: (handler) => void cleanups.push(handler),
-      }),
-    ),
-    signal,
-  );
 }
 
 /** Runs and drains cleanups in reverse order within min(10 s, `capMs`); returns what went wrong. */
