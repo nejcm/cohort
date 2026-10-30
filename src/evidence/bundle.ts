@@ -25,8 +25,11 @@ export class BundleError extends Error {
   }
 }
 
-export const runsDir = (projectRoot: string): string => join(projectRoot, '.cohort', 'runs');
-export const runDir = (projectRoot: string, id: string): string => join(runsDir(projectRoot), id);
+const RUNS = '.cohort/runs';
+export const runsDir = (projectRoot: string): string => join(projectRoot, RUNS);
+export const runDir = (projectRoot: string, id: string): string => join(projectRoot, RUNS, id);
+/** The POSIX spelling relative to the project root, for the index and printed paths. */
+export const relativeRunDir = (id: string): string => `${RUNS}/${id}`;
 
 /** Resolves a run or batch directory by ID; IDs are generated, so anything else is rejected before touching the filesystem. */
 export async function bundleDir(projectRoot: string, id: string): Promise<{ kind: 'run' | 'batch'; dir: string }> {
@@ -117,23 +120,20 @@ export async function writeBundle(
   steps: readonly StepRecord[],
   degrade?: (failed: BundleFailure[]) => RunReport,
 ): Promise<{ report: RunReport; written: string[]; failed: BundleFailure[] }> {
-  const first = await writePass(dir, identity, report, steps, !degrade);
+  const first = await writePass(dir, identity, report, steps);
   if (first.failed.length === 0 || !degrade) return { report, ...first };
   const degraded = degrade(first.failed);
-  const final = await writePass(dir, identity, degraded, steps, true);
-  // A file the first pass wrote but the degraded pass could not would describe the run it no longer is.
-  for (const path of first.written)
-    if (!final.written.includes(path)) await rm(join(dir, path), { force: true }).catch(() => {});
-  return { report: degraded, ...final };
+  return { report: degraded, ...(await writePass(dir, identity, degraded, steps, first.written)) };
 }
 
-// manifest.json follows only a report.json written in this pass, and only after every report when `partial` is false.
+// A plain pass writes manifest.json only after every report. The degraded pass (`stale` set) needs only its own
+// report.json, and first removes earlier files it could not rewrite, since they describe the run it no longer is.
 async function writePass(
   dir: string,
   identity: BundleIdentity,
   report: RunReport,
   steps: readonly StepRecord[],
-  partial: boolean,
+  stale?: readonly string[],
 ): Promise<{ written: string[]; failed: BundleFailure[] }> {
   const written: string[] = [];
   const failed: BundleFailure[] = [];
@@ -149,7 +149,9 @@ async function writePass(
     await attempt(name, () => writeAtomic(join(dir, name), render()));
     if (!written.includes('report.json')) break;
   }
-  if (written.includes('report.json') && (partial || failed.length === 0))
+  for (const path of stale ?? [])
+    if (!written.includes(path)) await rm(join(dir, path), { force: true }).catch(() => {});
+  if (written.includes('report.json') && (stale || failed.length === 0))
     await attempt('manifest.json', () => writeManifest(dir, identity));
   return { written, failed };
 }
@@ -160,8 +162,7 @@ export async function writeBatchReports(dir: string, report: BatchReport): Promi
   await writeAtomic(join(dir, 'report.html'), renderBatchHtml(report));
 }
 
-/** Re-inventories a finalized run under a fresh manifest that keeps its identity. */
-export async function reinventory(dir: string): Promise<void> {
+async function bundleIdentity(dir: string): Promise<BundleIdentity> {
   const {
     schemaVersion: _,
     finalizedAt: _f,
@@ -169,13 +170,19 @@ export async function reinventory(dir: string): Promise<void> {
     artifacts: _a,
     ...identity
   } = await readBundleJson<RunManifest>(dir, 'manifest.json');
-  await writeManifest(dir, identity);
+  return identity;
+}
+
+/** Re-inventories a finalized run under a fresh manifest that keeps its identity. */
+export async function reinventory(dir: string): Promise<void> {
+  await writeManifest(dir, await bundleIdentity(dir));
 }
 
 /** Rewrites a finalized run's reports from a changed report, then re-inventories it under a fresh manifest. */
 export async function refreshRun(dir: string, change: (report: RunReport) => RunReport): Promise<RunReport> {
   const report = change(await readBundleJson<RunReport>(dir, 'report.json'));
+  const identity = await bundleIdentity(dir);
   await writeRunReports(dir, report, await readSteps(dir));
-  await reinventory(dir);
+  await writeManifest(dir, identity);
   return report;
 }

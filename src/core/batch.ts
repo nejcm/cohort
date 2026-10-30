@@ -164,8 +164,9 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       degrade([{ message: String((error as Error)?.message ?? error) }]),
     );
     const bundle = await writeBundle(outDir, identityOf(entry, run, trail), prepared, trail.steps, degrade);
-    // A failed degraded write cannot be described on disk, so only the returned report records it.
-    const report = bundle.failed.length > 0 ? degrade(bundle.failed) : bundle.report;
+    // A new failure in the degraded write cannot be described on disk, so only the returned report records it.
+    const unrecorded = bundle.failed.some((failure) => !failures.some((known) => known.path === failure.path));
+    const report = unrecorded ? degrade(bundle.failed) : bundle.report;
     for (const claim of report.friction)
       options.onEvent?.(runId, 'friction.created', { claimId: claim.id, kind: claim.kind });
     options.onEvent?.(runId, 'run.finished', { state: report.outcome.state });
@@ -173,18 +174,26 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   }
 
   function failedRun(run: BatchRun, trail: Trail, failures: readonly Failure[]): BatchRun {
-    const reasons = failures.map(
-      ({ path, message }) => `${path ?? 'artifact finalization failed'}: ${trail.secrets.redact(firstLine(message))}`,
-    );
+    const failed = failures.map(({ path, message }) => ({
+      path,
+      reason: firstLine(scrubEnv(message, trail.secrets, providerKeys)),
+    }));
+    const detail = failed.map(({ path, reason }) => (path ? `${path}: ${reason}` : reason)).join('; ');
     return {
       ...run,
       outcome: {
         state: 'agent_error',
         code: 'artifact_error',
-        reason: `artifact finalization failed: ${reasons.join('; ')}`.slice(0, 500),
+        reason: `artifact finalization failed: ${detail}`.slice(0, 500),
         evidence: [],
       },
-      issues: [...run.issues, ...reasons.map((reason) => ({ code: 'artifact_error', message: reason.slice(0, 200) }))],
+      issues: [
+        ...run.issues,
+        ...failed.map(({ path, reason }) => ({
+          code: 'artifact_error',
+          message: `${path ?? 'artifact finalization failed'}: ${reason}`.slice(0, 200),
+        })),
+      ],
     };
   }
 

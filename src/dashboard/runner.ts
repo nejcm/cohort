@@ -11,6 +11,7 @@ import {
   readBundleFile,
   readBundleJson,
   readSteps,
+  relativeRunDir,
   runDir,
   runsDir,
   writeBatchReports,
@@ -54,7 +55,6 @@ interface ResolvedConfigFile {
 }
 
 const now = (): string => new Date().toISOString();
-const relativeDir = (runId: string): string => `.cohort/runs/${runId}`;
 
 /** In-process FIFO over runBatch; events are persisted before broadcast, and cancel requests in the index are polled. */
 export class RunQueue {
@@ -281,7 +281,7 @@ function queuedRow(batchId: string, runId: string, entry: ResolvedEntry, repeat:
     duration_ms: null,
     estimated_cost_usd: null,
     cap_enforcement: new CostMeter(0, request.catalog.entry.pricesPerMTok).enforcement,
-    artifact_dir: relativeDir(runId),
+    artifact_dir: relativeRunDir(runId),
     report_path: null,
     config_hash: sha256(JSON.stringify({ request, task: entry.task, layers })),
   };
@@ -505,7 +505,7 @@ async function indexRuns(projectRoot: string, db: LabDb): Promise<number> {
         created_at: report.startedAt,
         started_at: report.startedAt,
         finished_at: null,
-        artifact_dir: relativeDir(name),
+        artifact_dir: relativeRunDir(name),
         config_hash: manifest?.configuration.resolvedConfigHash ?? sha256(resolvedText ?? name),
         outcome_state: null,
         blocked_kind: null,

@@ -427,6 +427,28 @@ test('a failed bundle write degrades once and writes manifest.json only after th
     ['report.html', 'report.json'],
     'no manifest, and the first pass report.md is removed rather than left describing a completed run',
   );
+
+  const unrendered = join(dir, 'degraded-md');
+  await mkdir(join(unrendered, 'report.html', 'blocker'), { recursive: true });
+  const stale = await writeBundle(unrendered, identity, report('run_a', completed), [], (failed) => ({
+    ...failedReport(failed),
+    friction: null as never,
+  }));
+  assert.deepEqual(stale.written, ['report.json', 'manifest.json']);
+  const listed = JSON.parse(await readFile(join(unrendered, 'manifest.json'), 'utf8')).artifacts.map(
+    (artifact: { path: string }) => artifact.path,
+  );
+  assert.deepEqual(listed, ['report.json'], 'the stale report.md is removed before the manifest inventories the run');
+  assert.deepEqual((await readdir(unrendered)).toSorted(), ['manifest.json', 'report.html', 'report.json']);
+
+  const unlisted = join(dir, 'degraded-manifest');
+  await mkdir(join(unlisted, 'manifest.json', 'blocker'), { recursive: true });
+  const nomanifest = await writeBundle(unlisted, identity, report('run_a', completed), [], failedReport);
+  assert.deepEqual(
+    [nomanifest.written, nomanifest.failed.map((failure) => failure.path)],
+    [['report.json', 'report.md', 'report.html'], ['manifest.json']],
+  );
+  assert.equal(JSON.parse(await readFile(join(unlisted, 'report.json'), 'utf8')).outcome.reason, 'manifest.json');
 });
 
 test('bundle readers refuse symlinked artifact files and treat missing ones as absent', async () => {
