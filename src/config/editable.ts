@@ -122,7 +122,9 @@ async function exclusive<T>(projectRoot: string, task: () => Promise<T>): Promis
 }
 
 async function withLockFile<T>(projectRoot: string, task: () => Promise<T>): Promise<T> {
-  await mkdir(join(projectRoot, '.cohort'), { recursive: true, mode: 0o700 });
+  const cohort = join(projectRoot, '.cohort');
+  await mkdir(cohort, { recursive: true, mode: 0o700 });
+  if (!(await lstat(cohort)).isDirectory()) throw new EditError(400, `${cohort} is not a plain directory`);
   await writeFile(join(projectRoot, EDIT_LOCK), '', { flag: 'a', mode: 0o600 });
   // An exclusive SQLite transaction is a cross-process lock that the OS releases if its holder dies.
   const lock = new DatabaseSync(join(projectRoot, EDIT_LOCK));

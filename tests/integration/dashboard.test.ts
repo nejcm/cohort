@@ -602,6 +602,7 @@ test('the index refuses a .cohort that is a symlink and leaves its target untouc
     await chmod(target, 0o755);
     await symlink(target, join(project, '.cohort'));
     await assert.rejects(openIndex(project), /\.cohort must be a plain directory/u);
+    await assert.rejects(saveEditable(project, 'personas', 'guest', '', ''), /\.cohort is not a plain directory/u);
     assert.equal((await stat(target)).mode & 0o777, 0o755);
     assert.deepEqual(await readdir(target), []);
   } finally {
