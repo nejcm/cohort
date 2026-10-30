@@ -60,7 +60,7 @@
     persona: Record<string, unknown> & { body?: string };
   }
 
-  let { id }: { id: string } = $props();
+  let { id, shot: linkedShot }: { id: string; shot?: string | null } = $props();
   let detail = $state<Detail | null>(null);
   let resolved = $state<Resolved | null>(null);
   let steps = $state<Step[]>([]);
@@ -180,6 +180,7 @@
     selected = null;
     let stop: (() => void) | undefined;
     void load().then(() => {
+      if (linkedShot && shots.includes(linkedShot)) selected = linkedShot;
       if (detail && isActive(detail.run.status))
         stop = follow(id, onEvent, () => void settle(), (connected) => (linked = connected));
       else void settle();

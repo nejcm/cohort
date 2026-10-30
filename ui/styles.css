@@ -2928,6 +2928,15 @@ body {
 .group-facts dd {
   margin: 0;
 }
+.group-friction {
+  margin-bottom: var(--s-4);
+}
+.group-friction .evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--text-sm);
+}
 .group-runs li {
   display: flex;
   flex-wrap: wrap;

@@ -104,6 +104,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   const batchId = options.ids?.batchId ?? newId('batch');
   const runs: BatchRun[] = [];
   const reports: RunReport[] = [];
+  const steps = new Map<string, StepRecord[]>();
   const total = entries.reduce((sum, entry) => sum + entry.request.repeats, 0);
   if (options.ids && options.ids.runIds.length !== total) throw new Error('one preassigned run ID per repetition');
   let position = 0;
@@ -121,10 +122,11 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       );
       runs.push(run.run);
       reports.push(run.report);
+      steps.set(runId, run.steps);
     }
   await addAboveMinimumClaims(runs, reports);
   const skipped = total - runs.length;
-  const summary = buildBatchReport(batchId, reports, skipped);
+  const summary = buildBatchReport(batchId, reports, steps, skipped);
   const reportDir = runDir(projectRoot, batchId);
   await mkdir(reportDir, { recursive: true, mode: 0o700 });
   await writeBatchReports(reportDir, summary);
@@ -135,7 +137,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     repeat: number,
     runId: string,
     runSignal: AbortSignal | undefined,
-  ): Promise<{ run: BatchRun; report: RunReport }> {
+  ): Promise<{ run: BatchRun; report: RunReport; steps: StepRecord[] }> {
     const outDir = runDir(projectRoot, runId);
     await mkdir(outDir, { recursive: true, mode: 0o700 });
     options.onRunStart?.({ runId, entryIndex: entry.entryIndex, repeat, personaId: entry.persona.id });
@@ -167,7 +169,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     for (const claim of report.friction)
       options.onEvent?.(runId, 'friction.created', { claimId: claim.id, kind: claim.kind });
     options.onEvent?.(runId, 'run.finished', { state: report.outcome.state });
-    return { run: finished, report };
+    return { run: finished, report, steps: trail.steps };
   }
 
   function failedRun(run: BatchRun, trail: Trail, failures: readonly Failure[]): BatchRun {

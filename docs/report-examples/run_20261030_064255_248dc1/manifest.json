@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "runId": "run_20261030_064255_248dc1",
+  "batchId": "batch_20261030_064255_bc0e9b",
+  "createdAt": "2026-10-30T06:42:55.236Z",
+  "toolVersion": "0.1.0-rc.0",
+  "runtime": {
+    "node": "v26.8.2",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4"
+  },
+  "configuration": {
+    "personaId": "guest",
+    "personaHash": "sha256:2669dea6cb535121df439ae5fb3831c89db238a4163bb2dc920f69bd6f1f5a32",
+    "suiteId": null,
+    "resolvedConfigHash": "sha256:a01a110b5523f9efefa5f8d7dad9136486e43ee2420a5b739d0deae7d8e65849",
+    "setupHash": null,
+    "mode": "vision",
+    "provider": "openai",
+    "model": "example-model",
+    "effort": "low",
+    "catalog": {
+      "version": "phase-0-unverified+example",
+      "hash": "sha256:fdd5495416fe73cc7131e3483270787d14eed9c3dd0f19fea81bebb9c9468717",
+      "entry": {
+        "id": "example-model",
+        "provider": "openai",
+        "label": "Example model",
+        "visionCapable": true,
+        "supportedEffortLevels": [
+          "low"
+        ],
+        "defaultEffort": "low",
+        "pricesPerMTok": {
+          "input": 1,
+          "output": 4,
+          "cachedInput": 0.1,
+          "cacheWrite": 1
+        },
+        "pricingVerifiedAt": "2026-10-01",
+        "untested": false
+      }
+    }
+  },
+  "finalizedAt": "2026-10-30T06:42:55.431Z",
+  "sensitivity": {
+    "traceMayContainSecrets": true,
+    "otherArtifactsMayContainSensitiveContent": true
+  },
+  "artifacts": [
+    {
+      "path": "replay.spec.ts",
+      "mediaType": "text/typescript",
+      "bytes": 1507,
+      "sha256": "sha256:9452669d5b3fc55410f929d8d9ec02787db8a4cd3a6fa8767e48408c6c51e60e",
+      "sensitivity": "placeholder_bindings"
+    },
+    {
+      "path": "report.html",
+      "mediaType": "text/html",
+      "bytes": 3776,
+      "sha256": "sha256:98d48571da0ae073ebdf6df4ca7f0a7e9c3b5ce12e49f21ad237e1b0bf3fa1a3",
+      "sensitivity": "redacted_sensitive"
+    },
+    {
+      "path": "report.json",
+      "mediaType": "application/json",
+      "bytes": 1725,
+      "sha256": "sha256:1ec16d4b7e7b1ade9257f84668b5d240312cadba05f55a383ddfa5e3457b0523",
+      "sensitivity": "redacted_sensitive"
+    },
+    {
+      "path": "report.md",
+      "mediaType": "text/markdown",
+      "bytes": 1891,
+      "sha256": "sha256:302a7505b17ac6bc3b195b94652b2d48bc80c034aaad93e6b38fa280e1a1e038",
+      "sensitivity": "redacted_sensitive"
+    },
+    {
+      "path": "resolved-config.json",
+      "mediaType": "application/json",
+      "bytes": 1966,
+      "sha256": "sha256:a01a110b5523f9efefa5f8d7dad9136486e43ee2420a5b739d0deae7d8e65849",
+      "sensitivity": "redacted"
+    },
+    {
+      "path": "screenshots/shot-0000.png",
+      "mediaType": "image/png",
+      "bytes": 18450,
+      "sha256": "sha256:2774fed28a44f23a6cd95cd6a2759bf79edfb8aeba4ddf60135b8a7998ff87d2",
+      "sensitivity": "redacted_sensitive"
+    },
+    {
+      "path": "steps.jsonl",
+      "mediaType": "application/jsonl",
+      "bytes": 782,
+      "sha256": "sha256:effcabd49a2875e656f2ab7d91e4ef336bf12c83cbb60ccc6f097064cecc2008",
+      "sensitivity": "redacted"
+    },
+    {
+      "path": "trace.zip",
+      "mediaType": "application/zip",
+      "bytes": 44507,
+      "sha256": "sha256:810df92c5f3c5a87a7f1cf9e4bfcb795d7908ef209f97c74a01630a7ec033755",
+      "sensitivity": "private_raw"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import type { CapEnforcement } from '../core/cost.ts';
-import type { Outcome } from '../core/outcomes.ts';
+import type { EvidenceRef, Outcome } from '../core/outcomes.ts';
 import type { ResolvedModel } from '../providers/catalog.ts';
 import type { Effort } from '../providers/types.ts';
-import { BROWSER_ACTIONS, type FrictionClaim } from './friction.ts';
+import { BROWSER_ACTIONS, recurrenceKey, type FrictionClaim } from './friction.ts';
 import type { StepRecord } from './steps.ts';
 
 export type ReplayStatus = 'not_attempted' | 'passed' | 'failed' | 'unsupported';
@@ -213,8 +213,10 @@ ${body}
 </html>
 `;
 
-const shotLink = (id: string | null): string =>
-  isShot(id) ? `<a href="screenshots/${id}.png"><img src="screenshots/${id}.png" alt="${id}" loading="lazy"></a>` : '';
+const shotLink = (id: string | null, prefix = ''): string =>
+  isShot(id)
+    ? `<a href="${html(prefix)}screenshots/${id}.png"><img src="${html(prefix)}screenshots/${id}.png" alt="${id}" loading="lazy"></a>`
+    : '';
 
 export function renderRunHtml(report: RunReport, steps: readonly StepRecord[]): string {
   const rows = facts(report)
@@ -263,6 +265,21 @@ ${issues}`,
   );
 }
 
+interface Opinion {
+  runId: string;
+  claimId: string;
+  reason: string;
+  evidence: EvidenceRef[];
+}
+
+type GroupFriction = { clusters: Map<string, ClaimCluster>; opinions: Opinion[] };
+
+interface ClaimCluster {
+  kind: Exclude<FrictionClaim['kind'], 'opinion'>;
+  statement: string;
+  runs: { runId: string; claimIds: string[]; evidence: EvidenceRef[] }[];
+}
+
 export interface BatchGroup {
   personaId: string;
   goal: string;
@@ -280,6 +297,8 @@ export interface BatchGroup {
   limits: Record<string, number>;
   abandoned: number;
   costUsd: { total: number; unknownRuns: number };
+  // Absent in batch reports written before clustering.
+  friction?: { measured: ClaimCluster[]; opinions: Opinion[] };
 }
 
 export interface BatchReport {
@@ -312,10 +331,12 @@ export const comparisonKey = (report: RunReport): string =>
 export function buildBatchReport(
   batchId: string,
   reports: readonly RunReport[],
+  steps: ReadonlyMap<string, readonly StepRecord[]>,
   notStarted: number,
   createdAt = new Date().toISOString(),
 ): BatchReport {
   const groups = new Map<string, BatchGroup>();
+  const friction = new Map<BatchGroup, GroupFriction>();
   for (const report of reports) {
     const key = comparisonKey(report);
     const group = groups.get(key) ?? {
@@ -337,6 +358,26 @@ export function buildBatchReport(
       costUsd: { total: 0, unknownRuns: 0 },
     };
     groups.set(key, group);
+    const { clusters, opinions }: GroupFriction = friction.get(group) ?? { clusters: new Map(), opinions: [] };
+    friction.set(group, { clusters, opinions });
+    const byId = new Map((steps.get(report.runId) ?? []).map((step) => [step.id, step]));
+    for (const claim of report.friction) {
+      if (claim.kind === 'opinion') {
+        opinions.push({
+          runId: report.runId,
+          claimId: claim.id,
+          reason: claim.opinion.reason,
+          evidence: claim.evidence,
+        });
+        continue;
+      }
+      const recurrence = recurrenceKey(claim, byId) ?? `${report.runId} ${claim.id}`;
+      const cluster = clusters.get(recurrence) ?? { kind: claim.kind, statement: claim.statement, runs: [] };
+      clusters.set(recurrence, cluster);
+      const seen = cluster.runs.find((run) => run.runId === report.runId);
+      if (seen) seen.claimIds.push(claim.id);
+      else cluster.runs.push({ runId: report.runId, claimIds: [claim.id], evidence: claim.evidence });
+    }
     const { outcome } = report;
     const cost = runCostUsd(report);
     group.runs.push({
@@ -363,9 +404,15 @@ export function buildBatchReport(
     }
   }
   const list = [...groups.values()];
-  for (const group of list)
+  for (const group of list) {
     group.completion.rate =
       group.completion.denominator === 0 ? null : group.completion.numerator / group.completion.denominator;
+    const { clusters, opinions } = friction.get(group)!;
+    group.friction = {
+      measured: [...clusters.values()].toSorted((a, b) => b.runs.length - a.runs.length),
+      opinions,
+    };
+  }
   const modes = new Set(list.map((group) => group.mode));
   return {
     schemaVersion: 1,
@@ -379,6 +426,7 @@ export function buildBatchReport(
       SENSITIVITY_WARNING,
       ...[...modes].map((mode) => MODE_WARNINGS[mode]),
       'Blocked runs and user cancellations are excluded from the completion denominator; agent-declared blocks are unverified. Agent errors and limits count as non-completions but are not UX failures.',
+      "Measured friction is grouped across a comparison's runs by kind plus page and the step's resolved target, focused element, or error text; anything uncertain stays separate. Agent opinions are listed one by one and never grouped or counted as recurring.",
       ...(list.some((group) => group.untested) ? ['Some runs used a catalog entry marked untested.'] : []),
     ],
   };
@@ -411,6 +459,72 @@ function groupFacts(group: BatchGroup): [string, string][] {
   ];
 }
 
+const clusterLabel = (kind: ClaimCluster['kind']): string =>
+  kind === 'steps_above_minimum' ? 'Above observed batch minimum' : `Harness: ${kind.replaceAll('_', ' ')}`;
+
+const OPINIONS_HEADING = 'Agent opinions (unverified, not grouped)';
+
+const shotMarkdown = (runId: string, ref: EvidenceRef): string =>
+  `[${md(`${runId} ${ref.stepId}`)}](../${runId}/screenshots/${ref.screenshotId}.png)`;
+
+function frictionMarkdown(group: BatchGroup): string[] {
+  if (!group.friction) return [];
+  const { measured, opinions } = group.friction;
+  return [
+    '### Friction across runs',
+    '',
+    ...(measured.length === 0
+      ? ['No measured friction.']
+      : [
+          '| Claim | Seen in | Evidence |',
+          '| --- | --- | --- |',
+          ...measured.map(
+            (cluster) =>
+              `| **${clusterLabel(cluster.kind)}** ${md(cluster.statement)} | ${cluster.runs.length} of ${group.runs.length} runs | ${cluster.runs
+                .flatMap((run) => run.evidence.map((ref) => shotMarkdown(run.runId, ref)))
+                .join(', ')} |`,
+          ),
+        ]),
+    '',
+    ...(opinions.length === 0
+      ? []
+      : [
+          `### ${OPINIONS_HEADING}`,
+          '',
+          ...opinions.map(
+            (item) =>
+              `- ${md(item.runId)}: ${md(item.reason)} ${item.evidence.map((ref) => shotMarkdown(item.runId, ref)).join(', ')}`,
+          ),
+          '',
+        ]),
+  ];
+}
+
+function frictionHtml(group: BatchGroup): string {
+  if (!group.friction) return '';
+  const { measured, opinions } = group.friction;
+  const shots = (runId: string, refs: readonly EvidenceRef[]): string =>
+    refs.map((ref) => `${html(`${runId} ${ref.stepId}`)} ${shotLink(ref.screenshotId, `../${runId}/`)}`).join(' ');
+  const table =
+    measured.length === 0
+      ? '<p>No measured friction.</p>'
+      : `<div class="scroll"><table><tr><th>Claim</th><th>Seen in</th><th>Evidence</th></tr>${measured
+          .map(
+            (cluster) =>
+              `<tr><td><strong>${html(clusterLabel(cluster.kind))}</strong> ${html(cluster.statement)}</td><td>${cluster.runs.length} of ${group.runs.length} runs</td><td>${cluster.runs
+                .map((run) => shots(run.runId, run.evidence))
+                .join(' ')}</td></tr>`,
+          )
+          .join('')}</table></div>`;
+  const list =
+    opinions.length === 0
+      ? ''
+      : `\n<h3>${html(OPINIONS_HEADING)}</h3>\n<ul>${opinions
+          .map((item) => `<li>${html(item.runId)}: ${html(item.reason)} ${shots(item.runId, item.evidence)}</li>`)
+          .join('')}</ul>`;
+  return `\n<h3>Friction across runs</h3>\n${table}${list}`;
+}
+
 export function renderBatchMarkdown(report: BatchReport): string {
   const lines = [`# Batch ${md(report.batchId)}`, '', ...report.warnings.map((warning) => `> ${md(warning)}\n`)];
   lines.push(
@@ -425,6 +539,7 @@ export function renderBatchMarkdown(report: BatchReport): string {
       '| --- | --- |',
       ...groupFacts(group).map(([key, value]) => `| ${key} | ${md(value)} |`),
       '',
+      ...frictionMarkdown(group),
       '| Run | Outcome | Cost |',
       '| --- | --- | --- |',
       ...group.runs.map(
@@ -441,7 +556,7 @@ export function renderBatchHtml(report: BatchReport): string {
       (group) => `<h2>${html(`${group.personaId} · ${group.provider}/${group.model} · ${group.effort}`)}</h2>
 <table>${groupFacts(group)
         .map(([key, value]) => `<tr><th>${key}</th><td>${html(value)}</td></tr>`)
-        .join('')}</table>
+        .join('')}</table>${frictionHtml(group)}
 <div class="scroll"><table><tr><th>Run</th><th>Outcome</th><th>Cost</th></tr>${group.runs
         .map(
           (run) =>

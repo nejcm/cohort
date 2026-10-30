@@ -315,12 +315,15 @@ async function finalizeBatch(projectRoot: string, db: LabDb, batchId: string): P
   if ((await readBundleFile(dir, 'report.json').catch(() => null)) === null) {
     const rows = db.batchRuns(batchId);
     const reports: RunReport[] = [];
+    const steps = new Map<string, StepRecord[]>();
     for (const row of rows) {
       const report = await readBundleJson<RunReport>(runDir(projectRoot, row.id), 'report.json').catch(() => null);
-      if (report) reports.push(report);
+      if (!report) continue;
+      reports.push(report);
+      steps.set(row.id, await readSteps(runDir(projectRoot, row.id)).catch(() => []));
     }
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    await writeBatchReports(dir, buildBatchReport(batchId, reports, rows.length - reports.length));
+    await writeBatchReports(dir, buildBatchReport(batchId, reports, steps, rows.length - reports.length));
   }
   // Comparison claims are added to the bundles after their runs finished, so recount from the final reports.
   for (const row of db.batchRuns(batchId)) {

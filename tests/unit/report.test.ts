@@ -13,13 +13,15 @@ import {
   refreshRun,
   writeBundle,
 } from '../../src/evidence/bundle.ts';
-import { deriveClaims, validateClaim } from '../../src/evidence/friction.ts';
+import { deriveClaims, recurrenceKey, validateClaim, type FrictionClaim } from '../../src/evidence/friction.ts';
 import { inventory, writeAtomic, writeManifest } from '../../src/evidence/manifest.ts';
 import { generateReplay, replayGaps } from '../../src/evidence/replay.ts';
 import {
   buildBatchReport,
   costText,
   rateText,
+  renderBatchHtml,
+  renderBatchMarkdown,
   renderRunHtml,
   renderRunMarkdown,
   type RunReport,
@@ -263,6 +265,7 @@ test('batch completion excludes blocked runs and user cancellations; process int
         },
       ),
     ],
+    new Map(),
     1,
   );
   const [main, other] = summary.groups;
@@ -281,9 +284,108 @@ test('batch completion excludes blocked runs and user cancellations; process int
 });
 
 test('a batch with only blocked and cancelled runs reports N/A, never a rate', () => {
-  const summary = buildBatchReport('batch_x', [report('r1', blocked('harness')), report('r2', interrupted('user'))], 0);
+  const summary = buildBatchReport(
+    'batch_x',
+    [report('r1', blocked('harness')), report('r2', interrupted('user'))],
+    new Map(),
+    0,
+  );
   assert.deepEqual(summary.groups[0]!.completion, { numerator: 0, denominator: 0, rate: null });
   assert.equal(rateText(summary.groups[0]!.completion), 'N/A (0/0)');
+});
+
+function trail(runId: string, x: number, label: string): StepRecord[] {
+  const at = (sequence: number) =>
+    step(
+      sequence,
+      'click',
+      { observationId: `o000${sequence}`, target: { kind: 'point', x, y: 20 } },
+      {
+        runId,
+        target: {
+          locator: { frames: [], target: { by: 'role', role: 'button', name: label } },
+          stability: 'semantic',
+          position: { x, y: 20 },
+          tag: 'button',
+        },
+      },
+    );
+  return [
+    step(0, 'navigate', { url: 'http://app.test/' }, { runId }),
+    at(1),
+    at(2),
+    step(3, 'report_friction', { step: 's0002', reason: 'Slow | [form] <b>x</b>' }, { runId, afterScreenshotId: null }),
+  ];
+}
+
+const runReport = (runId: string, runSteps: StepRecord[]): RunReport =>
+  report(runId, completed, {
+    friction: deriveClaims(runId, runSteps).map((claim) =>
+      runId === 'run_a' && claim.kind === 'repeated_action'
+        ? { ...claim, statement: `${claim.statement} a|b [c]` }
+        : claim,
+    ),
+  });
+
+test('batch clusters measured claims across runs by page and resolved target; opinions stay separate', () => {
+  const trails = new Map([
+    ['run_a', trail('run_a', 10, 'Book')],
+    ['run_b', trail('run_b', 12, 'Book')],
+    ['run_c', trail('run_c', 10, 'Cancel')],
+  ]);
+  const reports = [...trails].map(([runId, runSteps]) => runReport(runId, runSteps));
+  reports.push(runReport('run_d', trail('run_d', 10, 'Book')));
+  const [a, b] = reports.map((item) => item.friction.find((claim) => claim.kind === 'repeated_action') as any);
+  assert.notEqual(a.measurement.actionFingerprint, b.measurement.actionFingerprint, 'pixel jitter differs');
+  const summary = buildBatchReport('batch_x', reports, trails, 0);
+  const group = summary.groups[0]!;
+  assert.deepEqual(
+    group.friction!.measured.map((cluster) => [cluster.kind, cluster.runs.map((run) => run.runId)]),
+    [
+      ['repeated_action', ['run_a', 'run_b']],
+      ['repeated_action', ['run_c']],
+      ['repeated_action', ['run_d']],
+    ],
+    'same target merges, a different locator or unknown steps stay separate',
+  );
+  assert.deepEqual(group.friction!.measured[0]!.runs[0], { runId: 'run_a', claimIds: [a.id], evidence: a.evidence });
+  assert.deepEqual(
+    group.friction!.opinions.map((item) => item.runId),
+    ['run_a', 'run_b', 'run_c', 'run_d'],
+    'identical opinions are never merged',
+  );
+  assert.ok(summary.warnings.some((warning) => /Agent opinions are listed one by one/u.test(warning)));
+
+  const markdown = renderBatchMarkdown(summary);
+  assert.match(markdown, /\| 2 of 4 runs \|/u);
+  assert.ok(markdown.includes('(../run_a/screenshots/shot-0002.png)'));
+  assert.ok(markdown.includes('a\\|b \\[c\\]'));
+  assert.ok(markdown.includes('### Agent opinions (unverified, not grouped)'));
+  const page = renderBatchHtml(summary);
+  assert.ok(page.includes('<img src="../run_a/screenshots/shot-0002.png"'));
+  assert.ok(page.includes('&lt;b&gt;x&lt;/b&gt;') && !page.includes('<b>x'));
+
+  delete group.friction;
+  assert.doesNotMatch(renderBatchMarkdown(summary), /Friction across runs/u, 'older batch reports still render');
+  assert.doesNotMatch(renderBatchHtml(summary), /Friction across runs/u);
+});
+
+const visibleError = (text: string): FrictionClaim => ({
+  schemaVersion: 1,
+  id: 'c0000',
+  runId: 'run_a',
+  statement: text,
+  evidence: [{ stepId: 's0001', screenshotId: shot(1) }],
+  source: 'harness',
+  kind: 'visible_error',
+  measurement: { text, detector: 'visible_alert' },
+});
+
+test('visible error claims recur on detector and whitespace-normalized text', () => {
+  assert.equal(
+    recurrenceKey(visibleError('Card  declined\n'), new Map()),
+    recurrenceKey(visibleError('Card declined'), new Map()),
+  );
 });
 
 test('reports print cost, unsettled reservations, or cost unknown with the enforcement limit', () => {

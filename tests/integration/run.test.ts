@@ -275,6 +275,17 @@ test('runs finalize into a manifest-inventoried bundle with reports, claims, and
 
   const batch = JSON.parse(await readFile(join(json.reportDir, 'report.json'), 'utf8'));
   assert.equal(batch.batchId, json.batchId);
+  assert.deepEqual(
+    batch.groups[0].friction.measured.map((cluster: any) => [
+      cluster.kind,
+      cluster.runs.map((entry: any) => entry.runId),
+    ]),
+    [['steps_above_minimum', [first.runId]]],
+  );
+  assert.deepEqual(
+    batch.groups[0].friction.opinions.map((item: any) => item.runId),
+    [first.runId],
+  );
   assert.match((await cli(['report', json.batchId, '--format', 'md'])).out, /Completion rate \| 100% \(2\/2\)/u);
   assert.equal((await cli(['report', first.runId, '--format', 'json'])).json, null);
   assert.equal(JSON.parse((await cli(['report', first.runId, '--format', 'json'])).out).runId, first.runId);

@@ -1,4 +1,4 @@
-import { fingerprint } from '../core/agent.ts';
+import { fingerprint, loopKey } from '../core/agent.ts';
 import type { EvidenceRef } from '../core/outcomes.ts';
 import { validate, type JsonSchema } from '../core/schema.ts';
 import { focusLabel, type StepRecord } from './steps.ts';
@@ -257,6 +257,21 @@ export function deriveClaims(runId: string, steps: readonly StepRecord[]): Frict
   return drafts
     .filter((draft) => draft.evidence.length > 0)
     .map((draft, index) => ({ schemaVersion: 1, id: claimId(index), runId, ...draft }) as FrictionClaim);
+}
+
+/** Cross-run identity of a measured claim; null when it cannot be matched safely, so it is never merged. */
+export function recurrenceKey(item: FrictionClaim, steps: ReadonlyMap<string, StepRecord>): string | null {
+  if (item.kind === 'opinion') return null;
+  if (item.kind === 'steps_above_minimum') return item.kind;
+  if (item.kind === 'visible_error')
+    return JSON.stringify([item.kind, item.measurement.detector, item.measurement.text.replace(/\s+/gu, ' ').trim()]);
+  const step = steps.get(item.evidence[0].stepId);
+  if (!step) return null;
+  if (item.kind === 'repeated_action' || item.kind === 'long_pause')
+    return JSON.stringify([item.kind, step.pageUrl, loopKey(step)]);
+  if (item.kind === 'focus_trap' || item.kind === 'focus_not_visible')
+    return JSON.stringify([item.kind, step.pageUrl, item.measurement.element]);
+  return JSON.stringify([item.kind, step.pageUrl]);
 }
 
 /** Rejects unknown fields, missing evidence, cross-run references, and unknown steps or screenshots. */

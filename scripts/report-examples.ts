@@ -5,8 +5,9 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { run } from '../src/cli.ts';
-import { writeBatchReports } from '../src/evidence/bundle.ts';
+import { readSteps, writeBatchReports } from '../src/evidence/bundle.ts';
 import { buildBatchReport, type RunReport } from '../src/evidence/report.ts';
+import type { StepRecord } from '../src/evidence/steps.ts';
 import { startFixture } from '../tests/fixtures/friction-app/server.ts';
 import { fakeProvider, lastStepId, type Turn } from '../tests/helpers/fake-provider.ts';
 
@@ -54,6 +55,7 @@ const examples: { name: string; path: string; turn: Turn }[] = [
 ];
 
 const reports: RunReport[] = [];
+const steps = new Map<string, StepRecord[]>();
 let controller = new AbortController();
 try {
   await rm(out, { recursive: true, force: true });
@@ -74,11 +76,13 @@ try {
     const target = join(out, basename(result.outDir));
     // Native traces are private evidence and never published.
     await cp(result.outDir, target, { recursive: true, filter: (path) => !path.endsWith('trace.zip') });
-    reports.push(JSON.parse(await readFile(join(target, 'report.json'), 'utf8')) as RunReport);
+    const report = JSON.parse(await readFile(join(target, 'report.json'), 'utf8')) as RunReport;
+    reports.push(report);
+    steps.set(report.runId, await readSteps(target));
   }
   const batchId = 'batch_20261028_000000_000000';
   await mkdir(join(out, batchId));
-  await writeBatchReports(join(out, batchId), buildBatchReport(batchId, reports, 0));
+  await writeBatchReports(join(out, batchId), buildBatchReport(batchId, reports, steps, 0));
   for (const entry of await readdir(out, { recursive: true }))
     if (/\.(json|jsonl|md|html|ts)$/u.test(entry))
       assert.ok(!(await readFile(join(out, entry), 'utf8')).includes(root), `${entry} names the temp project`);

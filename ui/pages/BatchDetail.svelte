@@ -3,6 +3,10 @@
   import Skeleton from '../components/Skeleton.svelte';
   import { api, badge, isActive, statusLabel, usd, words, type RunSummary } from '../lib/api.ts';
 
+  interface Evidence {
+    stepId: string;
+    screenshotId: string;
+  }
   interface Group {
     personaId: string;
     goal: string;
@@ -19,6 +23,10 @@
     limits: Record<string, number>;
     abandoned: number;
     costUsd: { total: number; unknownRuns: number };
+    friction?: {
+      measured: { kind: string; statement: string; runs: { runId: string; claimIds: string[]; evidence: Evidence[] }[] }[];
+      opinions: { runId: string; claimId: string; reason: string; evidence: Evidence[] }[];
+    };
   }
   interface Summary {
     groups: Group[];
@@ -51,6 +59,8 @@
       .filter((group) => group.completion.rate !== null)
       .toSorted((a, b) => a.completion.rate! - b.completion.rate!)[0],
   );
+  const shotHref = (runId: string, ref: Evidence): string =>
+    `/runs/${encodeURIComponent(runId)}?shot=${encodeURIComponent(ref.screenshotId)}`;
   const percent = (rate: number | null): string => (rate === null ? '—' : `${Math.round(rate * 100)}%`);
   const total = (counts: Record<string, number>): number => Object.values(counts).reduce((sum, n) => sum + n, 0);
   const counted = (counts: Record<string, number>): string =>
@@ -173,6 +183,46 @@
           <dt>Cost</dt>
           <dd class="muted">{usd(group.costUsd.total)}{group.costUsd.unknownRuns ? ` + ${group.costUsd.unknownRuns} unknown` : ''}</dd>
         </dl>
+        {#if group.friction}
+          <div class="group-friction">
+            <div class="claim-group">
+              <h3>Measured across runs <span class="count">{group.friction.measured.length}</span></h3>
+              {#if group.friction.measured.length === 0}<p class="muted">No measured friction.</p>{/if}
+              <ul class="claims">
+                {#each group.friction.measured as cluster (cluster.kind + cluster.runs[0]?.runId + cluster.runs[0]?.claimIds[0])}
+                  <li>
+                    <span><span class="kind">{words(cluster.kind)}</span> <span class="muted">seen in {cluster.runs.length} of {group.runs.length} runs</span></span>
+                    <p>{cluster.statement}</p>
+                    <span class="evidence">
+                      {#each cluster.runs as run (run.runId)}
+                        {#each run.evidence as ref (ref.stepId + ref.screenshotId)}
+                          <a class="mono" href={shotHref(run.runId, ref)}>{run.runId} {ref.stepId}</a>
+                        {/each}
+                      {/each}
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+            {#if group.friction.opinions.length > 0}
+              <div class="claim-group">
+                <h3>Agent opinions, unverified <span class="count">{group.friction.opinions.length}</span></h3>
+                <ul class="claims">
+                  {#each group.friction.opinions as item (item.runId + item.claimId)}
+                    <li>
+                      <p class="opinion">{item.reason}</p>
+                      <span class="evidence">
+                        {#each item.evidence as ref (ref.stepId + ref.screenshotId)}
+                          <a class="mono" href={shotHref(item.runId, ref)}>{item.runId} {ref.stepId}</a>
+                        {/each}
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </div>
+        {/if}
         <ul class="group-runs">
           {#each group.runs as entry (entry.runId)}
             {@const run = byId.get(entry.runId)}

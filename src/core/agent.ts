@@ -146,7 +146,7 @@ function alternating(keys: readonly string[]): boolean {
 }
 
 // Coordinates are replaced by the resolved locator so jitter does not matter; values stay in (already redacted).
-function loopKey(step: StepRecord): string {
+export function loopKey(step: StepRecord): string {
   const { observationId: _, target, ...rest } = step.action.args;
   return `${step.action.name} ${canonical({ ...rest, at: step.target?.locator ?? target })}`;
 }
