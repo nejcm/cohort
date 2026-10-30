@@ -1,15 +1,34 @@
-# cohort.
+<p align="center">
+  <img src="ui/favicon.svg" alt="cohort logo" width="96" height="96">
+</p>
 
+<h1 align="center">cohort</h1>
+
+<p align="center">
+  AI synthetic users that operate your web app like real people.<br>
+  Inspectable Playwright trail. Replayable script. Evidence-cited reports.
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#documentation">Docs</a> ·
+  <a href="LICENSE">Apache-2.0</a>
+</p>
+
+> [!NOTE]
 > Working title. Release candidate `0.1.0-rc.0`: tested offline against a scripted model; no shipped model is enabled until live verification.
 
-AI synthetic users that operate your web app like real people. You give a persona a goal; an agent drives a real Chromium browser from screenshots, the way a first-time user would, and every action is recorded as an inspectable Playwright trail plus a replayable script. Reports separate what the harness measured from what the agent thought, and every claim cites screenshot evidence.
+Give a persona a goal. An agent drives a real Chromium browser from screenshots, the way a first-time user would, and every action is recorded as an inspectable Playwright trail plus a replayable script. Reports separate what the harness measured from what the agent thought, and every claim cites screenshot evidence.
 
-- Local-first: a CLI and a local dashboard. No hosted service, accounts, or telemetry.
-- Bring your own LLM key (OpenAI or Anthropic). Keys stay in your environment.
-- Honest outcomes: `completed`, `abandoned`, `blocked(kind)`, `agent_error(code)`, or `limit_reached(limit)`. An agent failure is never reported as a UX failure.
-- Bounded spend: step, time, and dollar caps, with "cost unknown" stated when prices are missing.
+## Why cohort
 
-What it is not: an accessibility audit, a substitute for user research, a load tester, or a CAPTCHA or payment bot. Synthetic behaviour is not validated against real people.
+- **Local-first.** A CLI and a local dashboard. No hosted service, accounts, or telemetry.
+- **Bring your own key.** OpenAI or Anthropic; keys stay in your environment.
+- **Honest outcomes.** `completed`, `abandoned`, `blocked(kind)`, `agent_error(code)`, or `limit_reached(limit)`. An agent failure is never reported as a UX failure.
+- **Bounded spend.** Step, time, and dollar caps, with "cost unknown" stated when prices are missing.
+
+**Not** an accessibility audit, a substitute for user research, a load tester, or a CAPTCHA or payment bot. Synthetic behaviour is not validated against real people.
 
 ## Quick start
 
@@ -75,7 +94,8 @@ Each run writes `.cohort/runs/<run-id>/`: `trace.zip`, `screenshots/`, `steps.js
 
 ## Evidence warning
 
-`trace.zip` files are native Playwright traces with unmasked DOM snapshots and typed values; they contain secrets. Keep `.cohort/runs` and `.cohort/auth` private: never publish, commit, or upload them. Screenshots sent to models are masked for known secrets and scripts use `{{placeholder}}` bindings, but reports and screenshots can still show sensitive app content. Use test accounts and synthetic data.
+> [!WARNING]
+> `trace.zip` files are native Playwright traces with unmasked DOM snapshots and typed values; they contain secrets. Keep `.cohort/runs` and `.cohort/auth` private: never publish, commit, or upload them. Screenshots sent to models are masked for known secrets and scripts use `{{placeholder}}` bindings, but reports and screenshots can still show sensitive app content. Use test accounts and synthetic data.
 
 ## Roadmap
 
