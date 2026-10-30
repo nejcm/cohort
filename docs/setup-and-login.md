@@ -27,7 +27,7 @@ const setup: SetupModule = async (ctx) => ({
 ```
 
 - **Scope.** `ctx.scopeId` is unique for each repetition (it is the run ID). Use it to keep test data apart, so that repetitions never share state. Both example modules pass it to the fixture app.
-- **Environment.** `ctx.env(name)` reads the environment. Every value read this way is scrubbed from setup errors, cleanup errors, and custom-tool text.
+- **Environment.** `ctx.env(name)` reads the environment. Every value read this way is scrubbed from setup errors, cleanup errors, and custom-tool text, even when the module throws right after reading it. Runs and replays share one composition of that scrub (provider keys, values read, bound secrets) in `src/setup/session.ts`.
 - **Cleanup.** `ctx.onCleanup(fn)` registers cleanup handlers. They run in reverse order after the run, within min(10 s, the run time cap). Failures and timeouts become `cleanup_failed` and `cleanup_timeout` report issues.
 - **Precedence.** Storage state returned by setup overrides a named `storageState`. `resolved-config.json` records `storageState: "setup"` and never stores the state itself.
 
