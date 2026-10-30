@@ -89,7 +89,7 @@ entries:
   <div class="page-head">
     <div class="title"><h1>Suites</h1></div>
     <div class="actions"><a class="button" href="/suites/new"><Icon name="plus" />New suite</a></div>
-    {#if loaded}<p class="sub">{suites.length} {suites.length === 1 ? 'suite' : 'suites'} in <span class="mono">.cohort/suites/</span>. A suite is a list of persona and goal entries run together.</p>{/if}
+    {#if loaded}<p class="sub">{suites.length} {suites.length === 1 ? 'suite' : 'suites'} in <code>.cohort/suites/</code>. A suite is a list of persona and goal entries run together.</p>{/if}
   </div>
 {/if}
 {#if error}<div class="banner error" role="alert"><div class="body"><span>{error}</span></div></div>{/if}
@@ -97,7 +97,7 @@ entries:
   <form class="editor" onsubmit={create} aria-labelledby="create-title">
     <div class="editor-head">
       <h2 id="create-title">Suite</h2>
-      <span class="hint mono">.cohort/suites/&lt;id&gt;.yml</span>
+      <code class="hint">.cohort/suites/&lt;id&gt;.yml</code>
     </div>
     {#if draftError}<div class="banner error" role="alert"><div class="body"><span>{draftError}</span></div></div>{/if}
     {#if templated && schema}

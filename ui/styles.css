@@ -1,76 +1,114 @@
-/* cohort. dashboard: one terminal dark theme; CSP-safe (no url(), data:, web fonts or inline styles). */
+/* cohort. dashboard: the shadcn-svelte "luma" theme (neutral, Manrope); CSP-safe (no data:, inline styles or remote fonts). */
+
+@font-face {
+  font-family: 'Manrope Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url(./fonts/manrope-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Manrope Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url(./fonts/manrope-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC,
+    U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 /* ---------- 1. Tokens ---------- */
-/* One theme: terminal dark. Monospace throughout, square edges, hairline
-   rules, a dotted sheet, uppercase tracked labels, colour only for status. */
+/* shadcn-svelte preset b6B7Be9fS4 (style luma, base neutral): a light sidebar
+   beside one white inset panel; ringed cards, pill controls, a near-black primary. */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   scrollbar-color: var(--line-strong) transparent;
 
-  /* Semantic core (kept from the existing set) */
-  --bg: #0b0b0b; /* the frame: sidebar + top bar */
-  --fg: #ececec; /* primary text        14.9:1 on --surface */
-  --muted: #8c8c8c; /* secondary text       6.3:1 on --surface, 4.9:1 on --bg */
-  --line: #232323; /* card and sheet edges */
-  --accent: #f07a2e; /* links, focus, running   6.7:1 on --surface */
-  --warn: #d4b13a; /* mustard: blocked, limits, metered */
-  --bad: #e5566f; /* red: failed, errors, private */
-  --good: #4cc27b; /* green: succeeded, ok, saved */
-  --brand: #7fd4a2; /* the logo dot */
+  /* shadcn roles */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --destructive: var(--bad);
+
+  /* Semantic core */
+  --bg: var(--sidebar); /* the canvas behind the inset panel */
+  --fg: var(--foreground);
+  --muted: var(--muted-foreground);
+  --line: var(--border);
+  --edge: transparent; /* card edges: the ring does the work; tone-* cards colour it */
+  /* One family: matched lightness and chroma so no status shouts over another */
+  --accent: oklch(0.57 0.16 258); /* running, progress */
+  --warn: oklch(0.67 0.14 64);
+  --bad: oklch(0.6 0.17 22);
+  --good: oklch(0.62 0.12 162);
+  --brand: var(--good); /* the logo dot */
 
   /* Derived */
-  --surface: #111111; /* the sheet, dialog */
-  --surface-2: #1c1c1c; /* cards, inputs, wells */
-  --surface-3: #2a2a2a; /* hover, active, skeleton */
-  --band: #161616; /* table header band */
-  --active: #2a2a2a; /* the current nav item, on the frame */
-  --fg-2: #c4c4c4;
-  --rule: #1f1f1f; /* row rules */
-  --line-strong: #333333; /* control borders */
-  --primary: #ececec; /* the one primary action: inverted, near-white */
-  --on-primary: #0b0b0b;
-  --accent-hover: #f59a5c;
-  --accent-soft: #2a1a10;
-  --accent-line: #5c3418;
-  --on-accent: #0b0b0b;
-  --warn-soft: #29260f;
-  --warn-line: #57501f;
-  --bad-soft: #2c1a20;
-  --bad-line: #5c2733;
-  --good-soft: #12301e;
-  --good-line: #1f5233;
-  --focus: #f07a2e;
-  --stage: #080808; /* backdrop behind screenshots */
+  --surface: var(--background);
+  --surface-2: var(--secondary);
+  --fill: color-mix(in oklch, var(--input) 50%, transparent); /* bg-input/50 */
+  --surface-3: color-mix(in oklch, var(--secondary), var(--foreground) 5%);
+  --band: var(--secondary);
+  --active: oklch(0.93 0 0);
+  --hover: oklch(0.95 0 0);
+  --fg-2: oklch(0.205 0 0);
+  --rule: var(--border);
+  --line-strong: var(--border);
+  --primary: oklch(0.205 0 0);
+  --primary-hover: color-mix(in oklch, var(--primary) 80%, transparent);
+  --on-primary: oklch(0.985 0 0);
+  --accent-hover: oklch(0.5 0.16 258);
+  --accent-soft: color-mix(in srgb, var(--accent) 9%, var(--background));
+  --accent-line: color-mix(in srgb, var(--accent) 35%, var(--background));
+  --on-accent: oklch(0.985 0 0);
+  --warn-soft: color-mix(in srgb, var(--warn) 10%, var(--background));
+  --warn-line: color-mix(in srgb, var(--warn) 45%, var(--background));
+  --bad-soft: color-mix(in srgb, var(--bad) 9%, var(--background));
+  --bad-line: color-mix(in srgb, var(--bad) 35%, var(--background));
+  --good-soft: color-mix(in srgb, var(--good) 10%, var(--background));
+  --good-line: color-mix(in srgb, var(--good) 40%, var(--background));
+  --focus: var(--ring);
+  --focus-ring: color-mix(in oklch, var(--ring) 30%, transparent);
+  --stage: var(--secondary); /* backdrop behind screenshots */
   --mask: #000000; /* redaction boxes */
-  --backdrop: rgb(0 0 0 / 0.72);
-  --toast-bg: #ececec;
-  --toast-fg: #0b0b0b;
+  --backdrop: rgb(0 0 0 / 0.3);
+  --toast-bg: oklch(0.205 0 0);
+  --toast-fg: oklch(0.985 0 0);
 
-  --shadow-1: none;
-  --shadow-2: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 16px rgb(0 0 0 / 0.3);
-  --shadow-3: 0 2px 6px rgb(0 0 0 / 0.5), 0 28px 56px rgb(0 0 0 / 0.55);
+  --ring-card: 0 0 0 1px color-mix(in oklch, var(--foreground) 5%, transparent);
+  --shadow-1: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-2: var(--ring-card), 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); /* ring-1 shadow-md */
+  --shadow-3: var(--ring-card), 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); /* shadow-xl */
 }
 
 /* ---------- 1c. Theme-independent tokens ---------- */
 :root {
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  --font-sans: var(--font-mono);
-  --font-figure: var(--font-mono);
-  --track: 0.06em; /* uppercase labels */
+  --font-sans: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-figure: var(--font-sans);
 
   /* Type scale: size / line-height */
-  --text-xs: 12px;
+  --text-xs: 13px;
   --lh-xs: 16px; /* labels, badges, captions */
-  --text-sm: 13px;
-  --lh-sm: 18px; /* tables, dense UI, mono data */
+  --text-sm: 14px;
+  --lh-sm: 20px; /* tables, dense UI */
   --text-md: 14px;
   --lh-md: 20px; /* body, controls */
-  --text-lg: 16px;
+  --text-lg: 18px;
   --lh-lg: 24px; /* h2 */
-  --text-xl: 22px;
-  --lh-xl: 28px; /* h1 */
-  --text-2xl: 24px;
-  --lh-2xl: 32px; /* no-token / empty heroes */
+  --text-xl: 24px;
+  --lh-xl: 30px; /* h1 */
+  --text-2xl: 28px;
+  --lh-2xl: 34px; /* no-token / empty heroes */
   --w-regular: 400;
   --w-medium: 500;
   --w-semibold: 600;
@@ -86,17 +124,18 @@
   --s-8: 64px;
 
   /* Radius, border, sizing */
-  --r-sm: 0;
-  --r-md: 0;
-  --r-lg: 0;
-  --r-xl: 0;
-  --r-sheet: 0;
-  --r-full: 0;
+  --radius: 0.45rem;
+  --r-sm: calc(var(--radius) * 0.8);
+  --r-md: calc(var(--radius) * 1.4); /* rounded-xl */
+  --r-lg: calc(var(--radius) * 2.6); /* rounded-4xl: cards, dialog */
+  --r-xl: calc(var(--radius) * 2.6);
+  --r-sheet: calc(var(--radius) * 1.8);
+  --r-full: 999px;
   --bw: 1px;
   --control-h: 36px;
   --content-max: 1200px;
-  --sidebar-w: 220px;
-  --topbar-h: 48px;
+  --sidebar-w: 240px;
+  --topbar-h: 56px;
   --sheet-inset: 8px;
 
   /* Motion */
@@ -136,15 +175,14 @@ body {
   text-wrap: balance;
 }
 .app h1 {
-  font-size: 22px;
-  line-height: 28px;
-  font-weight: var(--w-regular);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
+  font-size: var(--text-xl);
+  line-height: var(--lh-xl);
+  font-weight: var(--w-medium);
+  letter-spacing: -0.015em;
 }
 .app h1.mono {
-  letter-spacing: 0.02em;
-  text-transform: none;
+  font-size: 20px;
+  letter-spacing: 0;
 }
 .fig {
   font-family: var(--font-figure);
@@ -154,16 +192,13 @@ body {
 .app h2 {
   font-size: var(--text-lg);
   line-height: var(--lh-lg);
-  font-weight: var(--w-regular);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: var(--w-medium);
+  letter-spacing: -0.01em;
 }
 .app h3 {
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   line-height: var(--lh-md);
-  font-weight: var(--w-regular);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
+  font-weight: var(--w-medium);
 }
 .app p {
   margin: 0;
@@ -180,7 +215,10 @@ body {
   text-underline-offset: 2px;
 }
 
-.mono,
+.mono {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
 .app code,
 .app kbd,
 .app samp {
@@ -189,8 +227,12 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }
+.app :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--secondary);
+}
 .num {
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -199,11 +241,6 @@ body {
 .tab {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-/* Terminal labels: uppercase, tracked, never bold */
-.app :is(th, dt, legend, .brand, .side nav a, .tabs a, .badge, .chip, .live, .dl-group .label, .kpis dt, .count) {
-  text-transform: uppercase;
-  letter-spacing: var(--track);
 }
 .muted,
 .hint {
@@ -232,21 +269,20 @@ body {
 
 /* Focus: one ring for everything */
 .app :focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 0;
 }
 .app :focus:not(:focus-visible) {
   outline: none;
 }
 
-/* ---------- 3. Shell: tinted frame, white sheet ----------
-   One tinted L-frame (sidebar + 48px top bar, no rule between them) holds
-   the page; the page is a white sheet inset 8px from the right and bottom,
-   1px edge, 16px corners, no shadow. Markup: .app > aside.side, div.top, main. */
+/* ---------- 3. Shell: sidebar + inset panel ----------
+   The sidebar sits on the canvas; the top bar and main form one white inset
+   panel beside it (shadcn sidebar variant="inset"). Markup: .app > aside.side, div.top, main. */
 .app {
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  grid-template-rows: var(--topbar-h) auto;
+  grid-template-rows: auto 1fr;
 }
 .app > .side {
   grid-column: 1;
@@ -254,7 +290,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--s-5);
-  padding: var(--s-3) var(--s-3) var(--s-5);
+  padding: var(--s-3) var(--s-2) var(--s-4);
 }
 @container app (min-width: 641px) {
   .app > .side {
@@ -269,9 +305,11 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  height: 36px;
+  height: 48px;
   padding: 0 var(--s-2);
-  font-weight: var(--w-regular);
+  font-size: 17px;
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.02em;
   color: var(--fg);
   white-space: nowrap;
 }
@@ -295,18 +333,26 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 36px;
+  height: 40px;
   padding: 0 12px;
   border-radius: var(--r-md);
-  color: var(--muted);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  transition: background-color var(--dur-1) var(--ease);
 }
 .app > .side nav a:hover {
-  color: var(--fg);
-  background: var(--surface-3);
+  color: var(--fg-2);
+  background: var(--hover);
   text-decoration: none;
 }
 .app > .side nav a[aria-current='page'] {
-  color: var(--fg);
+  color: var(--fg-2);
+  font-weight: var(--w-medium);
+  background: var(--active);
+}
+.app > .side nav svg {
+  width: 16px;
+  height: 16px;
 }
 .app > .side nav svg {
   flex: none;
@@ -328,7 +374,12 @@ body {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: 0 var(--s-2) 0 var(--s-1);
+  height: var(--topbar-h);
+  margin: var(--sheet-inset) var(--sheet-inset) 0 0;
+  padding: 0 var(--s-4) 0 var(--s-6);
+  background: var(--surface);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md) var(--r-md) 0 0;
   min-width: 0;
 }
 .app > .top .menu {
@@ -345,15 +396,22 @@ body {
 }
 .crumb b {
   color: var(--fg);
+  font-size: 15px;
   font-weight: var(--w-medium);
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .crumb .mono {
   font-size: 12.5px;
 }
+.crumb b.mono {
+  font-size: 14px;
+  letter-spacing: 0;
+}
 .crumb a {
   color: var(--muted);
+  font-size: var(--text-sm);
 }
 .crumb a:hover {
   color: var(--fg);
@@ -368,12 +426,11 @@ body {
   grid-column: 2;
   grid-row: 2;
   margin: 0 var(--sheet-inset) var(--sheet-inset) 0;
-  padding: var(--s-5) var(--s-5) var(--s-7);
-  background-color: var(--surface);
-  background-image: radial-gradient(rgb(255 255 255 / 0.045) 1px, transparent 1px);
-  background-size: 14px 14px;
+  padding: var(--s-5) var(--s-6) var(--s-7);
+  background: var(--surface);
   border: var(--bw) solid var(--line);
-  border-radius: var(--r-sheet);
+  border-top: 0;
+  border-radius: 0 0 var(--r-md) var(--r-md);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--s-5);
@@ -446,7 +503,9 @@ body {
   margin: 0;
   padding: 0;
   list-style: none;
-  border: var(--bw) solid var(--line);
+  gap: 0;
+  padding: 3px;
+  border-radius: var(--r-full);
   background: var(--surface-2);
   overflow-x: auto;
   overflow-y: hidden;
@@ -456,10 +515,11 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 18px;
-  color: var(--muted);
-  border-radius: 0;
+  height: 30px;
+  padding: 0 12px;
+  color: color-mix(in oklch, var(--fg) 60%, transparent);
+  font-weight: var(--w-medium);
+  border-radius: var(--r-full);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -470,7 +530,7 @@ body {
 }
 .app .tabs a[aria-current='true'] {
   color: var(--fg);
-  background: var(--surface-3);
+  background: var(--surface);
 }
 .tabs .n {
   color: var(--muted);
@@ -514,11 +574,15 @@ body {
   font-size: var(--text-sm);
 }
 .card {
-  background: var(--surface-2);
-  border: var(--bw) solid var(--line);
+  background: var(--surface);
+  border: var(--bw) solid var(--edge);
   border-radius: var(--r-lg);
-  padding: var(--s-4) var(--s-5);
+  padding: var(--s-5);
   min-width: 0;
+}
+/* Card surfaces: ring-1 ring-foreground/5 shadow-md */
+.app :is(.card, .kpis > div, .table-wrap.boxed, dl.facts, .item-list, .editor, .metered, .empty) {
+  box-shadow: var(--shadow-2);
 }
 .card.flush {
   padding: 0;
@@ -543,33 +607,142 @@ body {
   animation: ping var(--dur-3) var(--ease) infinite;
 }
 
-/* Persona identity: a stable initial on a pale tint of its own hue (identity, not data) */
+/* Persona identity: a small creature in its own hue (identity, not data); it wakes on hover */
 .av {
-  display: inline-grid;
-  place-items: center;
+  --av-bg: oklch(0.95 0.005 250);
+  --av-skin: oklch(0.78 0.02 250);
+  --av-ink: oklch(0.3 0.02 250);
+  display: inline-block;
   flex: none;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  font-size: 9px;
-  font-weight: var(--w-semibold);
-  letter-spacing: 0.02em;
   margin-right: 8px;
   vertical-align: -5px;
-  background: #bdbdbd;
-  color: #0b0b0b;
+  overflow: hidden;
+  background: var(--av-bg);
 }
+/* Identity hues stay clear of the status hues (green, amber, red, blue) */
 .av.p1 {
-  background: #8fb8e8;
+  --av-bg: oklch(0.95 0.03 280);
+  --av-skin: oklch(0.74 0.11 280);
+  --av-ink: oklch(0.3 0.08 280);
 }
 .av.p2 {
-  background: #7fd4a2;
+  --av-bg: oklch(0.95 0.03 320);
+  --av-skin: oklch(0.76 0.11 320);
+  --av-ink: oklch(0.3 0.08 320);
 }
 .av.p3 {
-  background: #f0c27a;
+  --av-bg: oklch(0.95 0.025 200);
+  --av-skin: oklch(0.78 0.08 200);
+  --av-ink: oklch(0.3 0.05 200);
 }
 .av.p4 {
-  background: #f2a7c4;
+  --av-bg: oklch(0.95 0.025 350);
+  --av-skin: oklch(0.78 0.1 350);
+  --av-ink: oklch(0.32 0.08 350);
+}
+.av svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.av .skin {
+  fill: var(--av-skin);
+}
+.av .ink {
+  fill: var(--av-ink);
+}
+.av .white,
+.av .glint {
+  fill: #fff;
+}
+.av .ink-line,
+.av .line,
+.av .glow-line {
+  fill: none;
+  stroke: var(--av-ink);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.av .screen {
+  fill: var(--av-ink);
+}
+.av .glow {
+  fill: var(--av-bg);
+}
+.av .glow-line {
+  stroke: var(--av-bg);
+}
+.av .lamp {
+  fill: var(--av-ink);
+}
+.av .stem {
+  fill: oklch(0.97 0.015 85);
+}
+.av .spot {
+  fill: #fff;
+  opacity: 0.85;
+}
+.av .beak {
+  fill: oklch(0.8 0.13 75);
+}
+.av .cheek {
+  fill: oklch(0.72 0.14 15);
+  opacity: 0.35;
+}
+.av .body,
+.av .eyes,
+.av .wiggle {
+  transform-box: fill-box;
+}
+.av .body {
+  transform-origin: 50% 100%;
+}
+.av .eyes {
+  transform-origin: center;
+}
+.av .wiggle {
+  transform-origin: 50% 100%;
+}
+:is(a, tr):hover .av .body,
+.av:hover .body {
+  animation: av-hop 600ms var(--ease);
+}
+:is(a, tr):hover .av .eyes,
+.av:hover .eyes {
+  animation: av-blink 600ms 120ms;
+}
+:is(a, tr):hover .av .wiggle,
+.av:hover .wiggle {
+  animation: av-wiggle 600ms var(--ease);
+}
+:is(a, tr):hover .av .lamp,
+.av:hover .lamp {
+  fill: var(--warn);
+}
+@keyframes av-hop {
+  30% {
+    transform: translateY(1px) scale(1.06, 0.92);
+  }
+  60% {
+    transform: translateY(-2.5px) scale(0.96, 1.05);
+  }
+}
+@keyframes av-blink {
+  40% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes av-wiggle {
+  25% {
+    transform: rotate(-14deg);
+  }
+  60% {
+    transform: rotate(10deg);
+  }
 }
 
 /* Person chip: initial in a small square inside a bordered pill */
@@ -586,7 +759,6 @@ body {
   width: 28px;
   height: 28px;
   border-radius: var(--r-sm);
-  font-size: 11px;
   vertical-align: 0;
 }
 .who .nm {
@@ -599,22 +771,18 @@ body {
 .kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: var(--surface);
-  border: var(--bw) solid var(--line);
-  border-radius: var(--r-lg);
-  overflow: hidden;
+  gap: var(--s-4);
 }
 .kpis > div {
-  padding: 20px 24px;
+  padding: var(--s-5);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--s-3);
+  background: var(--surface);
+  border-radius: var(--r-lg);
 }
 .kpis .note {
   margin-top: auto;
-}
-.kpis > div + div {
-  border-left: var(--bw) solid var(--line);
 }
 .kpis dt,
 .kpis .lbl {
@@ -624,10 +792,10 @@ body {
 .kpis dd,
 .kpis .val {
   margin: 0;
-  font-size: 40px;
-  line-height: 44px;
-  font-weight: var(--w-regular);
-  letter-spacing: -0.02em;
+  font-size: 32px;
+  line-height: 36px;
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.03em;
   font-variant-numeric: lining-nums tabular-nums;
   color: var(--fg);
 }
@@ -644,45 +812,9 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  letter-spacing: 0;
   font-weight: var(--w-regular);
   color: var(--muted);
 }
-/* Segmented meter: lit ticks in ink, the rest one step above the surface */
-.ticks {
-  display: flex;
-  gap: 3px;
-  height: 18px;
-}
-.ticks i {
-  flex: none;
-  width: 4px;
-  background: var(--surface-3);
-}
-.ticks i.on {
-  background: var(--fg);
-}
-.ticks.warn i.on {
-  background: var(--warn);
-}
-.ticks.sm {
-  height: 12px;
-  gap: 2px;
-}
-.ticks.sm i {
-  width: 3px;
-}
-.ticks.col {
-  flex-direction: column-reverse;
-  width: 4px;
-  height: 22px;
-  gap: 2px;
-}
-.ticks.col i {
-  flex: 1;
-  width: auto;
-}
-
 /* Live progress against the step cap: the one place the teal fills an area */
 /* <progress max="40" value="6">: CSP-safe (no style= width), native semantics */
 progress.prog {
@@ -692,7 +824,7 @@ progress.prog {
   width: 36px;
   height: 4px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--r-full);
   background: var(--surface-3);
   overflow: hidden;
   vertical-align: middle;
@@ -714,7 +846,7 @@ progress.prog::-moz-progress-bar {
 /* Control sizes shared by buttons and fields: md is the default; radius scales with height. */
 .app :where(button, .button, input, select, textarea) {
   --ctl-h: var(--control-h);
-  --ctl-px: 12px;
+  --ctl-px: 16px;
   --ctl-r: var(--r-md);
   --ctl-fs: var(--text-md);
 }
@@ -722,8 +854,8 @@ progress.prog::-moz-progress-bar {
   --ctl-fs: var(--text-sm);
 }
 .app :is(button, .button, input, select, textarea).sm {
-  --ctl-h: 28px;
-  --ctl-px: 10px;
+  --ctl-h: 32px;
+  --ctl-px: 12px;
   --ctl-r: var(--r-sm);
   --ctl-fs: var(--text-sm);
 }
@@ -749,12 +881,11 @@ progress.prog::-moz-progress-bar {
   height: var(--ctl-h);
   padding: 0 var(--ctl-px);
   border: var(--bw) solid var(--line);
-  border-radius: var(--ctl-r);
-  background: var(--surface-2);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  background-clip: padding-box;
   color: var(--fg);
   font: var(--w-medium) var(--ctl-fs) / 1 var(--font-sans);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
   box-shadow: none;
@@ -768,12 +899,12 @@ progress.prog::-moz-progress-bar {
 }
 .app button:hover,
 .app .button:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
   text-decoration: none;
 }
-.app button:active,
+.app button:active:not(:disabled),
 .app .button:active {
-  background: var(--surface-3);
+  translate: 0 1px;
 }
 .app button svg,
 .app .button svg {
@@ -796,27 +927,21 @@ progress.prog::-moz-progress-bar {
 }
 .app button.primary:hover,
 .app .button.primary:hover {
-  background: #ffffff;
-  border-color: #ffffff;
+  background: var(--primary-hover);
+  border-color: transparent;
 }
 
 .app button.danger,
 .app .button.danger {
   color: var(--bad);
-  border-color: var(--bad-line);
+  border-color: transparent;
   background: var(--bad-soft);
 }
 .app button.danger:hover,
 .app .button.danger:hover {
-  background: var(--bad-soft);
+  background: color-mix(in srgb, var(--bad) 18%, var(--background));
 }
 
-.app button.link,
-.app .timeline button,
-.app button .mono {
-  letter-spacing: 0;
-  text-transform: none;
-}
 .app button.link {
   height: auto;
   padding: 0;
@@ -844,9 +969,7 @@ progress.prog::-moz-progress-bar {
 
 .app button:disabled,
 .app button[aria-disabled='true'] {
-  background: var(--surface-2);
-  border-color: var(--line);
-  color: var(--muted);
+  opacity: 0.5;
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -874,10 +997,10 @@ progress.prog::-moz-progress-bar {
   height: 22px;
   padding: 0 8px;
   border: var(--bw) solid transparent;
-  border-radius: var(--r-sm);
-  background: var(--surface-3);
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--dot, var(--muted)) 12%, var(--background));
   color: var(--fg-2);
-  font: var(--w-regular) 11px / 1 var(--font-sans);
+  font: var(--w-medium) var(--text-xs) / 1 var(--font-sans);
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -887,13 +1010,13 @@ progress.prog::-moz-progress-bar {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--dot, currentColor);
 }
 /* Shape differs per state so status never relies on hue alone */
 .badge.queued {
   color: var(--muted);
   background: transparent;
-  border-color: var(--line-strong);
+  border-color: var(--line);
 }
 .badge.queued::before {
   background: transparent;
@@ -901,21 +1024,20 @@ progress.prog::-moz-progress-bar {
 }
 
 .badge.running {
-  color: var(--on-accent);
-  background: var(--accent);
+  --dot: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .badge.running::before {
   animation: ping var(--dur-3) var(--ease) infinite;
 }
 
 .badge.succeeded {
-  color: var(--good);
-  background: var(--good-soft);
+  --dot: var(--good);
 }
 
 .badge.blocked {
-  color: var(--warn);
-  background: var(--warn-soft);
+  --dot: var(--warn);
 }
 .badge.blocked::before {
   width: 5px;
@@ -925,8 +1047,7 @@ progress.prog::-moz-progress-bar {
 }
 
 .badge.limit {
-  color: var(--warn);
-  background: var(--warn-soft);
+  --dot: var(--warn);
 }
 .badge.limit::before {
   width: 6px;
@@ -935,9 +1056,7 @@ progress.prog::-moz-progress-bar {
 }
 
 .badge.interrupted {
-  color: var(--fg-2);
-  background: var(--surface-3);
-  border-color: var(--line-strong);
+  --dot: var(--muted);
 }
 .badge.interrupted::before {
   width: 8px;
@@ -946,8 +1065,7 @@ progress.prog::-moz-progress-bar {
 }
 
 .badge.failed {
-  color: var(--bad);
-  background: var(--bad-soft);
+  --dot: var(--bad);
 }
 .badge.failed::before {
   width: 7px;
@@ -963,7 +1081,6 @@ progress.prog::-moz-progress-bar {
   color: var(--warn);
   background: transparent;
   border: var(--bw) dashed var(--warn-line);
-  border-radius: var(--r-sm);
   font-size: 10px;
 }
 .badge.untested::before {
@@ -972,7 +1089,6 @@ progress.prog::-moz-progress-bar {
 .badge.meter {
   color: var(--warn);
   background: var(--warn-soft);
-  border-radius: var(--r-sm);
 }
 .badge.meter::before {
   display: none;
@@ -980,21 +1096,20 @@ progress.prog::-moz-progress-bar {
 .badge.private {
   color: var(--bad);
   background: var(--bad-soft);
-  border-radius: var(--r-sm);
 }
 .badge.private::before {
   display: none;
 }
 
-/* Step status chips (mono, square) */
+/* Step status chips */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: var(--r-sm);
-  font: var(--w-regular) 11px / 1 var(--font-mono);
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--r-full);
+  font: var(--w-medium) 11px / 1 var(--font-sans);
   white-space: nowrap;
   border: var(--bw) solid transparent;
 }
@@ -1024,7 +1139,6 @@ progress.prog::-moz-progress-bar {
 @supports (text-box: trim-both cap alphabetic) {
   .badge,
   .chip,
-  .av,
   .app button:not(.link, .menu, .timeline button),
   .app .button {
     display: inline-block;
@@ -1049,10 +1163,6 @@ progress.prog::-moz-progress-bar {
     margin-right: 6px;
   }
   /* Trim against the mono face's cap height when the label is mono. */
-  .app button:has(> .mono) {
-    font-family: var(--font-mono);
-    font-size: calc(var(--ctl-fs) - 1px);
-  }
   .app button > .mono {
     font-size: inherit;
   }
@@ -1072,26 +1182,20 @@ progress.prog::-moz-progress-bar {
   display: grid;
   gap: 8px;
   align-content: start;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  font-weight: var(--w-regular);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--w-medium);
+  color: var(--fg);
 }
 .app label.check {
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  letter-spacing: 0;
-  text-transform: none;
   color: var(--fg);
 }
 .app label .opt,
 .app :is(label, .list-label) .field-error {
   color: var(--muted);
   font-weight: var(--w-regular);
-  letter-spacing: 0;
-  text-transform: none;
 }
 .app label .field-error {
   color: var(--bad);
@@ -1103,63 +1207,52 @@ progress.prog::-moz-progress-bar {
   width: 100%;
   min-width: 0;
   height: var(--ctl-h);
-  /* The mono face sits ~1px above centre in its line box; 2px on top re-centres the cap height. */
-  padding: 2px var(--ctl-px) 0;
-  border: var(--bw) solid var(--line-strong);
+  padding: 0 var(--ctl-px);
+  border: var(--bw) solid transparent;
   border-radius: var(--ctl-r);
-  background: var(--surface-2);
+  background-color: var(--fill);
   color: var(--fg);
   font: var(--w-regular) var(--ctl-fs) / var(--lh-md) var(--font-sans);
-  transition: border-color var(--dur-1) var(--ease);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease),
+    outline-color var(--dur-1) var(--ease);
 }
 .app input::placeholder,
 .app textarea::placeholder {
   color: var(--muted);
   opacity: 1;
 }
-.app input:not([type='checkbox']):hover,
-.app select:hover,
-.app textarea:hover {
-  border-color: var(--muted);
-}
 .app input:focus-visible,
 .app select:focus-visible,
 .app textarea:focus-visible {
-  border-color: var(--accent);
-  outline: 2px solid var(--focus);
+  border-color: var(--ring);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 0;
 }
 .app input[type='number'] {
-  font-family: var(--font-mono);
-  font-size: calc(var(--ctl-fs) - 1px);
   font-variant-numeric: tabular-nums;
 }
 .app select {
   appearance: none;
   padding-right: calc(var(--ctl-px) + 20px);
-  /* Chevron from two gradient triangles: the CSP forbids url() images. */
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position:
-    right calc(var(--ctl-px) + 5px) center,
-    right var(--ctl-px) center;
-  background-size: 5px 5px;
+  background-image: url(./icons/chevron-down.svg);
+  background-position: right calc(var(--ctl-px) - 2px) center;
+  background-size: 16px;
   background-repeat: no-repeat;
   cursor: pointer;
 }
 .app textarea {
   height: auto;
   min-height: 96px;
-  padding: calc(var(--ctl-px) - 4px) var(--ctl-px);
+  padding: 12px;
+  border-radius: var(--r-sheet);
   resize: vertical;
 }
 .app input:disabled,
 .app select:disabled,
 .app textarea:disabled {
-  background-color: var(--surface-2);
-  color: var(--muted);
-  border-color: var(--line);
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .app [aria-invalid='true'] {
@@ -1178,7 +1271,7 @@ progress.prog::-moz-progress-bar {
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
   flex: none;
 }
 .app label.check {
@@ -1219,7 +1312,8 @@ progress.prog::-moz-progress-bar {
   margin-top: var(--s-4);
 }
 .app fieldset.entry {
-  border: var(--bw) solid var(--line-strong);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-sheet);
   background: var(--surface);
   padding: 0 var(--s-4);
 }
@@ -1305,8 +1399,9 @@ progress.prog::-moz-progress-bar {
   background: transparent;
 }
 .table-wrap.boxed {
+  padding: 0;
   background: var(--surface);
-  border: var(--bw) solid var(--line);
+  border: var(--bw) solid var(--edge);
   border-radius: var(--r-lg);
 }
 .app table {
@@ -1317,18 +1412,18 @@ progress.prog::-moz-progress-bar {
   line-height: var(--lh-sm);
 }
 .app th {
-  padding: 0 8px 8px;
+  padding: 0 12px 8px;
   text-align: left;
-  font-size: var(--text-xs);
-  font-weight: var(--w-regular);
-  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
+  color: var(--fg);
   white-space: nowrap;
   border-bottom: var(--bw) solid var(--line);
   background: var(--surface);
 }
 .app td {
   height: 48px;
-  padding: 0 8px;
+  padding: 0 12px;
   border-bottom: var(--bw) solid var(--rule);
   vertical-align: middle;
 }
@@ -1340,28 +1435,21 @@ progress.prog::-moz-progress-bar {
 .app td:last-child {
   padding-right: 0;
 }
-.table-wrap.boxed {
-  background: var(--surface-2);
-}
 .app .table-wrap.boxed th {
-  height: 40px;
+  height: 48px;
   padding-bottom: 0;
-  background: var(--band);
   vertical-align: middle;
-}
-.app .table-wrap.boxed th + th {
-  box-shadow: inset var(--bw) 0 var(--line);
 }
 .app .table-wrap.boxed tbody tr:first-child td {
   border-top: 0;
 }
 .table-wrap.boxed th:first-child,
 .table-wrap.boxed td:first-child {
-  padding-left: 14px;
+  padding-left: 20px;
 }
 .table-wrap.boxed th:last-child,
 .table-wrap.boxed td:last-child {
-  padding-right: 14px;
+  padding-right: 20px;
 }
 .app td.mono {
   white-space: nowrap;
@@ -1377,7 +1465,7 @@ progress.prog::-moz-progress-bar {
   white-space: nowrap;
 }
 .app tbody tr:first-child td {
-  border-top: var(--bw) solid var(--line);
+  border-top: var(--bw) solid var(--rule);
 }
 .app tbody tr:last-child td {
   border-bottom: 0;
@@ -1386,8 +1474,8 @@ progress.prog::-moz-progress-bar {
   display: block;
   color: var(--fg);
   font-size: var(--text-sm);
+  font-weight: var(--w-medium);
   line-height: 20px;
-  letter-spacing: 0.02em;
 }
 .app td .goal {
   display: block;
@@ -1410,7 +1498,7 @@ progress.prog::-moz-progress-bar {
   font-variant-numeric: tabular-nums;
 }
 .app tbody tr:hover td {
-  background: var(--surface-2);
+  background: color-mix(in oklch, var(--secondary) 50%, var(--background));
 }
 .app table.fixed {
   table-layout: fixed;
@@ -1419,10 +1507,7 @@ progress.prog::-moz-progress-bar {
 .app td.num {
   text-align: right;
 }
-.app th.num {
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-}
+
 .app th button.sort {
   gap: 4px;
   height: auto;
@@ -1455,6 +1540,7 @@ progress.prog::-moz-progress-bar {
 .app .toolbar .sort-pick {
   flex: none;
   width: auto;
+  margin-right: auto;
 }
 .app td .model {
   display: inline-flex;
@@ -1471,20 +1557,16 @@ progress.prog::-moz-progress-bar {
   position: sticky;
   left: 0;
   z-index: 1;
-  background: var(--surface-2);
-  border-right: var(--bw) solid var(--line);
-}
-.app .table-wrap.runs th:nth-child(2) {
-  box-shadow: none;
+  background: var(--surface);
 }
 .table-wrap.runs th:first-child {
-  background: var(--band);
+  background: var(--surface);
 }
 .table-wrap.runs td {
   height: 60px;
 }
 .table-wrap.runs tbody tr:hover td {
-  background: var(--surface-3);
+  background: color-mix(in oklch, var(--secondary) 50%, var(--background));
 }
 
 /* Live change cue: add .changed to a row for one poll after its data changes */
@@ -1516,14 +1598,14 @@ progress.prog::-moz-progress-bar {
   grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: baseline;
   gap: var(--s-3) var(--s-5);
-  padding: var(--s-4) var(--s-5);
-  background: var(--surface-2);
-  border: var(--bw) solid var(--line);
+  padding: var(--s-5);
+  background: var(--surface);
+  border: var(--bw) solid var(--edge);
   border-radius: var(--r-lg);
 }
 .app dl.facts dt {
   color: var(--muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: var(--lh-md);
 }
 .app dl.facts dd {
@@ -1541,9 +1623,9 @@ progress.prog::-moz-progress-bar {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border: var(--bw) solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-sheet);
   background: var(--surface);
   color: var(--fg);
   font-size: var(--text-sm);
@@ -1622,7 +1704,7 @@ progress.prog::-moz-progress-bar {
   align-items: center;
   gap: 10px;
   max-width: min(420px, calc(100% - 32px));
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: var(--r-md);
   background: var(--toast-bg);
   color: var(--toast-fg);
@@ -1642,7 +1724,7 @@ progress.prog::-moz-progress-bar {
   width: min(800px, calc(100% - 32px));
   max-height: calc(100dvh - 48px);
   padding: 0;
-  border: var(--bw) solid var(--line);
+  border: 0;
   border-radius: var(--r-xl);
   background: var(--surface);
   color: var(--fg);
@@ -1663,6 +1745,7 @@ progress.prog::-moz-progress-bar {
 }
 .app dialog::backdrop {
   background: var(--backdrop);
+  backdrop-filter: blur(4px);
 }
 .app dialog[open],
 .app dialog[open]::backdrop {
@@ -1691,8 +1774,7 @@ progress.prog::-moz-progress-bar {
   align-items: center;
   justify-content: space-between;
   gap: var(--s-3);
-  padding: var(--s-4) var(--s-5);
-  border-bottom: var(--bw) solid var(--line);
+  padding: var(--s-5) var(--s-5) 0;
 }
 .app dialog .dialog-body {
   overflow: auto;
@@ -1706,9 +1788,9 @@ progress.prog::-moz-progress-bar {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: var(--s-2);
-  padding: var(--s-3) var(--s-5);
+  padding: var(--s-4) var(--s-5);
   border-top: var(--bw) solid var(--line);
-  background: var(--surface);
+  background: color-mix(in oklch, var(--secondary) 50%, var(--background));
 }
 .app dialog footer .notice {
   margin-right: auto;
@@ -1717,8 +1799,7 @@ progress.prog::-moz-progress-bar {
 /* Live estimate region */
 .estimate {
   display: grid;
-  border: var(--bw) solid var(--line);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   background: var(--surface-2);
   overflow: hidden;
 }
@@ -1825,15 +1906,6 @@ progress.prog::-moz-progress-bar {
   display: grid;
   gap: var(--s-2);
 }
-.card.tone-warn {
-  border-color: var(--warn-line);
-}
-.card.tone-good {
-  border-color: var(--good-line);
-}
-.card.tone-bad {
-  border-color: var(--bad-line);
-}
 .outcome .meta strong {
   color: var(--fg);
   font-weight: var(--w-regular);
@@ -1842,7 +1914,9 @@ progress.prog::-moz-progress-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--s-5);
-  align-items: start;
+}
+.findings > .section {
+  grid-template-rows: auto 1fr;
 }
 .outcome .reason {
   font-size: var(--text-xl);
@@ -1883,9 +1957,7 @@ progress.prog::-moz-progress-bar {
   padding-top: 0;
 }
 .claims .kind {
-  font-weight: var(--w-regular);
-  text-transform: uppercase;
-  letter-spacing: var(--track);
+  font-weight: var(--w-medium);
 }
 .claims .source {
   color: var(--muted);
@@ -1920,8 +1992,8 @@ progress.prog::-moz-progress-bar {
 }
 .steps .sid {
   color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 .steps .action {
   font-weight: var(--w-medium);
@@ -1938,7 +2010,8 @@ progress.prog::-moz-progress-bar {
   gap: var(--s-3);
 }
 .app .steps .end button.link {
-  font: var(--w-regular) 12px / 1 var(--font-mono);
+  font: var(--w-regular) 12px / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 .steps li.waiting {
   grid-template-columns: 1fr;
@@ -1966,7 +2039,9 @@ progress.prog::-moz-progress-bar {
   flex-direction: column;
   gap: 3px;
   align-items: flex-start;
-  font: var(--w-medium) 12px / 1 var(--font-mono);
+  border-radius: var(--r-md);
+  font: var(--w-medium) 12px / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
   box-shadow: none;
 }
@@ -1975,9 +2050,12 @@ progress.prog::-moz-progress-bar {
   font-size: 13px;
 }
 .app .timeline button[aria-pressed='true'] {
-  border-color: var(--fg);
-  background: var(--surface-3);
-  color: var(--fg-2);
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.app .timeline button[aria-pressed='true'] .n {
+  color: inherit;
 }
 
 .shot {
@@ -1986,14 +2064,14 @@ progress.prog::-moz-progress-bar {
   gap: var(--s-3);
   padding: var(--s-4);
   background: var(--stage);
-  border: var(--bw) solid var(--line);
+  border: var(--bw) solid var(--edge);
   border-radius: var(--r-lg);
 }
 .shot img {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   box-shadow: var(--shadow-2);
 }
 .shot figcaption {
@@ -2014,10 +2092,13 @@ progress.prog::-moz-progress-bar {
   gap: var(--s-2);
   flex-wrap: wrap;
 }
+.player-controls select {
+  width: auto;
+}
 .player-controls input[type='range'] {
   flex: 1;
   min-width: 120px;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 }
 .shot.failed {
   border-color: var(--bad-line);
@@ -2097,9 +2178,7 @@ progress.prog::-moz-progress-bar {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  font-weight: var(--w-regular);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
+  font-weight: var(--w-medium);
 }
 .private-zone .body p {
   font-size: var(--text-sm);
@@ -2144,18 +2223,18 @@ progress.prog::-moz-progress-bar {
 .item-list {
   list-style: none;
   margin: 0;
-  padding: var(--s-1);
   display: grid;
-  gap: 1px;
-  background: var(--surface-2);
-  border: var(--bw) solid var(--line);
+  gap: 2px;
+  padding: var(--s-2);
+  background: var(--surface);
+  border: var(--bw) solid var(--edge);
   border-radius: var(--r-lg);
 }
 .app .item-list a {
   display: grid;
   gap: 0 10px;
   align-content: center;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: var(--r-md);
   color: var(--fg);
 }
@@ -2164,7 +2243,7 @@ progress.prog::-moz-progress-bar {
   text-decoration: none;
 }
 .app .item-list a[aria-current='page'] {
-  background: var(--active);
+  background: var(--surface-2);
 }
 .app .item-list a:has(.av) {
   grid-template-columns: 24px minmax(0, 1fr);
@@ -2175,8 +2254,7 @@ progress.prog::-moz-progress-bar {
   width: 24px;
   height: 24px;
   margin: 0;
-  border-radius: var(--r-sm);
-  font-size: 10px;
+  border-radius: 50%;
 }
 .item-list .id {
   line-height: 1.3;
@@ -2194,8 +2272,8 @@ progress.prog::-moz-progress-bar {
 .editor {
   display: grid;
   min-width: 0;
-  background: var(--surface-2);
-  border: var(--bw) solid var(--line);
+  background: var(--surface);
+  border: var(--bw) solid var(--edge);
   border-radius: var(--r-lg);
   overflow: hidden;
 }
@@ -2205,13 +2283,11 @@ progress.prog::-moz-progress-bar {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--s-2) var(--s-3);
-  padding: 10px var(--s-4);
+  padding: var(--s-3) var(--s-5);
   border-bottom: var(--bw) solid var(--line);
 }
 .editor-head h2 {
   font-size: var(--text-md);
-  letter-spacing: 0.02em;
-  text-transform: none;
 }
 .editor-head .unsaved {
   font-family: var(--font-sans);
@@ -2224,8 +2300,11 @@ progress.prog::-moz-progress-bar {
   align-items: center;
   gap: var(--s-2);
 }
+.editor .loading {
+  padding-inline: var(--s-5);
+}
 .editor .banner {
-  margin: var(--s-3) var(--s-4) 0;
+  margin: var(--s-3) var(--s-5) 0;
 }
 .app textarea.source {
   display: block;
@@ -2233,15 +2312,13 @@ progress.prog::-moz-progress-bar {
   field-sizing: content;
   min-height: 240px;
   max-height: 72vh;
-  padding: var(--s-4);
+  padding: var(--s-4) var(--s-5);
   border: 0;
   border-radius: 0;
-  background: var(--surface-2);
+  background: var(--surface);
   font: 13px / 1.65 var(--font-mono);
   tab-size: 2;
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
+  white-space: pre-wrap;
   resize: vertical;
 }
 .app textarea.source:focus-visible {
@@ -2254,24 +2331,23 @@ progress.prog::-moz-progress-bar {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--s-2);
-  padding: 8px var(--s-4);
+  padding: var(--s-3) var(--s-5);
   border-top: var(--bw) solid var(--line);
-  background: var(--surface-2);
+  background: var(--surface);
   font-size: var(--text-xs);
   color: var(--muted);
 }
 .editor-errors {
   list-style: none;
   margin: 0;
-  padding: 0 var(--s-4) var(--s-3);
+  padding: 0 var(--s-5) var(--s-3);
   display: grid;
   gap: 4px;
 }
 
 /* Metered (costs money) panel */
 .metered {
-  background: var(--surface-2);
-  border: var(--bw) solid var(--warn-line);
+  background: var(--surface);
   border-radius: var(--r-lg);
   overflow: hidden;
 }
@@ -2281,21 +2357,18 @@ progress.prog::-moz-progress-bar {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--s-2);
-  padding: 10px var(--s-4);
-  background: var(--warn-soft);
-  border-bottom: var(--bw) solid var(--warn-line);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: var(--bw) solid var(--line);
 }
 .metered .metered-head h2 {
   font-size: var(--text-md);
-  letter-spacing: 0.02em;
-  text-transform: none;
 }
 .metered .form-grid.cols-4 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-flow: dense;
 }
 .metered .metered-body {
-  padding: var(--s-4);
+  padding: var(--s-5);
   display: grid;
   gap: var(--s-4);
 }
@@ -2334,15 +2407,13 @@ progress.prog::-moz-progress-bar {
   padding: var(--s-8) var(--s-4);
   text-align: center;
   color: var(--muted);
-  border: var(--bw) dashed var(--line-strong);
+  background: var(--surface);
   border-radius: var(--r-lg);
 }
 .empty > strong {
   color: var(--fg);
   font-size: var(--text-lg);
-  font-weight: var(--w-regular);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
+  font-weight: var(--w-medium);
 }
 
 .empty .checklist {
@@ -2372,12 +2443,6 @@ progress.prog::-moz-progress-bar {
   .kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .kpis > div:nth-child(3) {
-    border-left: 0;
-  }
-  .kpis > div:nth-child(n + 3) {
-    border-top: var(--bw) solid var(--line);
-  }
 }
 @container app (max-width: 1000px) {
   .detail-grid {
@@ -2393,7 +2458,7 @@ progress.prog::-moz-progress-bar {
 @container app (max-width: 640px) {
   .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--topbar-h) auto;
+    grid-template-rows: auto 1fr;
   }
   .app > .side {
     display: none;
@@ -2420,6 +2485,7 @@ progress.prog::-moz-progress-bar {
     padding-left: 26px;
   }
   .app > .top {
+    margin: var(--s-2) var(--s-2) 0;
     padding: 0 var(--s-2) 0 var(--s-1);
     gap: var(--s-1);
   }
@@ -2440,16 +2506,15 @@ progress.prog::-moz-progress-bar {
     font-weight: var(--w-semibold);
   }
   .app > main {
-    margin: 0;
-    border-width: var(--bw) 0 0;
-    border-radius: 0;
-    padding: var(--s-5) var(--s-4) var(--s-7);
+    margin: 0 var(--s-2) var(--s-2);
+    padding: var(--s-4) var(--s-3) var(--s-7);
     gap: var(--s-4);
   }
   .tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+    border-radius: var(--r-lg);
   }
   /* Runs table → list rows. Same <table> markup; cells placed on a grid. */
   .table-wrap.runs table,
@@ -2479,6 +2544,10 @@ progress.prog::-moz-progress-bar {
     gap: 6px 8px;
     padding: 12px 0;
     border-top: var(--bw) solid var(--rule);
+  }
+  .table-wrap.runs.boxed,
+  .journeys .table-wrap.boxed {
+    border-radius: var(--r-lg);
   }
   .table-wrap.runs tbody tr:first-child {
     border-top: 0;
@@ -2548,16 +2617,14 @@ progress.prog::-moz-progress-bar {
   .kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .kpis {
+    gap: var(--s-2);
+  }
   .kpis > div {
     padding: 14px 16px;
   }
-  .kpis > div:nth-child(3) {
-    border-left: 0;
-  }
-  .kpis > div:nth-child(n + 3) {
-    border-top: var(--bw) solid var(--line);
-  }
-  .kpis .val {
+  .kpis .val,
+  .kpis dd {
     font-size: 30px;
     line-height: 34px;
   }
@@ -2752,11 +2819,10 @@ body {
   align-content: start;
 }
 .app .list-label {
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  letter-spacing: var(--track);
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--w-medium);
+  color: var(--fg-2);
 }
 .list-row {
   display: flex;
@@ -2830,7 +2896,6 @@ body {
 .table-wrap.runs td .who .av {
   width: 22px;
   height: 22px;
-  font-size: 9px;
 }
 @container app (max-width: 640px) {
   .table-wrap.runs table {
@@ -2840,7 +2905,7 @@ body {
 .editor .metered-body {
   display: grid;
   gap: var(--s-4);
-  padding: var(--s-4);
+  padding: var(--s-5);
   border-bottom: var(--bw) solid var(--line);
 }
 .editor-head select {
@@ -2874,6 +2939,7 @@ body {
   width: 100%;
   height: 8px;
   margin: var(--s-3) 0 var(--s-2);
+  border-radius: var(--r-full);
   background: var(--band);
 }
 .outcome-bar .succeeded,
@@ -2883,8 +2949,8 @@ body {
 }
 .outcome-bar .interrupted,
 .swatch.interrupted {
-  fill: var(--fg-2);
-  background: var(--fg-2);
+  fill: var(--muted);
+  background: var(--muted);
 }
 .outcome-bar .limit,
 .swatch.limit {
@@ -2903,8 +2969,8 @@ body {
 }
 .outcome-bar .cancelled,
 .swatch.cancelled {
-  fill: var(--muted);
-  background: var(--muted);
+  fill: var(--ring);
+  background: var(--ring);
 }
 .legend,
 .group-runs,
@@ -2924,6 +2990,7 @@ body {
   width: 8px;
   height: 8px;
   margin-right: var(--s-2);
+  border-radius: 50%;
 }
 .group-facts {
   display: grid;
@@ -2970,37 +3037,11 @@ body {
 }
 
 /* Journeys: the runs page's lead block */
-/* Bracketed readout: corner ticks drawn by the two pseudo-elements */
 .page-head .spend {
-  position: relative;
   margin-left: auto;
-  padding: 6px 12px;
-  background: var(--good-soft);
-  color: var(--good);
+  color: var(--fg-2);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
-  text-transform: uppercase;
-  letter-spacing: var(--track);
-}
-.page-head .spend::before,
-.page-head .spend::after {
-  content: '';
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  border: var(--bw) solid var(--good);
-}
-.page-head .spend::before {
-  top: -1px;
-  left: -1px;
-  border-right: 0;
-  border-bottom: 0;
-}
-.page-head .spend::after {
-  right: -1px;
-  bottom: -1px;
-  border-left: 0;
-  border-top: 0;
 }
 .journeys table {
   width: 100%;
@@ -3032,12 +3073,19 @@ body {
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
+.journeys .rate-line {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--s-3);
+}
 .journeys .rate {
-  font-size: var(--text-lg);
-  line-height: var(--lh-lg);
+  min-width: 4ch;
+  font-weight: var(--w-semibold);
 }
 .marks {
   display: flex;
+  align-items: center;
   gap: 3px;
   list-style: none;
   margin: 0;
@@ -3046,37 +3094,53 @@ body {
 .marks li {
   display: flex;
 }
-.mark {
+.app .mark,
+.marks .slot {
   display: block;
-  width: 14px;
-  height: 22px;
-  background: var(--band);
+  width: 6px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  transition: scale var(--dur-1) var(--ease);
 }
-.mark:hover,
+.marks .slot {
+  background: var(--secondary);
+}
+.mark:hover {
+  scale: 1 1.15;
+}
 .mark:focus-visible,
-.batches a:hover,
 .batches a:focus-visible {
-  outline: var(--bw) solid var(--fg);
-  outline-offset: 2px;
-}
-.batches {
-  gap: 0;
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 .batches a {
-  display: flex;
-  justify-content: center;
-  width: 14px;
-  padding-bottom: 2px;
-  border-bottom: 2px solid transparent;
+  display: block;
+  border-radius: 2px;
 }
-.batches a.drop {
-  border-bottom-color: var(--bad);
+.batches svg {
+  display: block;
+  width: 6px;
+  height: 24px;
+}
+.batches .track {
+  fill: var(--border);
+}
+.batches .fill {
+  fill: var(--good);
+}
+.batches a.drop .fill {
+  fill: var(--bad);
+}
+.batches a:hover .track {
+  fill: var(--ring);
 }
 .mark.succeeded {
   background: var(--good);
 }
 .mark.interrupted {
-  background: var(--fg-2);
+  background: var(--muted);
 }
 .mark.limit {
   background: var(--warn);
@@ -3088,7 +3152,7 @@ body {
   background: var(--warn-line);
 }
 .mark.cancelled {
-  background: var(--muted);
+  background: var(--ring);
 }
 .journeys .more {
   justify-self: start;
@@ -3148,12 +3212,25 @@ body {
   }
 }
 .journeys td.num .batches {
-  flex-wrap: wrap;
   justify-content: flex-end;
-  margin: 4px 0;
 }
-.kpis dd .ticks {
-  margin-top: 4px;
+.kpis dd.bar {
+  line-height: 0;
+}
+.kpis dd.bar svg {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--secondary);
+}
+.kpis dd.bar .warn {
+  fill: var(--warn);
+}
+.kpis dd.bar .blocked {
+  fill: var(--warn-line);
+}
+.kpis dd.bar .good {
+  fill: var(--good);
 }
 
 /* Explore review */
@@ -3205,7 +3282,7 @@ body {
 .thumb {
   display: block;
   border: var(--bw) solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   overflow: hidden;
   background: var(--stage);
 }
