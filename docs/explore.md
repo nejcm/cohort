@@ -49,6 +49,10 @@ cohort explore save <run-id> --persona <id> --yes    # creates .cohort/personas/
 cohort explore save <run-id> --suite <id> --yes      # creates .cohort/suites/<id>.yml
 ```
 
-Saving uses the same validated atomic write as `cohort persona add`. If the file exists, saving fails with `conflict`. To replace it, pass the current `--revision <sha256>` from `cohort persona show <id> --json`. A stale revision also fails with `conflict`. Copy test specs by hand.
+Saving uses the same validated atomic write as `cohort persona add`. If the file exists, saving fails with `conflict`. To replace it, pass the current `--revision <sha256>` from `cohort persona show <id> --json`. A stale revision also fails with `conflict`. Download or copy test specs by hand; cohort never writes them into your project.
 
-There is no crawler view in the dashboard yet.
+## In the dashboard
+
+Pick **Explore** in the New run dialog and enter a URL; the goal and repeats are fixed, and the batch budget includes the $0.50 suggestion call. When the run finishes, open **Review suggestions** on its run page and press **Suggest**, the same call as `cohort explore suggest`. The page lists features, personas, the suite with its goals, test specs, untried controls, and dropped suggestions with their reasons, each beside the screenshots it cites.
+
+**Save** on a persona or the suite is the same validated atomic write as `cohort explore save`; when the file exists, **Replace** saves over its current revision. Save a suite's personas before the suite. Test specs offer **Download** only. **Dismiss** hides a card in this browser only.

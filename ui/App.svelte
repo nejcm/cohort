@@ -3,6 +3,7 @@
   import { bootstrapToken } from './lib/api.ts';
   import Logo from './components/Logo.svelte';
   import BatchDetail from './pages/BatchDetail.svelte';
+  import Explore from './pages/Explore.svelte';
   import Personas from './pages/Personas.svelte';
   import RunDetail from './pages/RunDetail.svelte';
   import RunDialog from './components/RunDialog.svelte';
@@ -127,6 +128,8 @@
         <Suites id={route[1] || undefined} />
       {:else if route[0] === 'batches' && route[1]}
         {#key route[1]}<BatchDetail id={route[1]} />{/key}
+      {:else if route[0] === 'runs' && route[1] && route[2] === 'explore'}
+        {#key route[1]}<Explore id={route[1]} />{/key}
       {:else if route[1]}
         {#key route[1]}<RunDetail id={route[1]} shot={new URLSearchParams(query).get('shot')} />{/key}
       {:else}

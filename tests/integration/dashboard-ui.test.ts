@@ -886,3 +886,67 @@ test('narrow layouts keep column headers for screen readers without hidden sort 
     if (size) await page.setViewportSize(size);
   }
 });
+
+test('an exploration from the run dialog is reviewed on its own page: suggest, save, dismiss, download', async () => {
+  let calls = 0;
+  turn = (request, index) =>
+    request.tools.some((tool) => tool.name === 'write_suggestions')
+      ? {
+          name: 'write_suggestions',
+          args: {
+            features: [
+              { name: 'Arrival form', description: 'Asks when you arrive.', steps: ['s0001'] },
+              { name: 'Admin panel', description: 'Never shown.', steps: ['s0099'] },
+            ],
+            personas: [{ markdown: PERSONA('wanderer', 'Wanderer'), steps: ['s0001'] }],
+            goals: [{ persona: 'wanderer', goal: 'Find the arrival form.', steps: ['s0001'] }],
+            tests: [{ name: 'arrival', step: 's0001' }],
+          },
+        }
+      : calls++ === 0
+        ? { name: 'wait', args: { ms: 100 } }
+        : done(request, index);
+  await page.goto(`${dashboard.origin}/runs`);
+  await page.getByRole('button', { name: 'New run' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New run' });
+  await page.locator('#run-kind').selectOption('explore');
+  assert.equal(await page.locator('#run-note').count(), 0);
+  assert.equal(await page.locator('#run-repeats').count(), 0);
+  await page.locator('#run-url').fill(`${fixture.url}/`);
+  await dialog.getByText(/dollar cap plus the \$0\.50 suggestion call/u).waitFor();
+  await dialog.getByRole('button', { name: 'Start 1 run' }).click();
+  await page.waitForURL(/\/runs\/run_/u, { waitUntil: 'commit' });
+  await page.getByRole('heading', { name: /^Outcome:/u }).waitFor();
+  await page.getByRole('link', { name: 'Review suggestions' }).click();
+  await page.waitForURL(/\/explore$/u);
+
+  await page.getByRole('button', { name: 'Suggest (at most $0.50)' }).click();
+  await page.getByRole('heading', { name: 'Arrival form' }).waitFor();
+  const shot = page.getByRole('img', { name: /^Screenshot shot-/u }).first();
+  await shot.waitFor();
+  assert.match((await shot.getAttribute('src')) ?? '', /^blob:/u);
+  await page.getByRole('cell', { name: 'Admin panel' }).waitFor();
+  await page.getByRole('cell', { name: 'cites no observed successful step' }).waitFor();
+
+  const personaCard = page.locator('article').filter({ has: page.getByRole('heading', { name: 'wanderer' }) });
+  await personaCard.getByRole('button', { name: 'Save' }).click();
+  await personaCard.getByText('created .cohort/personas/wanderer.md').waitFor();
+  assert.ok((await readFile(join(root, '.cohort/personas/wanderer.md'), 'utf8')).includes('id: wanderer'));
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download' }).click(),
+  ]);
+  assert.equal(download.suggestedFilename(), 'arrival.spec.ts');
+
+  const feature = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Arrival form' }) });
+  await feature.getByRole('button', { name: 'Dismiss' }).click();
+  await page.getByText('Dismissed Arrival form').waitFor();
+  await page.reload();
+  await page.getByText('Dismissed Arrival form').waitFor();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('heading', { name: 'Arrival form' }).waitFor();
+  assert.deepEqual(violations, []);
+  assert.ok(!bodies.some((body) => body.includes(KEY)));
+  turn = done;
+});

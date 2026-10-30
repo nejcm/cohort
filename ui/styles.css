@@ -3155,3 +3155,62 @@ body {
 .kpis dd .ticks {
   margin-top: 4px;
 }
+
+/* Explore review */
+.suggestion {
+  display: grid;
+  gap: var(--s-3);
+}
+.suggestion h3 {
+  font-size: var(--text-md);
+}
+.suggestion.dismissed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding-block: var(--s-2);
+}
+.suggestion .row,
+.suggest {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.suggest {
+  justify-content: space-between;
+}
+.suggestion pre.source {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.suggestion .goals {
+  display: grid;
+  gap: var(--s-3);
+  padding-left: var(--s-5);
+}
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--s-2);
+}
+.thumbs:empty {
+  display: none;
+}
+.thumb {
+  display: block;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--stage);
+}
+.thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}

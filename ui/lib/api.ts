@@ -121,6 +121,19 @@ export interface RunSummary {
   opinions: number | null;
 }
 
+export interface ExploreSummary {
+  runId: string;
+  coverage: string;
+  features: { name: string; description: string; steps: string[]; screenshots: string[] }[];
+  untried: { step: string; reason: string; screenshot: string | null; pageUrl: string }[];
+  personas: { id: string; path: string; steps: string[] }[];
+  goals: { persona: string; goal: string; steps: string[] }[];
+  suite: { id: string; path: string } | null;
+  tests: { name: string; path: string; step: string }[];
+  dropped: { kind: string; name: string; reason: string }[];
+  estimatedCostUsd: number | null;
+}
+
 export interface Editable {
   id: string;
   source: string;

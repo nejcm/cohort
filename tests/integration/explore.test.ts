@@ -36,7 +36,7 @@ let origin: string;
 let root: string;
 const hits: string[] = [];
 let script: Turn[] = [];
-let suggestions: (request: Parameters<Turn>[0]) => ToolCall = () => ({ name: 'none', args: {} });
+let suggestions: (request: Parameters<Turn>[0]) => ToolCall | Promise<ToolCall> = () => ({ name: 'none', args: {} });
 let index = 0;
 const provider = fakeProvider((request) =>
   request.tools.some((tool) => tool.name === 'write_suggestions')
@@ -326,12 +326,16 @@ test('the dashboard starts an exploration, suggests once, and saves through the 
     ])
       assert.equal((await api(dashboard, 'POST', '/api/runs', { submission, explore: true })).status, 400);
 
-    suggestions = () =>
-      write({
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    suggestions = async () => {
+      await answered;
+      return write({
         features: [{ name: 'Search', description: 'The search page.', steps: ['s0002'] }],
         personas: [{ markdown: persona('browser').replace(URL_SECRET, ''), steps: ['s0002'] }],
         goals: [{ persona: 'browser', goal: `Open the search page ${KEY}.`, steps: ['s0002'] }],
       });
+    };
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const held: Turn = async (request) => {
@@ -349,7 +353,13 @@ test('the dashboard starts an exploration, suggests once, and saves through the 
     await dashboard.queue.idle();
     assert.equal((await api(dashboard, 'GET', `/api/runs/${runId}`)).json.explore, true);
 
-    const suggested = await api(dashboard, 'POST', `/api/runs/${runId}/suggestions`, {});
+    const asked = provider.requests.length;
+    const pending = api(dashboard, 'POST', `/api/runs/${runId}/suggestions`, {});
+    while (provider.requests.length === asked) await new Promise((resolve) => setImmediate(resolve));
+    const twice = await api(dashboard, 'POST', `/api/runs/${runId}/suggestions`, {});
+    assert.equal(twice.status, 409, twice.text);
+    answer();
+    const suggested = await pending;
     assert.equal(suggested.status, 200, suggested.text);
     assert.deepEqual(
       suggested.json.untried.map((item: any) => item.step),

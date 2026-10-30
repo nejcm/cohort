@@ -51,6 +51,7 @@
     report: Report | null;
     artifacts: { id: string; mediaType: string; bytes: number; sensitivity: string }[];
     screenshots: string[];
+    explore: boolean;
   }
   interface Step extends PlayerStep {
     screenshotId: string | null;
@@ -296,6 +297,12 @@
       <p class="sub"><strong>{run.personaId}</strong> on “{run.goal}”</p>
       {#if isActive(run.status)}
         <div class="actions"><button type="button" class="danger" disabled={cancelling} aria-busy={cancelling} onclick={cancel}><Icon name="stop" />Cancel run</button></div>
+      {/if}
+      {#if detail?.explore || has('suggestions/explore.json')}
+        <div class="actions">
+          {#if isActive(run.status)}<span class="hint">Suggestions can be reviewed once the exploration finishes.</span>
+          {:else}<a class="button primary" href="/runs/{encodeURIComponent(run.id)}/explore"><Icon name="persona" />Review suggestions</a>{/if}
+        </div>
       {/if}
     </div>
   {/if}
