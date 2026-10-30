@@ -27,6 +27,7 @@
   let texts = $state<Record<string, string>>({});
   let shotOf = $state<Record<string, string>>({});
   let error = $state('');
+  let loaded = $state(false);
   let suggesting = $state(false);
   let saving = $state<string | null>(null);
   let saved = $state<Record<string, { label: string; href: string }>>({});
@@ -40,7 +41,8 @@
     try {
       detail = await api<Detail>('GET', `/api/runs/${encodeURIComponent(id)}`);
       try {
-        dismissed = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as string[];
+        const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+        dismissed = Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : [];
       } catch {
         dismissed = [];
       }
@@ -56,6 +58,7 @@
             .filter(([, shot]) => shot),
         );
       if (has('suggestions/explore.json')) await show(JSON.parse(await artifactText(id, 'suggestions/explore.json')) as ExploreSummary);
+      loaded = true;
     } catch (caught) {
       error = (caught as Error).message;
     }
@@ -92,10 +95,11 @@
       );
       saved[key] = { label: `${result.action} ${result.path}`, href: `/${kind}/${encodeURIComponent(result.id)}` };
     } catch (caught) {
+      const message = (caught as Error).message;
       conflicts[key] =
-        caught instanceof ApiError && caught.status === 409 && !replace
+        caught instanceof ApiError && caught.status === 409 && !replace && message.endsWith(' exists')
           ? 'exists'
-          : `${(caught as Error).message}${kind === 'suites' && caught instanceof ApiError && caught.status === 400 ? ' (save its personas first)' : ''}`;
+          : `${message}${message.includes('unknown persona') ? ' (save its personas first)' : ''}`;
     } finally {
       saving = null;
     }
@@ -160,16 +164,18 @@
   {#if !error}<Skeleton label="Loading run {id}" lines={3} />{/if}
 {:else if isActive(detail.run.status)}
   <p class="card muted" role="status">Still exploring. <a href="/runs/{encodeURIComponent(id)}">Watch the run</a> and come back when it finishes.</p>
-{:else if !summary}
+{:else if !summary && loaded}
   <div class="card suggest">
     <p>Ask the model to turn this exploration into personas, a suite and test specs. Nothing is saved until you choose to.</p>
     <button type="button" class="primary" disabled={suggesting} aria-busy={suggesting} onclick={suggest}><Icon name="play" />Suggest (at most $0.50)</button>
   </div>
+{:else if !summary}
+  {#if !error}<Skeleton label="Loading suggestions" lines={3} />{/if}
 {:else}
   <section class="section" aria-labelledby="features-title">
     <h2 id="features-title">Features <span class="count">{summary.features.length}</span></h2>
-    {#each summary.features as feature (feature.name)}
-      {@const key = `feature:${feature.name}`}
+    {#each summary.features as feature, index (index)}
+      {@const key = `feature:${index}:${feature.name}`}
       {#if dismissed.includes(key)}{@render collapsed(key, feature.name)}{:else}
         <article class="card suggestion">
           <h3>{feature.name}</h3>

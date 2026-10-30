@@ -897,6 +897,8 @@ test('an exploration from the run dialog is reviewed on its own page: suggest, s
             features: [
               { name: 'Arrival form', description: 'Asks when you arrive.', steps: ['s0001'] },
               { name: 'Admin panel', description: 'Never shown.', steps: ['s0099'] },
+              { name: 'Waiting room', description: 'A pause.', steps: ['s0001'] },
+              { name: 'Waiting room', description: 'Named twice.', steps: ['s0001'] },
             ],
             personas: [{ markdown: PERSONA('wanderer', 'Wanderer'), steps: ['s0001'] }],
             goals: [{ persona: 'wanderer', goal: 'Find the arrival form.', steps: ['s0001'] }],
@@ -944,8 +946,27 @@ test('an exploration from the run dialog is reviewed on its own page: suggest, s
   await page.getByText('Dismissed Arrival form').waitFor();
   await page.reload();
   await page.getByText('Dismissed Arrival form').waitFor();
+  assert.equal(
+    await page.getByRole('button', { name: /^Suggest/u }).count(),
+    0,
+    'a suggested run never offers Suggest again',
+  );
+  assert.equal(await page.getByRole('heading', { name: 'Waiting room' }).count(), 2);
   await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('heading', { name: 'Arrival form' }).waitFor();
+
+  await personaCard.getByRole('button', { name: 'Save' }).click();
+  await personaCard.getByText('Persona wanderer exists.').waitFor();
+  await personaCard.getByRole('button', { name: 'Replace' }).click();
+  await personaCard.getByText('replaced .cohort/personas/wanderer.md').waitFor();
+
+  await page.route('**/artifacts/suggestions%2Fexplore.json', (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"explore.json unreadable"}' }),
+  );
+  await page.reload();
+  await page.getByText('explore.json unreadable').waitFor();
+  assert.equal(await page.getByRole('button', { name: /^Suggest/u }).count(), 0, 'a failed load never offers Suggest');
+  await page.unroute('**/artifacts/suggestions%2Fexplore.json');
   assert.deepEqual(violations, []);
   assert.ok(!bodies.some((body) => body.includes(KEY)));
   turn = done;
