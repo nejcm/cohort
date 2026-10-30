@@ -18,7 +18,7 @@ import {
   type RunReport,
 } from '../evidence/report.ts';
 import type { StepRecord } from '../evidence/steps.ts';
-import { createProviders } from '../providers/registry.ts';
+import { providerKeys as providerKeysOf } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
 import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
 import { isTokenLike, redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
@@ -99,10 +99,7 @@ async function loadNamedStates(projectRoot: string, entries: readonly ResolvedEn
 export async function runBatch(options: BatchOptions): Promise<BatchResult> {
   const { projectRoot, entries, signal } = options;
   const env = options.env ?? process.env;
-  const keyEnvs = new Set(
-    [...Object.values(createProviders(env)), ...Object.values(options.providers)].map((provider) => provider.keyEnv),
-  );
-  const providerKeys = [...keyEnvs].flatMap((name) => env[name] ?? []);
+  const providerKeys = providerKeysOf(env, options.providers);
   const states = await loadNamedStates(projectRoot, entries);
   const batchId = options.ids?.batchId ?? newId('batch');
   const runs: BatchRun[] = [];

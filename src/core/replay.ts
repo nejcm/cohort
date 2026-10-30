@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { loadStorageState } from '../config/files.ts';
 import { BundleError, bundleDir, readBundleFile, readBundleJson, refreshRun } from '../evidence/bundle.ts';
 import type { RunReport } from '../evidence/report.ts';
-import { createProviders } from '../providers/registry.ts';
+import { providerKeys as providerKeysOf } from '../providers/registry.ts';
 import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
 import { SecretStore } from '../setup/secrets.ts';
 import { customToolDefinitions, runCustomTool } from '../setup/tools.ts';
@@ -86,7 +86,7 @@ export async function executeReplay(
   const cleanups: Cleanup[] = [];
   const secrets = new SecretStore();
   const envRead: string[] = [];
-  const providerKeys = Object.values(createProviders(options.env)).flatMap(({ keyEnv }) => options.env[keyEnv] ?? []);
+  const providerKeys = providerKeysOf(options.env);
   const scrub = (text: string): string =>
     scrubEnv(text, secrets, [
       ...providerKeys,
