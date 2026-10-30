@@ -393,14 +393,9 @@ const typed = (extra: Partial<StepRecord>) => [
   step(2, 'type', { observationId: 'o0002', text: 'hi' }, extra),
 ];
 const field = (text: string) => ({ recipient: { frames: [], target: { by: 'label' as const, text } } });
-const hidden = (css: string, document = 1) => [
+const hidden = (css: string, document = 1, name = 'Continue') => [
   opened,
-  step(
-    1,
-    'press',
-    { observationId: 'o0001', key: 'Tab' },
-    { focus: { ...focus(css, false, document), name: 'Continue' } },
-  ),
+  step(1, 'press', { observationId: 'o0001', key: 'Tab' }, { focus: { ...focus(css, false, document), name } }),
 ];
 const visibleError = (text: string): FrictionClaim => ({
   schemaVersion: 1,
@@ -432,11 +427,12 @@ test('keyboard actions recur on the recorded recipient; presses never do', () =>
   assert.equal(keyOf([opened, step(1, 'press', enter), step(2, 'press', enter)], 'repeated_action'), null);
 });
 
-test('focus claims recur on the focused element, not its label or document', () => {
+test('focus claims recur on the focused element and its label, not its document', () => {
   const first = keyOf(hidden('#a'), 'focus_not_visible');
   assert.ok(first);
   assert.equal(keyOf(hidden('#a', 2), 'focus_not_visible'), first);
   assert.notEqual(keyOf(hidden('#b'), 'focus_not_visible'), first, 'same label, different element');
+  assert.notEqual(keyOf(hidden('#a', 1, 'Cancel'), 'focus_not_visible'), first, 'same position, different label');
 });
 
 test('visible error claims recur on page, detector, and whitespace-normalized text', () => {

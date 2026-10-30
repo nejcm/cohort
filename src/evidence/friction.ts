@@ -276,7 +276,7 @@ function stepIdentity(item: FrictionClaim, step: StepRecord): string | null {
     }
     case 'focus_trap':
     case 'focus_not_visible':
-      return step.focus ? JSON.stringify([item.kind, step.pageUrl, step.focus.css]) : null;
+      return step.focus ? JSON.stringify([item.kind, step.pageUrl, step.focus.css, focusLabel(step.focus)]) : null;
     case 'visible_error':
       return JSON.stringify([
         item.kind,
