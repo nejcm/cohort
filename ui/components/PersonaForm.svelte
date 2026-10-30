@@ -1,7 +1,7 @@
 <script lang="ts">
   import FormField from './FormField.svelte';
   import ModelPicker from './ModelPicker.svelte';
-  import type { Models } from '../lib/api.ts';
+  import { api, type Models } from '../lib/api.ts';
   import type { JsonSchema } from '../../src/core/schema.ts';
   import {
     bodyOf,
@@ -33,6 +33,18 @@
     idPrefix: string;
     invalid?: boolean;
   } = $props();
+
+  // Saved login states, by name only; `cohort login` creates them.
+  let storageStates = $state<string[]>([]);
+  $effect(() => {
+    api<{ names: string[] }>('GET', '/api/storage-states').then(
+      (found) => (storageStates = found.names),
+      () => undefined,
+    );
+  });
+  const storageHint = $derived(
+    `${storageStates.length ? `Saved: ${storageStates.join(', ')}. ` : 'No saved login yet. '}Save one with: cohort login --url <url> --state <name>`,
+  );
 
   const problem = $derived(formProblem(source, schema));
   const OUTSIDE = ['model', 'effort', 'setup'];
@@ -90,7 +102,8 @@
         <legend>{group.legend}</legend>
         <div class="form-grid">
           {#each group.fields as field (field.path.join('.'))}
-            <FormField {field} {idPrefix} {read} {write} {messageFor} />
+            {@const storage = field.path.join('.') === 'storageState'}
+            <FormField {field} {idPrefix} {read} {write} {messageFor} suggestions={storage ? storageStates : undefined} hint={storage ? storageHint : undefined} />
           {/each}
         </div>
       </fieldset>

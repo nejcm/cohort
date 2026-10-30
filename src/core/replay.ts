@@ -38,12 +38,20 @@ interface ExecuteOptions extends ReplayOptions {
 
 export class ReplaySetupError extends BundleError {}
 
-function playwrightTestCli(projectRoot: string): string {
+/** Where `cohort replay` finds `@playwright/test` in the project; null when it is not installed. */
+export function playwrightTestCliPath(projectRoot: string): string | null {
   try {
     return createRequire(join(projectRoot, 'package.json')).resolve('@playwright/test/cli');
   } catch {
-    throw new BundleError('cohort replay needs @playwright/test installed in the project (same version as playwright)');
+    return null;
   }
+}
+
+function playwrightTestCli(projectRoot: string): string {
+  const path = playwrightTestCliPath(projectRoot);
+  if (path === null)
+    throw new BundleError('cohort replay needs @playwright/test installed in the project (same version as playwright)');
+  return path;
 }
 
 /** Prepares bindings (setup module or documented environment variables) and runs the generated script; no model is called. */

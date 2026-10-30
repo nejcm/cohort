@@ -717,15 +717,24 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
   assert.equal(pages({ sort: 'cost', asc: true }), '12403');
   assert.equal(pages({ sort: 'cost' }), '30421');
   assert.equal(pages({ sort: 'started' }), '01243');
-  assert.equal(pages({ filter: 'look' }), '0');
+  assert.equal(pages({ filter: 'look' }), '', 'a blocked run is not a run that went wrong');
+  assert.equal(pages({ filter: 'blocked' }), '0');
   assert.equal(pages({ filter: 'active', sort: 'id', asc: true }), '34');
   assert.equal(pages({ text: 'admin' }), '2');
   assert.equal(pages({ text: 'éLODIE' }), '4');
   for (const text of ['Σ', 'ς', 'οδος', 'ΟΔΟΣ Κ']) assert.equal(pages({ text }), '1', text);
   const searched = db.runCounts('admin', '2026-01-03');
   assert.deepEqual(
-    [searched.all, searched.look, searched.total, searched.lookTotal, searched.running, searched.queued],
-    [1, 0, 5, 1, 1, 1],
+    [
+      searched.all,
+      searched.look,
+      searched.blocked,
+      searched.total,
+      searched.blockedTotal,
+      searched.running,
+      searched.queued,
+    ],
+    [1, 0, 0, 5, 1, 1, 1],
     'tabs follow the search; headline counts cover every run',
   );
   const counts = db.runCounts('', '2026-01-03');
@@ -735,10 +744,12 @@ test('runs sort, filter, and page by keyset across every row, not just the loade
     {
       all: 5,
       active: 2,
-      look: 1,
+      look: 0,
+      blocked: 1,
       finished: 3,
       total: 5,
-      lookTotal: 1,
+      lookTotal: 0,
+      blockedTotal: 1,
       running: 1,
       queued: 1,
       finishedToday: 2,

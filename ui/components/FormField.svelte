@@ -11,6 +11,8 @@
     write,
     messageFor,
     options,
+    suggestions,
+    hint,
   }: {
     field: Field;
     idPrefix: string;
@@ -18,6 +20,9 @@
     write: (path: Path, value: unknown) => void;
     messageFor: (path: Path, index?: number) => string | null;
     options?: string[];
+    /** Offered values for a free-text field; any other value can still be typed. */
+    suggestions?: string[];
+    hint?: string;
   } = $props();
 
   const id = $derived(`${idPrefix}-${field.path.join('-')}`);
@@ -92,8 +97,16 @@
     {:else if multiline(field.schema)}
       <textarea {id} rows="3" bind:value={text, setText} aria-invalid={invalidAttr} aria-describedby={describedBy(id, problemText)}></textarea>
     {:else}
-      <input {id} bind:value={text, setText} aria-invalid={invalidAttr} aria-describedby={describedBy(id, problemText)} />
+      <input
+        {id}
+        bind:value={text, setText}
+        list={suggestions?.length ? `${id}-list` : undefined}
+        aria-invalid={invalidAttr}
+        aria-describedby={[problemText ? `${id}-error` : '', hint ? `${id}-hint` : ''].join(' ').trim() || undefined}
+      />
+      {#if suggestions?.length}<datalist id="{id}-list">{#each suggestions as option (option)}<option value={option}></option>{/each}</datalist>{/if}
     {/if}
+    {#if hint}<span class="hint" id="{id}-hint">{hint}</span>{/if}
     {#if problemText}<span class="field-error" id="{id}-error">{problemText}</span>{/if}
   </label>
 {/if}

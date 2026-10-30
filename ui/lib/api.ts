@@ -89,6 +89,9 @@ export interface ProjectDefaults {
     repeats: number;
     limits: { steps?: number; timeMs?: number; dollars?: number };
   };
+  /** Whether each provider's key is set, and the environment variable that holds it. */
+  providers: Record<string, boolean>;
+  keyEnvs: Record<string, string>;
 }
 
 export interface RunSummary {

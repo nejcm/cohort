@@ -473,6 +473,17 @@ export async function loadStorageState(projectRoot: string, name: string): Promi
   return checked<Record<string, unknown>>(storageStateSchema, value, `storage state ${name}`);
 }
 
+/** Names of the saved storage states in `.cohort/auth/`; never reads their contents. */
+export async function storageStateNames(projectRoot: string): Promise<string[]> {
+  const dir = join(projectRoot, '.cohort', 'auth');
+  if (!(await lstat(dir).catch(() => null))?.isDirectory()) return [];
+  return (await readdir(dir, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name.slice(0, -'.json'.length))
+    .filter((name) => new RegExp(ID, 'u').test(name))
+    .toSorted();
+}
+
 /** Writes `.cohort/auth/<name>.json` owner-only and atomically; refuses symlinked directories. */
 export async function saveStorageState(projectRoot: string, name: string, state: unknown): Promise<string> {
   if (!new RegExp(ID, 'u').test(name)) throw new ConfigError(`invalid storage state name: ${name}`);

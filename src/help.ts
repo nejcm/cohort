@@ -19,15 +19,18 @@ const RUN_OPTION_LINES = [
 export const COMMANDS: CommandHelp[] = [
   {
     name: 'init',
-    usage: ['cohort init [--template <id>]...'],
+    usage: ['cohort init [--template <id>]... [--pack <id>]...'],
     summary: 'Create .cohort/ with config, starter personas and a private .gitignore. Never overwrites existing files.',
-    notes: ['--template (repeatable) copies the named persona templates instead of the defaults.'],
+    notes: [
+      '--template (repeatable) copies the named persona templates instead of the defaults.',
+      '--pack (repeatable) copies a scenario pack: keyboard or small-screen. It adds the suite and the personas it runs; with no --template, the default personas are skipped.',
+    ],
   },
   {
     name: 'doctor',
     usage: ['cohort doctor'],
     summary:
-      'Check Node, node:sqlite, Chromium, config, default model, key presence, personas, suites, gitignore, auth permissions and unfinalized runs. Never calls a model; exit 2 on any error.',
+      'Check Node, node:sqlite, Chromium, @playwright/test for replay, config, default model, key presence, personas, suites, gitignore, auth permissions and unfinalized runs. Never calls a model; exit 2 on any error.',
   },
   {
     name: 'config',
@@ -75,7 +78,7 @@ export const COMMANDS: CommandHelp[] = [
   {
     name: 'runs',
     usage: [
-      'cohort runs list [--limit <n>] [--filter active|look|finished] [--sort <key>] [--asc] [--search <text>]',
+      'cohort runs list [--limit <n>] [--filter active|look|blocked|finished] [--sort <key>] [--asc] [--search <text>]',
       '                 [--since <iso-date>] [--cursor <c>]',
       'cohort runs show|wait|cancel <run-or-batch-id> [--timeout-ms <n>]',
     ],

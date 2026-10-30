@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import { checkProject, loadProjectConfig } from './config/files.ts';
+import { playwrightTestCliPath } from './core/replay.ts';
 import { loadCatalog, resolveModel } from './providers/catalog.ts';
 import { createProviders } from './providers/registry.ts';
 import type { ProviderAdapter } from './providers/types.ts';
@@ -16,6 +17,8 @@ export interface Check {
 
 const MIN_NODE = [24, 2, 0];
 const UNFINALIZED_SHOWN = 10;
+export const REPLAY_MISSING =
+  'cohort replay needs @playwright/test; run: npm install --save-dev @playwright/test (same version as playwright)';
 
 const firstLine = (error: unknown): string =>
   String((error as Error)?.message ?? error)
@@ -40,6 +43,8 @@ export async function doctor(
   const browser = chromium.executablePath();
   if (await lstat(browser).catch(() => null)) add('ok', `chromium installed at ${browser}`);
   else add('error', 'chromium is not installed; run: npx playwright install chromium');
+  if (playwrightTestCliPath(projectRoot) === null) add('warn', `${REPLAY_MISSING}; runs work without it`);
+  else add('ok', '@playwright/test installed (cohort replay)');
 
   if (!(await lstat(join(projectRoot, '.cohort')).catch(() => null))) {
     add('error', 'no .cohort directory here; run: cohort init');
