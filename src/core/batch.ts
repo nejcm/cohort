@@ -20,9 +20,9 @@ import {
 import type { StepRecord } from '../evidence/steps.ts';
 import { providerKeys as providerKeysOf } from '../providers/registry.ts';
 import type { ProviderAdapter } from '../providers/types.ts';
-import { heldTimeout, runCleanups, runSetup, scrubEnv, type Cleanup } from '../setup/run.ts';
+import { heldTimeout, scrubEnv } from '../setup/run.ts';
 import { isTokenLike, redactValue, safeUrl, SecretStore } from '../setup/secrets.ts';
-import { customToolDefinitions } from '../setup/tools.ts';
+import { createSetupSession } from '../setup/session.ts';
 import type { SetupResult } from '../setup/types.ts';
 import type { AgentEvent, AgentResult } from './agent.ts';
 import { CostMeter } from './cost.ts';
@@ -335,19 +335,15 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     const { request, persona } = entry;
     const { startedAt, secrets } = trail;
     const issues: AgentResult['issues'] = [];
-    const cleanups: Cleanup[] = [];
     const base = { runId, entryIndex: entry.entryIndex, repeat, personaId: persona.id, outDir };
     const unavailable = { code: 'evidence_unavailable', message: 'the run ended before any screenshot' };
     const failed = (outcome: Outcome): BatchRun => {
       issues.push(unavailable);
       return { ...base, outcome, usage: null, issues };
     };
-    const envRead: string[] = [];
-    // Setup and cleanup errors may echo environment values that were never registered as secrets.
-    const scrub = (error: unknown): string =>
-      firstLine(scrubEnv(String((error as Error)?.message ?? error), secrets, [...providerKeys, ...envRead]));
+    const session = createSetupSession({ projectRoot, env, secrets, providerKeys });
     const agentError = (code: 'setup_error' | 'browser_error', error: unknown): BatchRun =>
-      failed({ state: 'agent_error', code, reason: scrub(error).slice(0, 500), evidence: [] });
+      failed({ state: 'agent_error', code, reason: session.describe(error), evidence: [] });
 
     let setupResult: SetupResult | null = null;
     let startUrl = request.url!;
@@ -358,19 +354,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (entry.setup) {
         setupHash = sha256(await readFile(entry.setup));
         trail.setupHash = setupHash;
-        setupResult = await runSetup({
-          projectRoot,
-          path: entry.setup,
-          runId,
-          scopeId: runId,
-          env,
-          signal: setupSignal,
-          envRead,
-          cleanups,
-        });
-        for (const [name, value] of Object.entries(setupResult.secrets ?? {})) secrets.bind(name, value);
-        customToolDefinitions(setupResult.tools);
-        if (!URL.canParse(setupResult.startUrl)) throw new Error('setup returned an invalid startUrl');
+        setupResult = await session.run({ path: entry.setup, runId, scopeId: runId, signal: setupSignal });
       }
       startUrl = setupResult?.startUrl ?? startUrl;
       if (entry.explore)
@@ -379,7 +363,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
       if (setupSignal.aborted) throw new Error('setup ran past its time or was cancelled');
     } catch (error) {
       deadline.clear();
-      await cleanUp();
+      issues.push(...(await session.close(request.limits.timeMs)));
       if (runSignal?.aborted)
         return failed({
           state: 'agent_error',
@@ -444,7 +428,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
         resourceOrigins: entry.resourceOrigins,
         routes: entry.routes,
         ...(setupResult?.tools ? { customTools: setupResult.tools } : {}),
-        scrub: (text) => scrubEnv(text, secrets, [...providerKeys, ...envRead]),
+        scrub: session.scrub,
         secrets,
         limits: request.limits,
         maxWidth: entry.screenshots.maxWidth,
@@ -470,11 +454,7 @@ export async function runBatch(options: BatchOptions): Promise<BatchResult> {
     } catch (error) {
       return agentError('browser_error', error);
     } finally {
-      await cleanUp();
-    }
-
-    async function cleanUp(): Promise<void> {
-      issues.push(...(await runCleanups(cleanups, request.limits.timeMs, scrub)));
+      issues.push(...(await session.close(request.limits.timeMs)));
     }
   }
 }
