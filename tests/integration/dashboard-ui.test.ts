@@ -145,6 +145,14 @@ test('the built assets load under the CSP with no inline code and the token leav
   await stranger.close();
 });
 
+test('with no runs, the runs page lists what the first run needs', async () => {
+  await page.goto(`${dashboard.origin}/runs`);
+  const checklist = page.getByRole('list', { name: 'Before the first run' });
+  await checklist.getByText('Key set for openai/priced.').waitFor();
+  await checklist.getByRole('link', { name: '4 personas' }).waitFor();
+  await checklist.getByText('cohort explore --url <your-app>').waitFor();
+});
+
 test('the run dialog is keyboard-operable, hides keyless providers, and shows estimates or unknown cost', async () => {
   await page.getByRole('button', { name: 'New run' }).focus();
   await page.keyboard.press('Enter');
@@ -536,6 +544,26 @@ test('picking a template fills the new-persona draft', async () => {
   const created = await readFile(join(root, '.cohort/personas/formed.md'), 'utf8');
   assert.match(created, /^id: formed\nname: Formed$/mu);
   assert.match(created, /\nDescribe who this person is and how they behave\.\n$/u);
+});
+
+test('the storage state field suggests saved logins by name and how to make one', async () => {
+  await page.goto(`${dashboard.origin}/personas/new`);
+  const field = page.locator('#draft-storageState');
+  await page.locator('#draft-storageState-hint').getByText('No saved login yet.').waitFor();
+  await put('.cohort/auth/host.json', JSON.stringify({ cookies: [], origins: [] }));
+  await page.reload();
+  await page
+    .locator('#draft-storageState-hint')
+    .getByText('Saved: host. Save one with: cohort login --url <url> --state <name>')
+    .waitFor();
+  assert.deepEqual(
+    await page
+      .locator('#draft-storageState-list option')
+      .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value)),
+    ['host'],
+  );
+  assert.equal(await field.getAttribute('aria-describedby'), 'draft-storageState-hint');
+  await rm(join(root, '.cohort/auth'), { recursive: true });
 });
 
 test('a new-persona draft that references setup offers to remove it', async () => {

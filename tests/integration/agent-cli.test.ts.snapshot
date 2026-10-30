@@ -47,6 +47,9 @@ exports[`an agent drives the whole lifecycle through the CLI with no dashboard p
         "model": "string",
         "repeats": "number"
       },
+      "keyEnvs": {
+        "openai": "string"
+      },
       "providers": {
         "openai": "boolean"
       },
@@ -423,6 +426,8 @@ exports[`an agent drives the whole lifecycle through the CLI with no dashboard p
       "counts": {
         "active": "number",
         "all": "number",
+        "blocked": "number",
+        "blockedTotal": "number",
         "finished": "number",
         "finishedToday": "number",
         "frictionToday": "number",

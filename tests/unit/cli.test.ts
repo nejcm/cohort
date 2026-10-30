@@ -133,6 +133,18 @@ test('init creates the project layout once and doctor reports it without printin
   assert.match(picked.out, /^kept \.cohort\/personas\/first-time-host\.md \(exists\)$/mu);
   assert.doesNotMatch(picked.out, /mobile-first-guest/u);
   assert.match((await cli(['persona', 'validate'])).out, /^4 valid persona\(s\), 0 suite\(s\), 0 problem\(s\)$/mu);
+  const unknownPack = await cli(['init', '--pack', 'nope']);
+  assert.equal(unknownPack.code, 2);
+  assert.match(unknownPack.out, /unknown pack nope; known packs: keyboard, small-screen/u);
+  const packed = await cli(['init', '--pack', 'small-screen']);
+  assert.equal(packed.code, 0, packed.out);
+  assert.match(packed.out, /^created \.cohort\/suites\/small-screen-pack\.yml$/mu);
+  assert.match(packed.out, /^created \.cohort\/personas\/small-screen-form-filler\.md$/mu);
+  assert.match(packed.out, /^created \.cohort\/personas\/news-reader\.md$/mu);
+  assert.match(packed.out, /^kept \.cohort\/personas\/mobile-first-guest\.md \(exists\)$/mu);
+  assert.doesNotMatch(packed.out, /returning-desktop-user/u, 'a pack alone skips the default personas');
+  assert.match(packed.out, /^then: cohort run --suite small-screen-pack --url <your-app-url>$/mu);
+  assert.match((await cli(['persona', 'validate'])).out, /^6 valid persona\(s\), 1 suite\(s\), 0 problem\(s\)$/mu);
 
   await writeFile(join(root, '.cohort/config.yml'), 'schemaVersion: 1\nmodel: openai/untested-model\n');
   await writeFile(
@@ -143,6 +155,10 @@ test('init creates the project layout once and doctor reports it without printin
   assert.equal(unusable.code, 2);
   assert.match(unusable.out, /error default model: model is disabled until its capabilities are confirmed/u);
   assert.match(unusable.out, /error OPENAI_API_KEY is not set/u);
+  assert.match(
+    unusable.out,
+    /warn  cohort replay needs @playwright\/test; run: npm install --save-dev @playwright\/test/u,
+  );
   assert.match(unusable.out, /ok    \.cohort\/runs is gitignored/u);
   assert.match(unusable.out, /ok    \.cohort\/auth is gitignored/u);
   assert.match(unusable.out, /ok    \.cohort\/index\.sqlite is gitignored/u);
@@ -166,6 +182,22 @@ test('init creates the project layout once and doctor reports it without printin
   const json = await cli(['doctor', '--json'], { OPENAI_API_KEY: key });
   assert.ok(Array.isArray(JSON.parse(json.out).checks));
   assert.doesNotMatch(ready.out + json.out, new RegExp(key, 'u'));
+});
+
+test('a fresh project with only a pack gets the suite and its personas', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-init-'));
+  let out = '';
+  assert.equal(
+    await run(['init', '--pack', 'keyboard', '--json'], (text) => void (out += text), { cwd: root, env: {} }),
+    0,
+  );
+  const { created } = JSON.parse(out) as { created: string[] };
+  assert.deepEqual(created.toSorted(), [
+    '.cohort/.gitignore',
+    '.cohort/config.yml',
+    '.cohort/personas/keyboard-only-navigator.md',
+    '.cohort/suites/keyboard-pack.yml',
+  ]);
 });
 
 test('init refuses a symlinked .cohort and doctor asks for init', async () => {

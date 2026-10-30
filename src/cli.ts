@@ -15,7 +15,7 @@ import type { preflight } from './core/estimate.ts';
 import { EXPLORE_GOAL, saveSuggestion, suggest, SUGGEST_DOLLARS, type ExploreSummary } from './core/explore.ts';
 import { compareRun, renderCompareMarkdown, renderCompareText } from './core/compare.ts';
 import { parseCompareReport, publishCompare, PublishError } from './core/publish.ts';
-import { replayRun } from './core/replay.ts';
+import { playwrightTestCliPath, replayRun } from './core/replay.ts';
 import { BundleError, bundleDir, readBundleFile, readSteps } from './evidence/bundle.ts';
 import { writeAtomic } from './evidence/manifest.ts';
 import {
@@ -36,7 +36,7 @@ import { estimate } from './dashboard/operations.ts';
 import { openIndex, QueueError, runOwnedBatch, startBatch, type DetachedBatch } from './dashboard/runner.ts';
 import { isLoopback, startDashboard } from './dashboard/server.ts';
 import { initProject } from './config/init.ts';
-import { doctor } from './doctor.ts';
+import { doctor, REPLAY_MISSING } from './doctor.ts';
 import { COMMANDS, renderHelp } from './help.ts';
 import { scrubEnv } from './setup/run.ts';
 import { safeUrl, SecretStore } from './setup/secrets.ts';
@@ -57,7 +57,7 @@ import {
 export const DEFAULT_MAX_USD = 10;
 
 const USAGE = `Usage: cohort [options]
-       cohort init [--template <id>]...
+       cohort init [--template <id>]... [--pack keyboard|small-screen]...
        cohort doctor
        cohort config show | edit --file <path>|- [--revision <sha256>]
        cohort models list | show | edit --file <path>|- [--revision <sha256>]
@@ -66,7 +66,7 @@ const USAGE = `Usage: cohort [options]
        cohort explore --url <url> [--mode|--model|--effort|--steps|--time-ms|--dollars|--max-usd] [--detach]
        cohort explore suggest <run-id>
        cohort explore save <run-id> (--persona <id> | --suite <id>) [--revision <sha256>] --yes
-       cohort runs list [--limit <n>] [--filter active|look|finished] [--sort <key>] [--asc] [--search <text>]
+       cohort runs list [--limit <n>] [--filter active|look|blocked|finished] [--sort <key>] [--asc] [--search <text>]
                         [--since <iso-date>] [--cursor <c>]
        cohort runs show|wait|cancel <run-or-batch-id> [--timeout-ms <n>]
        cohort report <run-or-batch-id> [--format json|md|html]  (--json implies json)
@@ -135,6 +135,7 @@ const RUN_OPTIONS = {
   port: { type: 'string' },
   state: { type: 'string' },
   template: { type: 'string', multiple: true },
+  pack: { type: 'string', multiple: true },
   base: { type: 'string' },
   head: { type: 'string' },
   markdown: { type: 'string' },
@@ -311,12 +312,18 @@ async function dispatch(positionals: string[], values: Values, write: Write, dep
   if (['run', 'explore', 'ui', WORKER].includes(command!) || (command === 'persona' && id === 'generate'))
     refuseShortKeys(deps.env ?? process.env, ctx.providers);
   if (command === 'init' && id === undefined) {
-    const { created, kept } = await initProject(ctx.root, values.template as string[] | undefined);
+    const { created, kept } = await initProject(
+      ctx.root,
+      values.template as string[] | undefined,
+      values.pack as string[] | undefined,
+    );
     if (json) emit(write, { created, kept });
     else {
       for (const path of created) write(`created ${path}\n`);
       for (const path of kept) write(`kept ${path} (exists)\n`);
       write('next: cohort doctor\n');
+      for (const pack of (values.pack as string[] | undefined) ?? [])
+        write(`then: cohort run --suite ${pack}-pack --url <your-app-url>\n`);
     }
     return 0;
   }
@@ -928,6 +935,7 @@ async function runCommand(
       );
     for (const warning of batch.summary.warnings) write(`warning: ${warning}\n`);
     write(`report: ${join(batch.reportDir, 'report.html')}\n`);
+    if (batch.runs.length > 0 && playwrightTestCliPath(ctx.root) === null) write(`note: ${REPLAY_MISSING}\n`);
   }
   return exitCode;
 }

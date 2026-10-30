@@ -2335,6 +2335,28 @@ progress.prog::-moz-progress-bar {
   text-transform: uppercase;
 }
 
+.empty .checklist {
+  display: grid;
+  gap: var(--s-2);
+  max-width: 60ch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.empty .checklist li {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+.empty .checklist li > .icon {
+  flex: none;
+  align-self: center;
+}
+.empty .checklist li.done > .icon {
+  color: var(--good);
+}
+
 /* ---------- 16. Responsive (container queries on .app) ---------- */
 @container app (max-width: 1100px) {
   .kpis {

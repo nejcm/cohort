@@ -36,7 +36,7 @@ Optional frontmatter:
 
 The body must not be empty. Unknown fields, symlinks, and paths that leave their folder are rejected.
 
-The dashboard edits the frontmatter through form fields built from this schema and the body as Markdown text; saving writes the same file format. Each field is checked against the schema, and locale and time zone against the browser's `Intl`, as you type; saving waits until they pass, and the server checks again before writing. A name with several lines opens as source text. `setup` stays read-only there, and a new-persona draft that references setup offers to remove it. A file whose frontmatter is not valid YAML or has fields the form does not know opens as source text until it fits the form again.
+The dashboard edits the frontmatter through form fields built from this schema and the body as Markdown text; saving writes the same file format. Each field is checked against the schema, and locale and time zone against the browser's `Intl`, as you type; saving waits until they pass, and the server checks again before writing. The `storageState` field suggests the saved login names in `.cohort/auth/` and shows the `cohort login` command that creates one. A name with several lines opens as source text. `setup` stays read-only there, and a new-persona draft that references setup offers to remove it. A file whose frontmatter is not valid YAML or has fields the form does not know opens as source text until it fits the form again.
 
 ## Templates
 
@@ -63,7 +63,7 @@ The package ships editable persona templates in `examples/personas/`. They are g
 
 To use one:
 
-- `cohort init` copies `first-time-host`, `mobile-first-guest`, and `returning-desktop-user` into `.cohort/personas/`. `cohort init --template <id>` (repeatable) copies the named templates instead; it never overwrites an existing file, so running it again adds templates to an existing project. An unknown id lists the known ones.
+- `cohort init` copies `first-time-host`, `mobile-first-guest`, and `returning-desktop-user` into `.cohort/personas/`. `cohort init --template <id>` (repeatable) copies the named templates instead; it never overwrites an existing file, so running it again adds templates to an existing project. An unknown id lists the known ones. `--pack` adds a [scenario pack](#scenario-packs) with its personas.
 - In the dashboard, **New persona** has a picker that loads a template into the draft. Edit it there, then **Validate and create**.
 - Or copy a file from `examples/personas/` into `.cohort/personas/` by hand.
 
@@ -100,15 +100,12 @@ Two suites ship in `examples/suites/` for constrained users. They set no URL, se
 | `keyboard-pack` | `keyboard-only-navigator` three times: activate the primary action; open and close a menu or dialog with Escape and say where focus returned; fill the main form with Tab and `type` |
 | `small-screen-pack` | `small-screen-form-filler`, `mobile-first-guest`, `news-reader` |
 
-To use one, copy the suite and its personas into your project, then run it against your app:
+To use one, add it to your project with `cohort init --pack <id>` (`keyboard` or `small-screen`, repeatable). It copies the suite and every persona it runs into `.cohort/`, never overwriting an existing file, and works on a new or an existing project. With `--pack` and no `--template`, the three default personas are not copied. Then run it against your app:
 
 ```sh
-cohort init --template keyboard-only-navigator
-cp node_modules/cohort-lab/examples/suites/keyboard-pack.yml .cohort/suites/
+cohort init --pack keyboard
 cohort run --suite keyboard-pack --url http://localhost:3000/
 ```
-
-For the small-screen pack, add `--template small-screen-form-filler --template mobile-first-guest --template news-reader`. Adjust the path to wherever the package is installed.
 
 The harness adds evidence for these packs to every run: each step with an after-screenshot records the focused element and the page's horizontal overflow, and the report derives `focus_trap`, `focus_not_visible`, and `horizontal_overflow` claims from them (rules in [compatibility.md](compatibility.md)). Small screens are emulated by viewport size and touch only, without a mobile user agent or device scaling, so a page without a viewport meta tag is not shrunk the way a phone would shrink it; sideways overflow is the signal to look for.
 

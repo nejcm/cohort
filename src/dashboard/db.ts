@@ -148,10 +148,12 @@ export const RUN_SORTS = {
 } as const;
 
 const ACTIVE = "status IN ('queued', 'running')";
-const LOOK = "(status = 'finished' AND outcome_state IN ('blocked', 'limit_reached', 'agent_error'))";
+// Blocked runs met an external dependency by design, so they are counted apart from runs that went wrong.
+const LOOK = "(status = 'finished' AND outcome_state IN ('limit_reached', 'agent_error'))";
+const BLOCKED = "(status = 'finished' AND outcome_state = 'blocked')";
 const COUNTED =
   "outcome_state != 'blocked' AND NOT (outcome_state = 'agent_error' AND outcome_code = 'interrupted' AND COALESCE(interrupted_by, '') != 'process')";
-export const RUN_FILTERS = { active: ACTIVE, look: LOOK, finished: `NOT ${ACTIVE}` } as const;
+export const RUN_FILTERS = { active: ACTIVE, look: LOOK, blocked: BLOCKED, finished: `NOT ${ACTIVE}` } as const;
 
 export interface RunQuery {
   sort?: keyof typeof RUN_SORTS;
@@ -165,9 +167,11 @@ export type RunCounts = Record<
   | 'all'
   | 'active'
   | 'look'
+  | 'blocked'
   | 'finished'
   | 'total'
   | 'lookTotal'
+  | 'blockedTotal'
   | 'running'
   | 'queued'
   | 'finishedToday'
@@ -348,7 +352,8 @@ export class LabDb {
       .prepare(
         `WITH matched AS (SELECT *, ${text ? TEXT_MATCH : '1'} AS hit FROM runs)
         SELECT TOTAL(hit) AS "all", TOTAL(hit AND ${ACTIVE}) AS active, TOTAL(hit AND ${LOOK}) AS look,
-          TOTAL(hit AND NOT ${ACTIVE}) AS finished, COUNT(*) AS total, TOTAL(${LOOK}) AS lookTotal,
+          TOTAL(hit AND ${BLOCKED}) AS blocked, TOTAL(hit AND NOT ${ACTIVE}) AS finished, COUNT(*) AS total,
+          TOTAL(${LOOK}) AS lookTotal, TOTAL(${BLOCKED}) AS blockedTotal,
           TOTAL(status = 'running') AS running, TOTAL(status = 'queued') AS queued,
           TOTAL(COALESCE(finished_at, created_at) >= ? AND NOT ${ACTIVE}) AS finishedToday,
           TOTAL(IIF(COALESCE(finished_at, created_at) >= ?, friction_count, 0)) AS frictionToday,
