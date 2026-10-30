@@ -370,6 +370,38 @@ test('batch clusters measured claims across runs by page and resolved target; op
   assert.doesNotMatch(renderBatchHtml(summary), /Friction across runs/u);
 });
 
+const keyOf = (runSteps: StepRecord[], kind: FrictionClaim['kind']): string | null => {
+  const claim = deriveClaims('run_a', runSteps).find((item) => item.kind === kind);
+  assert.ok(claim, kind);
+  return recurrenceKey(claim, new Map(runSteps.map((item) => [item.id, item])));
+};
+const opened = step(0, 'navigate', { url: 'http://app.test/' }, { focus: null });
+const button = (name: string): StepRecord['target'] => ({
+  locator: { frames: [], target: { by: 'role', role: 'button', name } },
+  stability: 'semantic',
+  position: { x: 10, y: 20 },
+  tag: 'button',
+});
+
+const clicks = (...hits: Partial<StepRecord>[]) => [
+  opened,
+  ...hits.map((extra, index) => step(index + 1, 'click', { ...click, observationId: `o000${index + 1}` }, extra)),
+];
+const typed = (extra: Partial<StepRecord>) => [
+  opened,
+  step(1, 'type', { observationId: 'o0001', text: 'hi' }, extra),
+  step(2, 'type', { observationId: 'o0002', text: 'hi' }, extra),
+];
+const field = (text: string) => ({ recipient: { frames: [], target: { by: 'label' as const, text } } });
+const hidden = (css: string, document = 1) => [
+  opened,
+  step(
+    1,
+    'press',
+    { observationId: 'o0001', key: 'Tab' },
+    { focus: { ...focus(css, false, document), name: 'Continue' } },
+  ),
+];
 const visibleError = (text: string): FrictionClaim => ({
   schemaVersion: 1,
   id: 'c0000',
@@ -380,12 +412,39 @@ const visibleError = (text: string): FrictionClaim => ({
   kind: 'visible_error',
   measurement: { text, detector: 'visible_alert' },
 });
+const errorAt = (pageUrl: string) => new Map([['s0001', step(1, 'click', click, { pageUrl })]]);
 
-test('visible error claims recur on detector and whitespace-normalized text', () => {
-  assert.equal(
-    recurrenceKey(visibleError('Card  declined\n'), new Map()),
-    recurrenceKey(visibleError('Card declined'), new Map()),
-  );
+test('a repeated action recurs only when every cited occurrence hit the same page and resolved target', () => {
+  const same = { target: button('Book') };
+  assert.ok(keyOf(clicks(same, same), 'repeated_action'));
+  assert.equal(keyOf(clicks(same, { target: button('Cancel') }), 'repeated_action'), null, 'mixed targets');
+  assert.equal(keyOf(clicks(same, { ...same, pageUrl: 'http://app.test/b' }), 'repeated_action'), null, 'mixed pages');
+  assert.equal(keyOf(clicks({}, {}), 'repeated_action'), null, 'unresolved pixel targets');
+});
+
+test('keyboard actions recur on the recorded recipient; presses never do', () => {
+  const email = keyOf(typed(field('Email')), 'repeated_action');
+  assert.ok(email);
+  assert.equal(keyOf(typed(field('Email')), 'repeated_action'), email);
+  assert.notEqual(keyOf(typed(field('Name')), 'repeated_action'), email, 'different recipients');
+  assert.equal(keyOf(typed({}), 'repeated_action'), null, 'unknown recipient');
+  const enter = { observationId: 'o0001', key: 'Enter' };
+  assert.equal(keyOf([opened, step(1, 'press', enter), step(2, 'press', enter)], 'repeated_action'), null);
+});
+
+test('focus claims recur on the focused element, not its label or document', () => {
+  const first = keyOf(hidden('#a'), 'focus_not_visible');
+  assert.ok(first);
+  assert.equal(keyOf(hidden('#a', 2), 'focus_not_visible'), first);
+  assert.notEqual(keyOf(hidden('#b'), 'focus_not_visible'), first, 'same label, different element');
+});
+
+test('visible error claims recur on page, detector, and whitespace-normalized text', () => {
+  const key = recurrenceKey(visibleError('Card declined'), errorAt('http://app.test/'));
+  assert.ok(key);
+  assert.equal(recurrenceKey(visibleError('Card  declined\n'), errorAt('http://app.test/')), key);
+  assert.notEqual(recurrenceKey(visibleError('Card declined'), errorAt('http://app.test/b')), key);
+  assert.equal(recurrenceKey(visibleError('Card declined'), new Map()), null, 'unknown step');
 });
 
 test('reports print cost, unsettled reservations, or cost unknown with the enforcement limit', () => {

@@ -259,19 +259,48 @@ export function deriveClaims(runId: string, steps: readonly StepRecord[]): Frict
     .map((draft, index) => ({ schemaVersion: 1, id: claimId(index), runId, ...draft }) as FrictionClaim);
 }
 
-/** Cross-run identity of a measured claim; null when it cannot be matched safely, so it is never merged. */
+// Press lands on whatever had focus before it, and unresolved targets are per-observation, so neither is identifiable.
+function actedOn(step: StepRecord): string | null {
+  if (step.action.name === 'press') return null;
+  if (step.action.name === 'type')
+    return step.recipient === undefined ? null : JSON.stringify([loopKey(step), step.recipient]);
+  return step.action.args.target && !step.target ? null : loopKey(step);
+}
+
+function stepIdentity(item: FrictionClaim, step: StepRecord): string | null {
+  switch (item.kind) {
+    case 'repeated_action':
+    case 'long_pause': {
+      const acted = actedOn(step);
+      return acted === null ? null : JSON.stringify([item.kind, step.pageUrl, acted]);
+    }
+    case 'focus_trap':
+    case 'focus_not_visible':
+      return step.focus ? JSON.stringify([item.kind, step.pageUrl, step.focus.css]) : null;
+    case 'visible_error':
+      return JSON.stringify([
+        item.kind,
+        step.pageUrl,
+        item.measurement.detector,
+        item.measurement.text.replace(/\s+/gu, ' ').trim(),
+      ]);
+    default:
+      return JSON.stringify([item.kind, step.pageUrl]);
+  }
+}
+
+/** Cross-run identity of a measured claim; null unless every cited step is known and identifies the same thing. */
 export function recurrenceKey(item: FrictionClaim, steps: ReadonlyMap<string, StepRecord>): string | null {
   if (item.kind === 'opinion') return null;
   if (item.kind === 'steps_above_minimum') return item.kind;
-  if (item.kind === 'visible_error')
-    return JSON.stringify([item.kind, item.measurement.detector, item.measurement.text.replace(/\s+/gu, ' ').trim()]);
-  const step = steps.get(item.evidence[0].stepId);
-  if (!step) return null;
-  if (item.kind === 'repeated_action' || item.kind === 'long_pause')
-    return JSON.stringify([item.kind, step.pageUrl, loopKey(step)]);
-  if (item.kind === 'focus_trap' || item.kind === 'focus_not_visible')
-    return JSON.stringify([item.kind, step.pageUrl, item.measurement.element]);
-  return JSON.stringify([item.kind, step.pageUrl]);
+  const keys = new Set(
+    item.evidence.map((ref) => {
+      const step = steps.get(ref.stepId);
+      return step ? stepIdentity(item, step) : null;
+    }),
+  );
+  const [key] = keys;
+  return keys.size === 1 && key ? key : null;
 }
 
 /** Rejects unknown fields, missing evidence, cross-run references, and unknown steps or screenshots. */
