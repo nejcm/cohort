@@ -38,7 +38,7 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 
 The dashboard needs the signed-in URL (`http://127.0.0.1:<port>/#token=…`) from the `cohort ui` log, or from the file named by `urlFile` in `cohort ui --json`; always use `127.0.0.1`, never `localhost` (different origin, so the session-stored token is lost).
 
-In a git worktree run `bun install --frozen-lockfile` first; the `dashboard` preview in `.claude/launch.json` serves the main checkout (hardcoded `/home/nejc/Work/cohort`), not the worktree.
+In a git worktree run `bun install --frozen-lockfile` first; it has no `node_modules` or `.seed/`, and a preview/launch config with absolute paths serves the main checkout, not the worktree.
 
 TypeScript uses `NodeNext` with explicit `.ts` relative imports (rewritten on build), not the baseline's `Bundler` resolution, because the output runs directly on Node.
 
