@@ -18,6 +18,7 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 - `src/dashboard/` (server, queue, index) sits on top of `src/core/`; nothing under `core/` imports from `dashboard/`. Project-file editing (personas, suites, `config.yml`, `models.yml`) is `src/config/editable.ts`, shared by the CLI, the dashboard, and `core/explore`.
 - Setup lifecycle and error scrubbing go through `src/setup/session.ts`; callers keep outcome mapping.
 - oxlint's `import/no-cycle` guards the module graph; keep it that way instead of adding re-export shims.
+- `ui/`: `App.svelte` is the shell and sidebar, `pages/` one file per route, `components/` shared pieces, `lib/` holds `api.ts`, `nav.ts`, `player.ts`, `source.ts`. `ui/styles.css` is one global file with numbered section headers; find them with `grep -n '^/\* ------' ui/styles.css`.
 
 ## Commands
 
@@ -34,6 +35,10 @@ Open-source, self-hosted CLI and local dashboard where AI synthetic users operat
 | Verify | `bun run verify` |
 | Seed local dashboard data (`.seed/`, then `cd .seed && node ../src/cli.ts ui`) | `bun run seed` |
 | Package smoke (after build; needs npm registry access) | `bun run smoke:package` |
+
+The dashboard needs the signed-in URL (`http://127.0.0.1:<port>/#token=…`) from the `cohort ui` log, or from the file named by `urlFile` in `cohort ui --json`; always use `127.0.0.1`, never `localhost` (different origin, so the session-stored token is lost).
+
+In a git worktree run `bun install --frozen-lockfile` first; the `dashboard` preview in `.claude/launch.json` serves the main checkout (hardcoded `/home/nejc/Work/cohort`), not the worktree.
 
 TypeScript uses `NodeNext` with explicit `.ts` relative imports (rewritten on build), not the baseline's `Bundler` resolution, because the output runs directly on Node.
 
