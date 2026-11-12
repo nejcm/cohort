@@ -55,19 +55,19 @@
     "smoke:package": "node scripts/package-smoke.ts"
   },
   "dependencies": {
-    "playwright": "1.64.1",
+    "playwright": "1.65.0",
     "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@types/node": "24.19.2",
-    "knip": "6.43.0",
-    "oxfmt": "0.75.0",
-    "oxlint": "1.90.0",
+    "knip": "6.44.2",
+    "oxfmt": "0.78.0",
+    "oxlint": "1.93.0",
     "svelte": "5.57.3",
     "typescript": "7.0.2",
-    "vite": "8.3.5"
+    "vite": "8.3.7"
   },
   "engines": {
     "node": ">=24.2.0"
